@@ -11,8 +11,12 @@ import android.content.ActivityNotFoundException;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Canvas;
+import android.graphics.ColorFilter;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.PixelFormat;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
@@ -45,6 +49,7 @@ import android.widget.AbsListView;
 import android.widget.AdapterView;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
@@ -2176,12 +2181,13 @@ public final class MainActivity extends Activity {
 	}
 
 	private void addPrivacyOption(RadioGroup group, int id, String label) {
-		RadioButton button = new RadioButton(this);
+		RadioButton button = new ChoiceRadioButton(this, choiceButtonTextInset());
 		button.setId(id);
 		button.setText(safeDisplayText(label));
-		button.setTextColor(textColor);
-		button.setPadding(gap, gap, gap, gap);
-		group.addView(button, new RadioGroup.LayoutParams(-1, -2));
+		styleChoiceButton(button, true);
+		RadioGroup.LayoutParams lp = new RadioGroup.LayoutParams(-1, -2);
+		lp.setMargins(0, 0, 0, gap / 2);
+		group.addView(button, lp);
 	}
 
 	private void showSettingsServer() {
@@ -2215,12 +2221,13 @@ public final class MainActivity extends Activity {
 	}
 
 	private void addLanguageOption(RadioGroup group, int id, String label) {
-		RadioButton button = new RadioButton(this);
+		RadioButton button = new ChoiceRadioButton(this, choiceButtonTextInset());
 		button.setId(id);
 		button.setText(safeDisplayText(label));
-		button.setTextColor(textColor);
-		button.setPadding(gap, gap, gap, gap);
-		group.addView(button, new RadioGroup.LayoutParams(-1, -2));
+		styleChoiceButton(button, true);
+		RadioGroup.LayoutParams lp = new RadioGroup.LayoutParams(-1, -2);
+		lp.setMargins(0, 0, 0, gap / 2);
+		group.addView(button, lp);
 	}
 
 	private int languageId(String language) {
@@ -5356,7 +5363,11 @@ public final class MainActivity extends Activity {
 		e.setTextColor(textColor);
 		e.setHintTextColor(muted);
 		e.setBackgroundDrawable(shape(surfaceHi, primary, elementRadius()));
-		e.setPadding(pad, gap + dp(2), pad, gap + dp(2));
+		e.setPadding(buttonPadX, buttonPadY, buttonPadX, buttonPadY);
+		e.setMinHeight(buttonMinHeight);
+		e.setMinimumHeight(buttonMinHeight);
+		e.setIncludeFontPadding(false);
+		e.setGravity(Gravity.CENTER_VERTICAL);
 		e.setSingleLine(true);
 		e.setFilters(new android.text.InputFilter[] {
 			new android.text.InputFilter() {
@@ -5374,12 +5385,35 @@ public final class MainActivity extends Activity {
 	}
 
 	private CheckBox checkBox(String s, boolean checked) {
-		CheckBox b = new CheckBox(this);
+		CheckBox b = new ChoiceCheckBox(this, choiceButtonTextInset());
 		b.setText(safeDisplayText(s));
-		b.setTextColor(textColor);
-		b.setPadding(gap, gap, gap, gap);
+		styleChoiceButton(b, false);
 		b.setChecked(checked);
 		return b;
+	}
+
+	private void styleChoiceButton(CompoundButton button, boolean radio) {
+		button.setTextColor(textColor);
+		button.setButtonDrawable(choiceButtonDrawable(radio));
+		button.setCompoundDrawablePadding(choiceButtonGap());
+		button.setGravity(Gravity.CENTER_VERTICAL);
+		button.setMinHeight(dp(48));
+		button.setMinimumHeight(dp(48));
+		button.setSingleLine(false);
+		button.setPadding(pad, gap, pad, gap);
+		button.setBackgroundDrawable(pressable(surface, surfaceHi, 0, elementRadius()));
+	}
+
+	private int choiceButtonTextInset() {
+		return choiceButtonSize() + choiceButtonGap();
+	}
+
+	private int choiceButtonSize() {
+		return dp(22);
+	}
+
+	private int choiceButtonGap() {
+		return dp(12);
 	}
 
 	private Button button(String s, android.view.View.OnClickListener l) {
@@ -7042,6 +7076,23 @@ public final class MainActivity extends Activity {
 		return s;
 	}
 
+	private Drawable choiceButtonDrawable(boolean radio) {
+		int size = choiceButtonSize();
+		return new ChoiceButtonDrawable(
+			radio,
+			size,
+			blend(surface, Color.WHITE, 0.04f),
+			blend(muted, bg, 0.28f),
+			blend(surfaceHi, primary, 0.08f),
+			primary,
+			blend(primary, Color.WHITE, 0.10f),
+			blend(surface, bg, 0.35f),
+			blend(muted, bg, 0.58f),
+			onPrimary,
+			blend(textColor, bg, 0.58f)
+		);
+	}
+
 	private void initDimens() {
 		float inches = screenDiagonalInches();
 		float scale = (Math.max(4.0f, Math.min(6.0f, inches)) - 4.0f) / 2.0f;
@@ -7136,6 +7187,210 @@ public final class MainActivity extends Activity {
 			Thread.sleep(ms);
 		} catch (InterruptedException ignored) {
 			Thread.currentThread().interrupt();
+		}
+	}
+
+	private static final class ChoiceCheckBox extends CheckBox {
+		private final int minTextInset;
+
+		ChoiceCheckBox(android.content.Context context, int minTextInset) {
+			super(context);
+			this.minTextInset = minTextInset;
+		}
+
+		@Override
+		public int getCompoundPaddingLeft() {
+			return Math.max(super.getCompoundPaddingLeft(), getPaddingLeft() + minTextInset);
+		}
+	}
+
+	private static final class ChoiceRadioButton extends RadioButton {
+		private final int minTextInset;
+
+		ChoiceRadioButton(android.content.Context context, int minTextInset) {
+			super(context);
+			this.minTextInset = minTextInset;
+		}
+
+		@Override
+		public int getCompoundPaddingLeft() {
+			return Math.max(super.getCompoundPaddingLeft(), getPaddingLeft() + minTextInset);
+		}
+	}
+
+	private static final class ChoiceButtonDrawable extends Drawable {
+		private final boolean radio;
+		private final int size;
+		private final int uncheckedFill;
+		private final int uncheckedStroke;
+		private final int pressedFill;
+		private final int checkedFill;
+		private final int checkedPressedFill;
+		private final int disabledFill;
+		private final int disabledStroke;
+		private final int mark;
+		private final int disabledMark;
+		private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+		private final Path path = new Path();
+		private final RectF rect = new RectF();
+		private boolean checked;
+		private boolean enabled = true;
+		private boolean pressed;
+		private int alpha = 255;
+
+		ChoiceButtonDrawable(
+				boolean radio,
+				int size,
+				int uncheckedFill,
+				int uncheckedStroke,
+				int pressedFill,
+				int checkedFill,
+				int checkedPressedFill,
+				int disabledFill,
+				int disabledStroke,
+				int mark,
+				int disabledMark) {
+			this.radio = radio;
+			this.size = size;
+			this.uncheckedFill = uncheckedFill;
+			this.uncheckedStroke = uncheckedStroke;
+			this.pressedFill = pressedFill;
+			this.checkedFill = checkedFill;
+			this.checkedPressedFill = checkedPressedFill;
+			this.disabledFill = disabledFill;
+			this.disabledStroke = disabledStroke;
+			this.mark = mark;
+			this.disabledMark = disabledMark;
+		}
+
+		@Override
+		public void draw(Canvas canvas) {
+			Rect bounds = getBounds();
+			float s = Math.min(size, Math.min(bounds.width(), bounds.height()));
+			float left = bounds.left + (bounds.width() - s) / 2.0f;
+			float top = bounds.top + (bounds.height() - s) / 2.0f;
+			float strokeWidth = Math.max(1.0f, s * 0.095f);
+			int fill = fillColor();
+			int stroke = strokeColor();
+			int markColor = enabled ? mark : disabledMark;
+			paint.setAlpha(alpha);
+			if (radio) {
+				drawRadio(canvas, left, top, s, strokeWidth, fill, stroke, markColor);
+			} else {
+				drawCheckBox(canvas, left, top, s, strokeWidth, fill, stroke, markColor);
+			}
+		}
+
+		private int fillColor() {
+			if (!enabled) return disabledFill;
+			if (checked && pressed) return checkedPressedFill;
+			if (checked) return checkedFill;
+			if (pressed) return pressedFill;
+			return uncheckedFill;
+		}
+
+		private int strokeColor() {
+			if (!enabled) return disabledStroke;
+			if (checked || pressed) return checkedFill;
+			return uncheckedStroke;
+		}
+
+		private void drawRadio(Canvas canvas, float left, float top, float s, float strokeWidth, int fill, int stroke, int markColor) {
+			float cx = left + s / 2.0f;
+			float cy = top + s / 2.0f;
+			float radius = s / 2.0f - strokeWidth / 2.0f;
+			paint.setStyle(Paint.Style.FILL);
+			paint.setColor(fill);
+			canvas.drawCircle(cx, cy, radius, paint);
+			paint.setStyle(Paint.Style.STROKE);
+			paint.setStrokeWidth(strokeWidth);
+			paint.setColor(stroke);
+			canvas.drawCircle(cx, cy, radius, paint);
+			if (!checked) return;
+			paint.setStyle(Paint.Style.FILL);
+			paint.setColor(markColor);
+			canvas.drawCircle(cx, cy, s * 0.27f, paint);
+		}
+
+		private void drawCheckBox(Canvas canvas, float left, float top, float s, float strokeWidth, int fill, int stroke, int markColor) {
+			float radius = s * 0.22f;
+			rect.set(
+				left + strokeWidth / 2.0f,
+				top + strokeWidth / 2.0f,
+				left + s - strokeWidth / 2.0f,
+				top + s - strokeWidth / 2.0f
+			);
+			paint.setStyle(Paint.Style.FILL);
+			paint.setColor(fill);
+			canvas.drawRoundRect(rect, radius, radius, paint);
+			paint.setStyle(Paint.Style.STROKE);
+			paint.setStrokeWidth(strokeWidth);
+			paint.setColor(stroke);
+			canvas.drawRoundRect(rect, radius, radius, paint);
+			if (!checked) return;
+			paint.setColor(markColor);
+			paint.setStrokeWidth(Math.max(2.0f, s * 0.13f));
+			paint.setStrokeCap(Paint.Cap.ROUND);
+			paint.setStrokeJoin(Paint.Join.ROUND);
+			path.reset();
+			path.moveTo(left + s * 0.28f, top + s * 0.52f);
+			path.lineTo(left + s * 0.43f, top + s * 0.67f);
+			path.lineTo(left + s * 0.73f, top + s * 0.35f);
+			canvas.drawPath(path, paint);
+			paint.setStrokeCap(Paint.Cap.BUTT);
+			paint.setStrokeJoin(Paint.Join.MITER);
+		}
+
+		@Override
+		public boolean isStateful() {
+			return true;
+		}
+
+		@Override
+		protected boolean onStateChange(int[] state) {
+			boolean nextEnabled = false;
+			boolean nextChecked = false;
+			boolean nextPressed = false;
+			if (state != null) {
+				for (int value : state) {
+					if (value == android.R.attr.state_enabled) nextEnabled = true;
+					else if (value == android.R.attr.state_checked) nextChecked = true;
+					else if (value == android.R.attr.state_pressed || value == android.R.attr.state_focused) nextPressed = true;
+				}
+			}
+			if (enabled == nextEnabled && checked == nextChecked && pressed == nextPressed) return false;
+			enabled = nextEnabled;
+			checked = nextChecked;
+			pressed = nextPressed;
+			invalidateSelf();
+			return true;
+		}
+
+		@Override
+		public void setAlpha(int alpha) {
+			this.alpha = alpha;
+			invalidateSelf();
+		}
+
+		@Override
+		public void setColorFilter(ColorFilter colorFilter) {
+			paint.setColorFilter(colorFilter);
+			invalidateSelf();
+		}
+
+		@Override
+		public int getOpacity() {
+			return PixelFormat.TRANSLUCENT;
+		}
+
+		@Override
+		public int getIntrinsicWidth() {
+			return size;
+		}
+
+		@Override
+		public int getIntrinsicHeight() {
+			return size;
 		}
 	}
 
