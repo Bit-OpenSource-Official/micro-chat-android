@@ -1,1 +1,0 @@
--keep public class ru.e6atb.chat.MainActivity

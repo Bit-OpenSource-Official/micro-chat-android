@@ -146,8 +146,6 @@
 	<string name="update_available_body">Current version: %1$s\nNew version: %2$s\nDownload and install now?</string>
 	<string name="status_voice_connected">voice connected</string>
 	<string name="status_voice_connection_closed">voice: connection closed</string>
-	<string name="status_voice_connecting">voice: connecting</string>
-	<string name="status_voice_failed">voice: failed</string>
 	<string name="status_joining_voice_channel">joining voice channel...</string>
 	<string name="status_crypto_handshake_failed">crypto handshake failed</string>
 	<string name="status_speaker_unavailable">speaker unavailable</string>
@@ -240,7 +238,6 @@
 	<string name="settings_delete_account_help">Send a code to %1$s, enter it, then slide left. This deletes the account and ends all sessions.</string>
 	<string name="settings_optional_password">optional password</string>
 	<string name="settings_save_password">Save password</string>
-	<string name="settings_clear">Clear</string>
 	<string name="settings_show_status">Show status bar</string>
 	<string name="settings_privacy_messages">Who can message me</string>
 	<string name="settings_privacy_calls">Who can call me</string>
@@ -285,7 +282,6 @@
 	<string name="language_system">System</string>
 	<string name="language_english">English</string>
 	<string name="language_russian">Russian</string>
-	<string name="language_hebrew">Hebrew</string>
 	<string name="settings_not_logged_in">not logged in</string>
 	<string name="cloud_password_saving">Saving...</string>
 	<string name="cloud_password_resetting">Resetting...</string>
@@ -347,7 +343,6 @@
 	<string name="sent_status">Sent</string>
 	<string name="chat_actions">Chat actions</string>
 	<string name="chat_banned">banned</string>
-	<string name="channel_read_only">Only channel admins can write here</string>
 	<string name="room_read_only">Read only</string>
 	<string name="channel_subscribers_count">%1$d subscribers</string>
 	<string name="group_members_count">%1$d members</string>
@@ -361,7 +356,6 @@
 	<string name="profile_group">Group</string>
 	<string name="profile_participants">Participants</string>
 	<string name="profile_subscribers">Subscribers</string>
-	<string name="profile_members">Members</string>
 	<string name="profile_no_members">No members</string>
 	<string name="clipboard_message">message</string>
 	<string name="profile_verified">Verified</string>

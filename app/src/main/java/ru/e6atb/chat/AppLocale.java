@@ -10,8 +10,6 @@ final class AppLocale {
 	static final String SYSTEM = "";
 	static final String ENGLISH = "en";
 	static final String RUSSIAN = "ru";
-	static final String HEBREW = "he";
-	private static final String HEBREW_ANDROID = "iw";
 
 	private AppLocale() {
 	}
@@ -33,7 +31,6 @@ final class AppLocale {
 	private static Locale locale(String language) {
 		if (ENGLISH.equals(language)) return Locale.ENGLISH;
 		if (RUSSIAN.equals(language)) return new Locale(RUSSIAN);
-		if (HEBREW.equals(language) || HEBREW_ANDROID.equals(language)) return new Locale(HEBREW_ANDROID);
 		return null;
 	}
 }

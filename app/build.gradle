@@ -68,11 +68,7 @@ def releaseKeyPassword = providers.gradleProperty("releaseKeyPassword").orNull ?
     System.getenv("RELEASE_KEY_PASSWORD") ?:
     releaseStorePassword
 
-// Dependencies required for the module. The coreLibraryDesugaring library provides
-// implementations of newer Java APIs and also rewrites lambda bytecode to be
-// compatible with older runtimes.
 dependencies {
-    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"
     testImplementation "junit:junit:4.13.2"
 }
 
@@ -95,9 +91,6 @@ android {
         buildConfig true
     }
 
-    // Enable Java 8 language features and core‑library desugaring so that lambda
-    // expressions (which generate synthetic classes) work on older Android
-    // versions such as API 10.
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -119,9 +112,8 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled false
-            shrinkResources false
-            // Use the generated keystore for signing release builds.
+            minifyEnabled true
+            shrinkResources true
             signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }

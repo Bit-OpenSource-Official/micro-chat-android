@@ -146,8 +146,6 @@
 	<string name="update_available_body">Текущая версия: %1$s\nНовая версия: %2$s\nСкачать и установить сейчас?</string>
 	<string name="status_voice_connected">голос подключен</string>
 	<string name="status_voice_connection_closed">голос: соединение закрыто</string>
-	<string name="status_voice_connecting">голос: подключение</string>
-	<string name="status_voice_failed">голос: ошибка</string>
 	<string name="status_joining_voice_channel">вхожу в голосовой канал...</string>
 	<string name="status_crypto_handshake_failed">ошибка криптографического handshake</string>
 	<string name="status_speaker_unavailable">динамик недоступен</string>
@@ -240,7 +238,6 @@
 	<string name="settings_delete_account_help">Отправьте код на %1$s, введите его и проведите слайдер влево. Аккаунт будет удален, все сессии завершатся.</string>
 	<string name="settings_optional_password">необязательный пароль</string>
 	<string name="settings_save_password">Сохранить пароль</string>
-	<string name="settings_clear">Очистить</string>
 	<string name="settings_show_status">Показывать строку статуса</string>
 	<string name="settings_privacy_messages">Кто может писать мне</string>
 	<string name="settings_privacy_calls">Кто может звонить мне</string>
@@ -285,7 +282,6 @@
 	<string name="language_system">Системный</string>
 	<string name="language_english">English</string>
 	<string name="language_russian">Русский</string>
-	<string name="language_hebrew">עברית</string>
 	<string name="settings_not_logged_in">не выполнен вход</string>
 	<string name="cloud_password_saving">Сохранение...</string>
 	<string name="cloud_password_resetting">Сброс...</string>
@@ -347,7 +343,6 @@
 	<string name="sent_status">Отправлено</string>
 	<string name="chat_actions">Действия чата</string>
 	<string name="chat_banned">забанен</string>
-	<string name="channel_read_only">Писать здесь могут только админы канала</string>
 	<string name="room_read_only">Только чтение</string>
 	<string name="channel_subscribers_count">%1$d подписчиков</string>
 	<string name="group_members_count">%1$d участников</string>
@@ -361,7 +356,6 @@
 	<string name="profile_group">Беседа</string>
 	<string name="profile_participants">Участники</string>
 	<string name="profile_subscribers">Подписчики</string>
-	<string name="profile_members">Список участников</string>
 	<string name="profile_no_members">Нет участников</string>
 	<string name="clipboard_message">сообщение</string>
 	<string name="profile_verified">Подтвержден</string>

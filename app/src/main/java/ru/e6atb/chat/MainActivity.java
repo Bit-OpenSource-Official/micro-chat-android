@@ -75,7 +75,6 @@ import java.io.FileOutputStream;
 
 import org.json.JSONObject;
 
-// Added imports for image handling and permissions
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.util.Base64;
@@ -83,21 +82,17 @@ import android.widget.ImageView;
 
 public final class MainActivity extends Activity {
 	public static final String DEFAULT_SERVER = "danila.e6atb.ru:8080";
-	// Updated to match new package name.
 	public static final String ACTION_ACCEPT_CALL = "ru.e6atb.chat.ACCEPT_CALL";
 	public static final String ACTION_OPEN_CALL = "ru.e6atb.chat.OPEN_CALL";
 	public static final String EXTRA_PEER = "peer";
 	public static final String EXTRA_CALL = "call_peer";
-	// Extra used to open a specific chat from a notification.
 	public static final String EXTRA_CHAT = "chat_peer";
 
 	private static final int HISTORY_PAGE = 40;
 	private static final int REQ_NOTIFICATIONS = 10;
 	private static final int REQ_MICROPHONE = 11;
-	// Permission request code for reading external storage (image picker)
 	private static final int REQ_READ_STORAGE = 12;
 	private static final int REQ_PICK_IMAGE = 13;
-	// Generic file picker (any mime type)
 	private static final int REQ_PICK_FILE = 14;
 	private static final String CALL_NOTIFICATION_CHANNEL = "calls_visual";
 	private static final int ACTIVE_CALL_NOTIFICATION_ID = 3;
@@ -114,7 +109,6 @@ public final class MainActivity extends Activity {
 	private static final int LANGUAGE_SYSTEM_ID = 1001;
 	private static final int LANGUAGE_ENGLISH_ID = 1002;
 	private static final int LANGUAGE_RUSSIAN_ID = 1003;
-	private static final int LANGUAGE_HEBREW_ID = 1004;
 	private static final int MESSAGE_PRIVACY_EVERYONE_ID = 1101;
 	private static final int MESSAGE_PRIVACY_CHATS_ID = 1102;
 	private static final int MESSAGE_PRIVACY_NOBODY_ID = 1103;
@@ -208,7 +202,6 @@ public final class MainActivity extends Activity {
 	private RadioGroup messagePrivacyGroup;
 	private RadioGroup callPrivacyGroup;
 	private RadioGroup invitePrivacyGroup;
-	// Custom adapters that support image rendering.
 	private MessageAdapter chatRows;
 	private MessageAdapter messageRows;
 	private ListView messageList;
@@ -283,7 +276,6 @@ public final class MainActivity extends Activity {
 		AppLocale.apply(this);
 		initDimens();
 		loadPalette();
-		// Initialise the UI hierarchy before any view is accessed.
 		setContentView(shell());
 		setStatusBarColorCompat(bg);
 		createCallNotificationChannel();
@@ -528,7 +520,6 @@ public final class MainActivity extends Activity {
 				return;
 			}
 		}
-		// Incoming call acceptance
 		if (ACTION_ACCEPT_CALL.equals(intent.getAction())) {
 			String peerName = intent.getStringExtra(EXTRA_PEER);
 			if (peerName != null && !peerName.trim().isEmpty()) {
@@ -536,7 +527,6 @@ public final class MainActivity extends Activity {
 				return;
 			}
 		}
-		// Notification click to open a chat
 		if (intent.hasExtra(EXTRA_CHAT)) {
 			String chatPeer = intent.getStringExtra(EXTRA_CHAT);
 			if (chatPeer != null && !chatPeer.isEmpty()) {
@@ -748,7 +738,6 @@ public final class MainActivity extends Activity {
 
 	private void showChat() {
 		page = Page.CHAT;
-		// Remove any pending notification for this chat so the user sees a clean UI.
 		if (currentPeer != null && !currentPeer.isEmpty()) cancelMessageNotification(currentPeer);
 		if (bottomNav != null) bottomNav.setVisibility(View.GONE);
 		content.removeAllViews();
@@ -2215,7 +2204,6 @@ public final class MainActivity extends Activity {
 		addLanguageOption(languageGroup, LANGUAGE_SYSTEM_ID, getString(R.string.language_system));
 		addLanguageOption(languageGroup, LANGUAGE_ENGLISH_ID, getString(R.string.language_english));
 		addLanguageOption(languageGroup, LANGUAGE_RUSSIAN_ID, getString(R.string.language_russian));
-		addLanguageOption(languageGroup, LANGUAGE_HEBREW_ID, getString(R.string.language_hebrew));
 		languageGroup.check(languageId(SessionStore.language(this)));
 		box.addView(spaced(languageGroup));
 		box.addView(spaced(row(primaryButton(getString(R.string.action_save), new View.OnClickListener() {
@@ -2238,7 +2226,6 @@ public final class MainActivity extends Activity {
 	private int languageId(String language) {
 		if (AppLocale.ENGLISH.equals(language)) return LANGUAGE_ENGLISH_ID;
 		if (AppLocale.RUSSIAN.equals(language)) return LANGUAGE_RUSSIAN_ID;
-		if (AppLocale.HEBREW.equals(language)) return LANGUAGE_HEBREW_ID;
 		return LANGUAGE_SYSTEM_ID;
 	}
 
@@ -2247,14 +2234,12 @@ public final class MainActivity extends Activity {
 		int checked = languageGroup.getCheckedRadioButtonId();
 		if (checked == LANGUAGE_ENGLISH_ID) return AppLocale.ENGLISH;
 		if (checked == LANGUAGE_RUSSIAN_ID) return AppLocale.RUSSIAN;
-		if (checked == LANGUAGE_HEBREW_ID) return AppLocale.HEBREW;
 		return AppLocale.SYSTEM;
 	}
 
 	private String languageLabel(String language) {
 		if (AppLocale.ENGLISH.equals(language)) return getString(R.string.language_english);
 		if (AppLocale.RUSSIAN.equals(language)) return getString(R.string.language_russian);
-		if (AppLocale.HEBREW.equals(language)) return getString(R.string.language_hebrew);
 		return getString(R.string.language_system);
 	}
 
@@ -3376,11 +3361,6 @@ public final class MainActivity extends Activity {
 		startVoiceConnection(c, roomName, getString(R.string.status_joining_voice_channel));
 	}
 
-	// ---------------------------------------------------------------------
-	// Image picking and sending helpers
-	// ---------------------------------------------------------------------
-
-	/** Launches an intent to let the user pick an image from any provider. */
 	private void pickImage() {
 		Intent i = new Intent(Intent.ACTION_GET_CONTENT);
 		i.setType("image/*");
@@ -3388,7 +3368,6 @@ public final class MainActivity extends Activity {
 		startActivityForResult(Intent.createChooser(i, getString(R.string.chooser_select_picture)), REQ_PICK_IMAGE);
 	}
 
-	// Generic file picker - any mime type
 	private void pickFile() {
 		Intent i = new Intent(Intent.ACTION_GET_CONTENT);
 		i.setType("*/*");
@@ -3602,7 +3581,6 @@ public final class MainActivity extends Activity {
 		return out.toByteArray();
 	}
 
-	/** Helper to obtain the display name of a content URI. */
 	private String queryDisplayName(Uri uri) {
 		android.database.Cursor cursor = null;
 		try {
@@ -4705,7 +4683,6 @@ public final class MainActivity extends Activity {
 		if (nm != null) nm.cancel(ACTIVE_CALL_NOTIFICATION_ID);
 	}
 
-	/** Cancel the aggregated message notification for a specific chat. */
 	private void cancelMessageNotification(String peer) {
 		NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
 		if (nm == null) return;
@@ -5339,7 +5316,6 @@ public final class MainActivity extends Activity {
 		}
 	}
 
-	// Request permission to read external storage for image picking.
 	private void requestReadStoragePermission() {
 		if (Build.VERSION.SDK_INT >= 23 && !hasPermissionCompat(PERMISSION_READ_EXTERNAL_STORAGE)) {
 			requestPermissionsCompat(new String[] {
