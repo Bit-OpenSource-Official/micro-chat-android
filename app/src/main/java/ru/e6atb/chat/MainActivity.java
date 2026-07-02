@@ -13,7 +13,6 @@ import android.graphics.Color;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
@@ -27,19 +26,12 @@ import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.text.InputType;
-import android.text.SpannableStringBuilder;
 import android.text.Spanned;
-import android.text.TextPaint;
 import android.text.TextUtils;
 import android.text.method.LinkMovementMethod;
-import android.text.style.ClickableSpan;
-import android.text.style.StrikethroughSpan;
-import android.text.style.StyleSpan;
-import android.text.style.TypefaceSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -135,31 +127,6 @@ public final class MainActivity extends Activity {
 	private static final int INVITE_PRIVACY_CONTACTS_ID = 1302;
 	private static final int INVITE_PRIVACY_NOBODY_ID = 1303;
 	private static volatile boolean foregroundPollingActive;
-
-	private enum Page {
-		NONE,
-		SERVER,
-		LOGIN,
-		CHATS,
-		CHAT,
-		ADD_CHAT,
-		CALL,
-		WALLET,
-		WALLET_HISTORY,
-		NODES,
-		SETTINGS,
-		SETTINGS_PROFILE,
-		SETTINGS_SESSIONS,
-		SETTINGS_CLOUD_PASSWORD,
-		SETTINGS_E2E_KEYS,
-		SETTINGS_DELETE_ACCOUNT,
-		SETTINGS_LOGOUT,
-		SETTINGS_CONTACTS,
-		SETTINGS_PRIVACY,
-		SETTINGS_SERVER,
-		SETTINGS_LANGUAGE,
-		SETTINGS_INTERFACE
-	}
 
 	private int pad;
 	private int gap;
@@ -664,7 +631,7 @@ public final class MainActivity extends Activity {
 					)));
 				}
 				if (authNeedsCloudPassword) {
-					PaymentSliderView resetSlider = new PaymentSliderView(this, getString(R.string.reset_cloud_password_slide_hint), true);
+					PaymentSliderView resetSlider = paymentSlider(getString(R.string.reset_cloud_password_slide_hint), true);
 					resetSlider.setContentDescription(getString(R.string.reset_cloud_password_slide_hint));
 					resetSlider.setOnConfirmAction(new Runnable() {
 						@Override
@@ -979,7 +946,7 @@ public final class MainActivity extends Activity {
 		detailsLp.setMargins(0, 0, 0, gap);
 		box.addView(details, detailsLp);
 
-		final PaymentSliderView slider = new PaymentSliderView(this, getString(R.string.payment_slide_hint));
+		final PaymentSliderView slider = paymentSlider(getString(R.string.payment_slide_hint));
 		slider.setContentDescription(getString(R.string.payment_slide_hint));
 		slider.setOnConfirmAction(new Runnable() {
 			@Override
@@ -2022,7 +1989,7 @@ public final class MainActivity extends Activity {
 			}
 		});
 		box.addView(spaced(row(cloudPasswordClearButton)));
-		PaymentSliderView resetSlider = new PaymentSliderView(this, getString(R.string.reset_cloud_password_slide_hint), true);
+		PaymentSliderView resetSlider = paymentSlider(getString(R.string.reset_cloud_password_slide_hint), true);
 		resetSlider.setContentDescription(getString(R.string.reset_cloud_password_slide_hint));
 		resetSlider.setOnConfirmAction(new Runnable() {
 			@Override
@@ -2043,7 +2010,7 @@ public final class MainActivity extends Activity {
 	private void showSettingsE2EKeys() {
 		LinearLayout box = settingsPage(getString(R.string.settings_e2e_keys), Page.SETTINGS_E2E_KEYS);
 		box.addView(spaced(label(getString(R.string.settings_e2e_keys_help))));
-		PaymentSliderView resetSlider = new PaymentSliderView(this, getString(R.string.reset_e2e_key_slide_hint), true);
+		PaymentSliderView resetSlider = paymentSlider(getString(R.string.reset_e2e_key_slide_hint), true);
 		resetSlider.setContentDescription(getString(R.string.reset_e2e_key_slide_hint));
 		resetSlider.setOnConfirmAction(new Runnable() {
 			@Override
@@ -2066,7 +2033,7 @@ public final class MainActivity extends Activity {
 			}
 		});
 		box.addView(spaced(row(deleteAccountCodeButton)));
-		PaymentSliderView deleteSlider = new PaymentSliderView(this, getString(R.string.delete_account_slide_hint), true);
+		PaymentSliderView deleteSlider = paymentSlider(getString(R.string.delete_account_slide_hint), true);
 		deleteSlider.setContentDescription(getString(R.string.delete_account_slide_hint));
 		deleteSlider.setOnConfirmAction(new Runnable() {
 			@Override
@@ -2080,7 +2047,7 @@ public final class MainActivity extends Activity {
 	private void showSettingsLogout() {
 		LinearLayout box = settingsPage(getString(R.string.settings_logout), Page.SETTINGS_LOGOUT);
 		box.addView(spaced(label(getString(R.string.settings_logout_subtitle))));
-		PaymentSliderView logoutSlider = new PaymentSliderView(this, getString(R.string.logout_slide_hint), true);
+		PaymentSliderView logoutSlider = paymentSlider(getString(R.string.logout_slide_hint), true);
 		logoutSlider.setContentDescription(getString(R.string.logout_slide_hint));
 		logoutSlider.setOnConfirmAction(new Runnable() {
 			@Override
@@ -3494,7 +3461,7 @@ public final class MainActivity extends Activity {
 		detailsLp.setMargins(0, 0, 0, gap);
 		box.addView(details, detailsLp);
 
-		final PaymentSliderView slider = new PaymentSliderView(this, getString(R.string.payment_slide_hint));
+		final PaymentSliderView slider = paymentSlider(getString(R.string.payment_slide_hint));
 		slider.setContentDescription(getString(R.string.payment_slide_hint));
 		slider.setOnConfirmAction(new Runnable() {
 			@Override
@@ -5187,227 +5154,31 @@ public final class MainActivity extends Activity {
 	}
 
 	private CharSequence renderMarkdown(String value) {
-		value = safeDisplayText(value);
-		if (value.length() == 0) return "";
-		SpannableStringBuilder out = new SpannableStringBuilder();
-		int i = 0;
-		while (i < value.length()) {
-			if (value.charAt(i) == '`') {
-				int end = value.indexOf('`', i + 1);
-				if (end > i + 1) {
-					appendCodeSpan(out, value.substring(i + 1, end));
-					i = end + 1;
-					continue;
-				}
+		return new MarkdownRenderer(new MarkdownRenderer.Callbacks() {
+			@Override
+			public void copyCode(String code) {
+				copyToClipboard("code", code);
 			}
-			int urlEnd = linkEnd(value, i);
-			if (urlEnd > i) {
-				String label = value.substring(i, urlEnd);
-				String url = label.startsWith("www.") ? "https://" + label : label;
-				appendUrlSpan(out, label, url);
-				i = urlEnd;
-				continue;
+
+			@Override
+			public void openUrl(String url) {
+				MainActivity.this.openUrl(url);
 			}
-			int mentionEnd = mentionEnd(value, i);
-			if (mentionEnd > i) {
-				String mention = value.substring(i + 1, mentionEnd).toLowerCase(Locale.US);
-				appendMentionSpan(out, value.substring(i, mentionEnd), mention);
-				i = mentionEnd;
-				continue;
+
+			@Override
+			public void openMention(String login) {
+				MainActivity.this.openMention(login);
 			}
-			if (startsWith(value, i, "**")) {
-				int end = value.indexOf("**", i + 2);
-				if (end > i + 2) {
-					appendStyleSpan(out, value.substring(i + 2, end), new StyleSpan(Typeface.BOLD));
-					i = end + 2;
-					continue;
-				}
+
+			@Override
+			public int linkColor() {
+				return primary;
 			}
-			if (startsWith(value, i, "__")) {
-				int end = value.indexOf("__", i + 2);
-				if (end > i + 2) {
-					appendStyleSpan(out, value.substring(i + 2, end), new StyleSpan(Typeface.BOLD));
-					i = end + 2;
-					continue;
-				}
-			}
-			if (startsWith(value, i, "~~")) {
-				int end = value.indexOf("~~", i + 2);
-				if (end > i + 2) {
-					appendStyleSpan(out, value.substring(i + 2, end), new StrikethroughSpan());
-					i = end + 2;
-					continue;
-				}
-			}
-			if (value.charAt(i) == '*') {
-				int end = value.indexOf('*', i + 1);
-				if (end > i + 1) {
-					appendStyleSpan(out, value.substring(i + 1, end), new StyleSpan(Typeface.ITALIC));
-					i = end + 1;
-					continue;
-				}
-			}
-			if (value.charAt(i) == '_') {
-				int end = value.indexOf('_', i + 1);
-				if (end > i + 1) {
-					appendStyleSpan(out, value.substring(i + 1, end), new StyleSpan(Typeface.ITALIC));
-					i = end + 1;
-					continue;
-				}
-			}
-			int cp = value.codePointAt(i);
-			out.append(value, i, i + Character.charCount(cp));
-			i += Character.charCount(cp);
-		}
-		return out;
+		}).render(value);
 	}
 
 	static String safeDisplayText(String value) {
-		if (value == null || value.length() == 0) return "";
-		boolean stripSupplementary = legacyEmojiLayoutBug();
-		boolean changed = false;
-		for (int i = 0; i < value.length(); i++) {
-			char c = value.charAt(i);
-			if (Character.isHighSurrogate(c)) {
-				if (i + 1 < value.length() && Character.isLowSurrogate(value.charAt(i + 1))) {
-					if (stripSupplementary) {
-						changed = true;
-						break;
-					}
-					i++;
-				} else {
-					changed = true;
-					break;
-				}
-			} else if (Character.isLowSurrogate(c)) {
-				changed = true;
-				break;
-			}
-		}
-		if (!changed) return value;
-		StringBuilder out = new StringBuilder(value.length());
-		for (int i = 0; i < value.length(); i++) {
-			char c = value.charAt(i);
-			if (Character.isHighSurrogate(c)) {
-				if (i + 1 < value.length() && Character.isLowSurrogate(value.charAt(i + 1))) {
-					if (stripSupplementary) {
-						out.append('\uFFFD');
-					} else {
-						out.append(c);
-						out.append(value.charAt(i + 1));
-					}
-					i++;
-				} else {
-					out.append('\uFFFD');
-				}
-			} else if (Character.isLowSurrogate(c)) {
-				out.append('\uFFFD');
-			} else {
-				out.append(c);
-			}
-		}
-		return out.toString();
-	}
-
-	private static boolean legacyEmojiLayoutBug() {
-		return Build.VERSION.SDK_INT > 0 && Build.VERSION.SDK_INT < 21;
-	}
-
-	private boolean startsWith(String value, int offset, String prefix) {
-		return offset + prefix.length() <= value.length() && value.startsWith(prefix, offset);
-	}
-
-	private int linkEnd(String value, int offset) {
-		if (!startsWith(value, offset, "http://") &&
-			!startsWith(value, offset, "https://") &&
-			!startsWith(value, offset, "www.")) {
-			return -1;
-		}
-		int end = offset;
-		while (end < value.length() && !Character.isWhitespace(value.charAt(end))) {
-			end++;
-		}
-		while (end > offset && ".,;:!?)]}".indexOf(value.charAt(end - 1)) >= 0) {
-			end--;
-		}
-		return end > offset ? end : -1;
-	}
-
-	private int mentionEnd(String value, int offset) {
-		if (value.charAt(offset) != '@') return -1;
-		if (offset > 0) {
-			char prev = value.charAt(offset - 1);
-			if (Character.isLetterOrDigit(prev) || prev == '_' || prev == '.') return -1;
-		}
-		int end = offset + 1;
-		while (end < value.length()) {
-			char c = value.charAt(end);
-			if (!Character.isLetterOrDigit(c) && c != '_' && c != '-' && c != '.') break;
-			end++;
-		}
-		return end > offset + 1 ? end : -1;
-	}
-
-	private void appendStyleSpan(SpannableStringBuilder out, String value, Object span) {
-		int start = out.length();
-		out.append(value);
-		out.setSpan(span, start, out.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-	}
-
-	private void appendCodeSpan(SpannableStringBuilder out, final String value) {
-		int start = out.length();
-		out.append(value);
-		out.setSpan(new TypefaceSpan("monospace"), start, out.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-		out.setSpan(new ClickableSpan() {
-			@Override
-			public void onClick(View widget) {
-				copyToClipboard("code", value);
-			}
-
-			@Override
-			public void updateDrawState(TextPaint ds) {
-				super.updateDrawState(ds);
-				ds.setTypeface(Typeface.MONOSPACE);
-				ds.setColor(primary);
-				ds.setUnderlineText(false);
-			}
-		}, start, out.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-	}
-
-	private void appendUrlSpan(SpannableStringBuilder out, String label, final String url) {
-		int start = out.length();
-		out.append(label);
-		out.setSpan(new ClickableSpan() {
-			@Override
-			public void onClick(View widget) {
-				openUrl(url);
-			}
-
-			@Override
-			public void updateDrawState(TextPaint ds) {
-				super.updateDrawState(ds);
-				ds.setColor(primary);
-				ds.setUnderlineText(true);
-			}
-		}, start, out.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-	}
-
-	private void appendMentionSpan(SpannableStringBuilder out, String label, final String login) {
-		int start = out.length();
-		out.append(label);
-		out.setSpan(new ClickableSpan() {
-			@Override
-			public void onClick(View widget) {
-				openMention(login);
-			}
-
-			@Override
-			public void updateDrawState(TextPaint ds) {
-				super.updateDrawState(ds);
-				ds.setColor(primary);
-				ds.setUnderlineText(false);
-			}
-		}, start, out.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+		return DisplayText.safe(value);
 	}
 
 	private void openUrl(String url) {
@@ -5818,280 +5589,25 @@ public final class MainActivity extends Activity {
 		return new MessageAdapter();
 	}
 
-	private final class PaymentSliderView extends View {
-		private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-		private final Paint textPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-		private final RectF trackRect = new RectF();
-		private final RectF fillRect = new RectF();
-		private final RectF thumbRect = new RectF();
-		private final String hint;
-		private final boolean confirmLeft;
-		private Runnable confirmAction;
-		private Runnable resetAnimation;
-		private float progress;
-		private float touchOffset;
-		private boolean tracking;
-
-		PaymentSliderView(android.content.Context context, String hint) {
-			this(context, hint, false);
-		}
-
-		PaymentSliderView(android.content.Context context, String hint, boolean confirmLeft) {
-			super(context);
-			this.hint = hint;
-			this.confirmLeft = confirmLeft;
-			this.progress = confirmLeft ? 1f : 0f;
-			setFocusable(true);
-		}
-
-		void setOnConfirmAction(Runnable confirmAction) {
-			this.confirmAction = confirmAction;
-		}
-
-		@Override
-		public boolean performClick() {
-			return super.performClick();
-		}
-
-		@Override
-		protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-			int desiredHeight = dp(56);
-			int desiredWidth = dp(240);
-			setMeasuredDimension(resolveSize(desiredWidth, widthMeasureSpec), resolveSize(desiredHeight, heightMeasureSpec));
-		}
-
-		@Override
-		protected void onDraw(Canvas canvas) {
-			super.onDraw(canvas);
-			int w = getWidth();
-			int h = getHeight();
-			float inset = dp(2);
-			float trackLeft = inset;
-			float trackTop = inset;
-			float trackRight = Math.max(trackLeft, w - inset);
-			float trackBottom = Math.max(trackTop, h - inset);
-			float radius = Math.min(elementRadius(), Math.max(0f, (trackBottom - trackTop) / 4f));
-			float thumbWidth = thumbWidth();
-			float thumbHeight = thumbHeight();
-			float thumbXInset = thumbHorizontalInset();
-			float thumbYInset = thumbVerticalInset();
-			float thumbTop = trackTop + thumbYInset;
-			float thumbLeft = trackLeft + thumbXInset + (trackRight - trackLeft - thumbWidth - thumbXInset * 2f) * progress;
-
-			trackRect.set(trackLeft, trackTop, trackRight, trackBottom);
-			paint.setColor(blend(surfaceHi, Color.BLACK, 0.35f));
-			canvas.drawRoundRect(trackRect, radius, radius, paint);
-
-			if (confirmLeft) {
-				fillRect.set(
-					Math.max(trackLeft, thumbLeft - thumbXInset),
-					trackTop,
-					trackRight,
-					trackBottom
-				);
-			} else {
-				fillRect.set(
-					trackLeft,
-					trackTop,
-					Math.min(trackRight, thumbLeft + thumbWidth + thumbXInset),
-					trackBottom
-				);
-			}
-			paint.setColor(blend(primary, Color.BLACK, 0.55f));
-			canvas.drawRoundRect(fillRect, radius, radius, paint);
-
-			textPaint.setTextSize(dp(14));
-			textPaint.setTypeface(Typeface.DEFAULT_BOLD);
-			textPaint.setTextAlign(Paint.Align.CENTER);
-			textPaint.setColor(muted);
-			Paint.FontMetrics fm = textPaint.getFontMetrics();
-			float textY = h / 2f - (fm.ascent + fm.descent) / 2f;
-			canvas.drawText(hint, w / 2f, textY, textPaint);
-
-			thumbRect.set(thumbLeft, thumbTop, thumbLeft + thumbWidth, thumbTop + thumbHeight);
-			paint.setColor(blend(primary, Color.WHITE, 0.14f));
-			float thumbRadius = Math.min(elementRadius(), thumbHeight / 3f);
-			canvas.drawRoundRect(thumbRect, thumbRadius, thumbRadius, paint);
-
-			textPaint.setTextSize(dp(18));
-			textPaint.setTypeface(Typeface.DEFAULT_BOLD);
-			textPaint.setTextAlign(Paint.Align.CENTER);
-			textPaint.setColor(onPrimary);
-			Paint.FontMetrics arrowFm = textPaint.getFontMetrics();
-			float arrowY = thumbRect.centerY() - (arrowFm.ascent + arrowFm.descent) / 2f;
-			canvas.drawText(confirmLeft ? "<" : ">", thumbRect.centerX(), arrowY, textPaint);
-		}
-
-		@Override
-		public boolean onTouchEvent(MotionEvent event) {
-			int action = event.getAction();
-			if (action == MotionEvent.ACTION_DOWN) {
-				if (!touchInsideThumb(event.getX(), event.getY())) return false;
-				cancelResetAnimation();
-				tracking = true;
-				touchOffset = event.getX() - currentThumbLeft();
-				if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
-				return true;
-			}
-			if (action == MotionEvent.ACTION_MOVE && tracking) {
-				updateProgressFromTouch(event.getX());
-				return true;
-			}
-			if (action == MotionEvent.ACTION_UP && tracking) {
-				updateProgressFromTouch(event.getX());
-				boolean confirmed = confirmLeft ? progress <= 0.14f : progress >= 0.86f;
-				tracking = false;
-				if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
-				if (confirmed) {
-					cancelResetAnimation();
-					progress = confirmLeft ? 0f : 1f;
-					invalidate();
-					performClick();
-					if (confirmAction != null) confirmAction.run();
-				} else {
-					resetThumb();
-				}
-				return true;
-			}
-			if (action == MotionEvent.ACTION_CANCEL && tracking) {
-				tracking = false;
-				if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
-				resetThumb();
-				return true;
-			}
-			return false;
-		}
-
-		private void updateProgressFromTouch(float x) {
-			float trackLeft = dp(2);
-			float thumbInset = thumbHorizontalInset();
-			float usable = Math.max(1f, getWidth() - dp(4) - thumbWidth() - thumbInset * 2f);
-			progress = Math.max(0f, Math.min(1f, (x - touchOffset - trackLeft - thumbInset) / usable));
-			invalidate();
-		}
-
-		private boolean touchInsideThumb(float x, float y) {
-			float thumbWidth = thumbWidth();
-			float thumbHeight = thumbHeight();
-			float left = currentThumbLeft();
-			float top = (getHeight() - thumbHeight) / 2f;
-			float slop = dp(8);
-			return x >= left - slop && x <= left + thumbWidth + slop && y >= top - slop && y <= top + thumbHeight + slop;
-		}
-
-		private float currentThumbLeft() {
-			float trackLeft = dp(2);
-			float thumbInset = thumbHorizontalInset();
-			float usable = Math.max(1f, getWidth() - dp(4) - thumbWidth() - thumbInset * 2f);
-			return trackLeft + thumbInset + usable * progress;
-		}
-
-		private float thumbWidth() {
-			return Math.max(dp(64), Math.min(dp(82), thumbHeight() * 1.65f));
-		}
-
-		private float thumbHeight() {
-			return Math.max(dp(36), Math.min(dp(44), getHeight() - dp(10)));
-		}
-
-		private float thumbHorizontalInset() {
-			return dp(4);
-		}
-
-		private float thumbVerticalInset() {
-			float trackHeight = Math.max(0f, getHeight() - dp(4));
-			return Math.max(0f, (trackHeight - thumbHeight()) / 2f);
-		}
-
-		private void resetThumb() {
-			animateThumbToStart();
-		}
-
-		private void animateThumbToStart() {
-			cancelResetAnimation();
-			final float startProgress = progress;
-			final float targetProgress = confirmLeft ? 1f : 0f;
-			if (Math.abs(startProgress - targetProgress) <= 0.001f) {
-				progress = targetProgress;
-				invalidate();
-				return;
-			}
-			final long startTime = System.currentTimeMillis();
-			final long durationMs = 180L;
-			resetAnimation = new Runnable() {
-				@Override
-				public void run() {
-					float t = Math.min(1f, (System.currentTimeMillis() - startTime) / (float)durationMs);
-					float eased = 1f - (1f - t) * (1f - t) * (1f - t);
-					progress = startProgress + (targetProgress - startProgress) * eased;
-					invalidate();
-					if (t < 1f) {
-						postDelayed(this, 16L);
-					} else {
-						progress = targetProgress;
-						resetAnimation = null;
-						invalidate();
-					}
-				}
-			};
-			post(resetAnimation);
-		}
-
-		private void cancelResetAnimation() {
-			if (resetAnimation != null) {
-				removeCallbacks(resetAnimation);
-				resetAnimation = null;
-			}
-		}
+	private PaymentSliderView paymentSlider(String hint) {
+		return paymentSlider(hint, false);
 	}
 
-		private static final class MessageRow {
-			final String text;
-			final String imageData;
-			final MiniTaLib.FileInfo file;
-			final MiniTaLib.Message message;
-			final String chatTitle;
-			final String chatPreview;
+	private PaymentSliderView paymentSlider(String hint, boolean confirmLeft) {
+		return new PaymentSliderView(this, hint, confirmLeft, paymentSliderTheme());
+	}
 
-			private MessageRow(String text, String imageData, MiniTaLib.FileInfo file, MiniTaLib.Message message, String chatTitle, String chatPreview) {
-				this.text = text;
-				this.imageData = imageData;
-				this.file = file;
-				this.message = message;
-				this.chatTitle = chatTitle;
-				this.chatPreview = chatPreview;
-			}
-
-			static MessageRow text(String text) {
-				return new MessageRow(text, null, null, null, null, null);
-			}
-
-			static MessageRow messageText(String text, MiniTaLib.Message message) {
-				return new MessageRow(text, null, null, message, null, null);
-			}
-
-			static MessageRow inlineImage(String data, MiniTaLib.Message message) {
-				return new MessageRow(null, data, null, message, null, null);
-			}
-
-			static MessageRow file(String text, MiniTaLib.FileInfo file, MiniTaLib.Message message) {
-				return new MessageRow(text, null, file, message, null, null);
-			}
-
-			static MessageRow chat(String title, String preview) {
-				return new MessageRow(null, null, null, null, title, preview);
-			}
-		}
-
-		private static final class ChatPreviewHolder {
-			final TextView title;
-			final TextView preview;
-
-			ChatPreviewHolder(TextView title, TextView preview) {
-				this.title = title;
-				this.preview = preview;
-			}
-		}
+	private PaymentSliderView.Theme paymentSliderTheme() {
+		return new PaymentSliderView.Theme() {
+			@Override public int dp(int value) { return MainActivity.this.dp(value); }
+			@Override public int elementRadius() { return MainActivity.this.elementRadius(); }
+			@Override public int blend(int a, int b, float t) { return MainActivity.this.blend(a, b, t); }
+			@Override public int surfaceHi() { return surfaceHi; }
+			@Override public int primary() { return primary; }
+			@Override public int muted() { return muted; }
+			@Override public int onPrimary() { return onPrimary; }
+		};
+	}
 
 	private class MessageAdapter extends android.widget.BaseAdapter {
 		private final List < MessageRow > rows = new ArrayList < MessageRow > ();
@@ -7103,7 +6619,7 @@ public final class MainActivity extends Activity {
 		LinearLayout.LayoutParams detailsLp = new LinearLayout.LayoutParams(-1, -2);
 		detailsLp.setMargins(0, 0, 0, gap);
 		box.addView(details, detailsLp);
-		final PaymentSliderView slider = new PaymentSliderView(this, hintText);
+		final PaymentSliderView slider = paymentSlider(hintText);
 		slider.setContentDescription(hintText);
 		slider.setOnConfirmAction(new Runnable() {
 			@Override
@@ -7344,23 +6860,6 @@ public final class MainActivity extends Activity {
 		box.setPadding(pad, pad, pad, pad);
 		box.setBackgroundDrawable(shape(surface, 0, buttonRadius()));
 		return box;
-	}
-
-	private static final class BoundedScrollView extends ScrollView {
-		private final int maxHeight;
-
-		BoundedScrollView(android.content.Context context, int maxHeight) {
-			super(context);
-			this.maxHeight = maxHeight;
-		}
-
-		@Override
-		protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-			int mode = MeasureSpec.getMode(heightMeasureSpec);
-			int size = MeasureSpec.getSize(heightMeasureSpec);
-			int height = mode == MeasureSpec.UNSPECIFIED ? maxHeight : Math.min(size, maxHeight);
-			super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(height, MeasureSpec.AT_MOST));
-		}
 	}
 
 	private void showStyledDialog(Dialog dialog) {
