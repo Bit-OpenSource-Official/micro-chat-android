@@ -24,6 +24,7 @@
 	<string name="action_open_chat">Open chat</string>
 	<string name="action_copy">Copy</string>
 	<string name="action_save_favorite">Save to favorites</string>
+	<string name="chat_favorites_title">Favorites</string>
 	<string name="action_download">Download</string>
 	<string name="action_open">Open</string>
 	<string name="action_change_server">Change server</string>
@@ -100,6 +101,7 @@
 	<string name="status_calling_peer">calling %1$s</string>
 	<string name="status_answering_peer">answering %1$s</string>
 	<string name="status_bots_cannot_receive_calls">bots cannot receive calls</string>
+	<string name="status_self_calls_not_available">calls are not available in Favorites</string>
 	<string name="status_call_declined">call declined</string>
 	<string name="status_call_declined_other_device">call declined on another device</string>
 	<string name="status_call_ended_other_device">call ended on another device</string>

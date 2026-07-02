@@ -16,5 +16,7 @@ public final class MainActivityCallPeerTest {
 		assertEquals("0000000000000001", MainActivity.callPeerFor("0000000000000002", "", incoming));
 		assertEquals("0000000000000001", MainActivity.callPeerFor("0000000000000002", "", outgoing));
 		assertTrue(MainActivity.isOwnUserFor("0000000000000002", "", me));
+		assertTrue(MainActivity.isOwnAddressFor("0000000000000002", "me", "@me"));
+		assertTrue(MainActivity.isOwnAddressFor("0000000000000002", "me", "0000000000000002"));
 	}
 }

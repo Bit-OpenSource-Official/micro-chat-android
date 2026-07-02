@@ -3034,7 +3034,7 @@ public final class MainActivity extends Activity {
 				currentPeerBannedMe = chat.bannedMe;
 			}
 			String last = chat.last == null ? "" : chatLastText(chat.last);
-			chatRows.add(MessageRow.chat(displayUser(chat.peer), last));
+			chatRows.add(MessageRow.chat(chatPeerTitle(chat.peer), last));
 		}
 		status.setText(getString(R.string.status_chats_count, chats.size(), source));
 	}
@@ -3284,6 +3284,10 @@ public final class MainActivity extends Activity {
 		currentPeer = peer == null ? currentPeer : peer.getText().toString().trim();
 		if (currentPeer.isEmpty()) return;
 		final String peerName = currentPeer;
+		if (currentPeerIsSelfChat()) {
+			status.setText(getString(R.string.status_self_calls_not_available));
+			return;
+		}
 		if (!hasPermissionCompat(PERMISSION_RECORD_AUDIO)) {
 			requestPermissionsCompat(new String[] {
 				PERMISSION_RECORD_AUDIO
@@ -3322,6 +3326,10 @@ public final class MainActivity extends Activity {
 	private void toggleVoice() {
 		if (currentPeerBanned) {
 			status.setText(getString(R.string.chat_banned));
+			return;
+		}
+		if (currentPeerIsSelfChat()) {
+			status.setText(getString(R.string.status_self_calls_not_available));
 			return;
 		}
 		if (currentPeerIsBot()) {
@@ -4160,6 +4168,15 @@ public final class MainActivity extends Activity {
 		return ownLogin != null && ownLogin.length() > 0 && ownLogin.equals(user.login);
 	}
 
+	static boolean isOwnAddressFor(String ownID, String ownLogin, String address) {
+		if (address == null) return false;
+		String value = address.trim();
+		if (value.startsWith("@")) value = value.substring(1);
+		if (value.length() == 0) return false;
+		if (ownID != null && ownID.length() > 0 && ownID.equals(value)) return true;
+		return ownLogin != null && ownLogin.length() > 0 && ownLogin.equals(value);
+	}
+
 	private static String userAddress(MiniTaLib.User user) {
 		if (user == null) return "";
 		if (user.login != null && user.login.length() > 0) return user.login;
@@ -4208,7 +4225,7 @@ public final class MainActivity extends Activity {
 
 	private void updateCallButton() {
 		if (callButton == null) return;
-		callButton.setVisibility(currentPeerIsBot() || currentPeerIsChannel() ? View.GONE : View.VISIBLE);
+		callButton.setVisibility(currentPeerIsBot() || currentPeerIsChannel() || currentPeerIsSelfChat() ? View.GONE : View.VISIBLE);
 		boolean busy = !"idle".equals(callState) && !"failed".equals(callState);
 		callButton.setEnabled(!currentPeerBanned || busy);
 		String description;
@@ -4266,6 +4283,11 @@ public final class MainActivity extends Activity {
 
 	private boolean currentPeerIsBot() {
 		return currentPeerUser != null && currentPeer != null && currentPeer.equals(currentPeerUser.login) && currentPeerUser.bot;
+	}
+
+	private boolean currentPeerIsSelfChat() {
+		return !currentPeerIsRoom()
+				&& (isOwnUser(currentPeerUser) || isOwnAddressFor(myID, myLogin, currentPeer));
 	}
 
 	private void addCallSystemRow(String peerName, String label, long durationMs) {
@@ -5123,6 +5145,13 @@ public final class MainActivity extends Activity {
 		return safeDisplayText(user.id);
 	}
 
+	private String chatPeerTitle(MiniTaLib.User user) {
+		if (user != null && (user.roomKind == null || user.roomKind.length() == 0) && isOwnUser(user)) {
+			return getString(R.string.chat_favorites_title);
+		}
+		return displayUser(user);
+	}
+
 	private String displayOwnUser() {
 		if (myNick != null && myNick.length() > 0) {
 			return safeDisplayText(myNick);
@@ -5405,11 +5434,15 @@ public final class MainActivity extends Activity {
 	}
 
 	private int choiceButtonTextInset() {
-		return choiceButtonSize() + choiceButtonGap();
+		return choiceButtonLeadingInset() + choiceButtonSize() + choiceButtonGap();
 	}
 
 	private int choiceButtonSize() {
 		return dp(22);
+	}
+
+	private int choiceButtonLeadingInset() {
+		return pad;
 	}
 
 	private int choiceButtonGap() {
@@ -6030,7 +6063,7 @@ public final class MainActivity extends Activity {
 		r.addView(back, backLp);
 
 		LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(0, -1, 1);
-		currentPeerNameView = userNameRow(currentHeaderUser(), 18);
+		currentPeerNameView = userNameRow(currentHeaderUser(), 18, true);
 		currentPeerNameView.setClickable(true);
 		currentPeerNameView.setOnClickListener(new View.OnClickListener() {
 			@Override
@@ -6064,20 +6097,24 @@ public final class MainActivity extends Activity {
 	}
 
 	private LinearLayout userNameRow(MiniTaLib.User user, int textSizeSp) {
+		return userNameRow(user, textSizeSp, false);
+	}
+
+	private LinearLayout userNameRow(MiniTaLib.User user, int textSizeSp, boolean chatTitle) {
 		LinearLayout row = new LinearLayout(this);
 		row.setOrientation(LinearLayout.VERTICAL);
 		row.setGravity(Gravity.CENTER_VERTICAL);
-		populateUserNameRow(row, user, textSizeSp);
+		populateUserNameRow(row, user, textSizeSp, chatTitle);
 		return row;
 	}
 
 	private void refreshCurrentPeerNameView() {
 		if (currentPeerNameView == null) return;
 		currentPeerNameView.removeAllViews();
-		populateUserNameRow(currentPeerNameView, currentHeaderUser(), 18);
+		populateUserNameRow(currentPeerNameView, currentHeaderUser(), 18, true);
 	}
 
-	private void populateUserNameRow(LinearLayout row, MiniTaLib.User user, int textSizeSp) {
+	private void populateUserNameRow(LinearLayout row, MiniTaLib.User user, int textSizeSp, boolean chatTitle) {
 		LinearLayout nameLine = new LinearLayout(this);
 		nameLine.setOrientation(LinearLayout.HORIZONTAL);
 		nameLine.setGravity(Gravity.CENTER_VERTICAL);
@@ -6085,7 +6122,10 @@ public final class MainActivity extends Activity {
 		name.setTextColor(blend(primary, Color.WHITE, 0.18f));
 		name.setTextSize(textSizeSp);
 		name.setSingleLine(true);
-		name.setText(safeDisplayText(displayUser(user)));
+		String titleText = chatTitle && currentPeerIsSelfChat()
+				? getString(R.string.chat_favorites_title)
+				: (chatTitle ? chatPeerTitle(user) : displayUser(user));
+		name.setText(safeDisplayText(titleText));
 		nameLine.addView(name, new LinearLayout.LayoutParams(-2, -2));
 		if (user != null && user.verified) {
 			ImageView verified = new ImageView(this);
@@ -7081,6 +7121,7 @@ public final class MainActivity extends Activity {
 		return new ChoiceButtonDrawable(
 			radio,
 			size,
+			choiceButtonLeadingInset(),
 			blend(surface, Color.WHITE, 0.04f),
 			blend(muted, bg, 0.28f),
 			blend(surfaceHi, primary, 0.08f),
@@ -7221,6 +7262,7 @@ public final class MainActivity extends Activity {
 	private static final class ChoiceButtonDrawable extends Drawable {
 		private final boolean radio;
 		private final int size;
+		private final int leadingInset;
 		private final int uncheckedFill;
 		private final int uncheckedStroke;
 		private final int pressedFill;
@@ -7241,6 +7283,7 @@ public final class MainActivity extends Activity {
 		ChoiceButtonDrawable(
 				boolean radio,
 				int size,
+				int leadingInset,
 				int uncheckedFill,
 				int uncheckedStroke,
 				int pressedFill,
@@ -7252,6 +7295,7 @@ public final class MainActivity extends Activity {
 				int disabledMark) {
 			this.radio = radio;
 			this.size = size;
+			this.leadingInset = leadingInset;
 			this.uncheckedFill = uncheckedFill;
 			this.uncheckedStroke = uncheckedStroke;
 			this.pressedFill = pressedFill;
@@ -7266,8 +7310,8 @@ public final class MainActivity extends Activity {
 		@Override
 		public void draw(Canvas canvas) {
 			Rect bounds = getBounds();
-			float s = Math.min(size, Math.min(bounds.width(), bounds.height()));
-			float left = bounds.left + (bounds.width() - s) / 2.0f;
+			float s = Math.min(size, Math.min(Math.max(0, bounds.width() - leadingInset), bounds.height()));
+			float left = bounds.left + leadingInset;
 			float top = bounds.top + (bounds.height() - s) / 2.0f;
 			float strokeWidth = Math.max(1.0f, s * 0.095f);
 			int fill = fillColor();
@@ -7385,7 +7429,7 @@ public final class MainActivity extends Activity {
 
 		@Override
 		public int getIntrinsicWidth() {
-			return size;
+			return leadingInset + size;
 		}
 
 		@Override

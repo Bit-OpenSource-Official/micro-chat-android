@@ -24,6 +24,7 @@
 	<string name="action_open_chat">Открыть чат</string>
 	<string name="action_copy">Копировать</string>
 	<string name="action_save_favorite">Сохранить в избранное</string>
+	<string name="chat_favorites_title">избранное</string>
 	<string name="action_download">Скачать</string>
 	<string name="action_open">Открыть</string>
 	<string name="action_change_server">Сменить сервер</string>
@@ -100,6 +101,7 @@
 	<string name="status_calling_peer">звонок %1$s</string>
 	<string name="status_answering_peer">ответ %1$s</string>
 	<string name="status_bots_cannot_receive_calls">боты не принимают звонки</string>
+	<string name="status_self_calls_not_available">звонки недоступны в избранном</string>
 	<string name="status_call_declined">звонок отклонен</string>
 	<string name="status_call_declined_other_device">звонок отклонен на другом устройстве</string>
 	<string name="status_call_ended_other_device">звонок завершен на другом устройстве</string>
