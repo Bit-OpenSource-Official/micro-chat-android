@@ -1,0 +1,126 @@
+name: Release build
+
+on:
+  create:
+  push:
+    branches:
+      - "release/**"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build release APK
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || (github.event_name == 'create' && github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/'))
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          ref="${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_EVENT_NAME}" == "create" ]]; then
+            ref="${{ github.event.ref }}"
+          fi
+          version="${ref#release/}"
+          if [[ -z "${version}" || "${version}" == "${ref}" ]]; then
+            echo "Expected branch name release/VERSION, got ${ref}" >&2
+            exit 1
+          fi
+          echo "name=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=v${version}" >> "${GITHUB_OUTPUT}"
+          echo "code=$((100000 + GITHUB_RUN_NUMBER))" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Prepare release keystore
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          store_pass="${RELEASE_STORE_PASSWORD:-password}"
+          key_alias="${RELEASE_KEY_ALIAS:-micromsg}"
+          key_pass="${RELEASE_KEY_PASSWORD:-${store_pass}}"
+
+          if [[ -n "${ANDROID_KEYSTORE_B64}" ]]; then
+            printf "%s" "${ANDROID_KEYSTORE_B64}" | base64 -d > micromsg.keystore
+          else
+            keytool -genkeypair \
+              -keystore micromsg.keystore \
+              -storepass "${store_pass}" \
+              -keypass "${key_pass}" \
+              -alias "${key_alias}" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=E6atb Chat, OU=Android, O=E6atb, L=NA, ST=NA, C=US"
+          fi
+
+          echo "RELEASE_STORE_FILE=micromsg.keystore" >> "${GITHUB_ENV}"
+          echo "RELEASE_STORE_PASSWORD=${store_pass}" >> "${GITHUB_ENV}"
+          echo "RELEASE_KEY_ALIAS=${key_alias}" >> "${GITHUB_ENV}"
+          echo "RELEASE_KEY_PASSWORD=${key_pass}" >> "${GITHUB_ENV}"
+
+      - name: Build release APK
+        env:
+          CRYPT_SERVER_PUBLIC_KEY_B64: ${{ secrets.CRYPT_SERVER_PUBLIC_KEY_B64 }}
+        run: |
+          test -n "${CRYPT_SERVER_PUBLIC_KEY_B64}" || {
+            echo "Missing GitHub secret CRYPT_SERVER_PUBLIC_KEY_B64" >&2
+            exit 1
+          }
+          gradle --no-daemon :app:assembleRelease \
+            -PappVersionName="${{ steps.version.outputs.name }}" \
+            -PappVersionCode="${{ steps.version.outputs.code }}"
+
+      - name: Prepare APK asset
+        run: |
+          mkdir -p release
+          cp app/build/outputs/apk/release/app-release.apk \
+            "release/e6atb-chat-${{ steps.version.outputs.name }}.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: e6atb-chat-${{ steps.version.outputs.name }}-release
+          path: release/e6atb-chat-${{ steps.version.outputs.name }}.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_NAME: E6atb Chat ${{ steps.version.outputs.name }}
+          APK_PATH: release/e6atb-chat-${{ steps.version.outputs.name }}.apk
+        run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" "${APK_PATH}" --clobber
+          else
+            gh release create "${RELEASE_TAG}" "${APK_PATH}" \
+              --target "${GITHUB_SHA}" \
+              --title "${RELEASE_NAME}" \
+              --notes "Release ${RELEASE_NAME}"
+          fi

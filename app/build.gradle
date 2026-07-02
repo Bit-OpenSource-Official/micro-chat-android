@@ -1,0 +1,137 @@
+plugins {
+    id "com.android.application"
+}
+
+def dotenv = [:]
+def dotenvPath = System.getenv("ENV_FILE")
+def dotenvFile
+if (dotenvPath) {
+    def candidate = new File(dotenvPath)
+    dotenvFile = candidate.isAbsolute() ? candidate : rootProject.file("../${dotenvPath}")
+} else {
+    dotenvFile = rootProject.file("../.env")
+}
+if (dotenvFile.isFile()) {
+    dotenvFile.eachLine("UTF-8") { raw ->
+        def line = raw.trim()
+        if (line && !line.startsWith("#")) {
+            if (line.startsWith("export ")) line = line.substring(7).trim()
+            int split = line.indexOf("=")
+            if (split > 0) {
+                def name = line.substring(0, split).trim()
+                def value = line.substring(split + 1).trim()
+                if (value.length() >= 2 &&
+                    ((value.startsWith("\"") && value.endsWith("\"")) ||
+                     (value.startsWith("'") && value.endsWith("'")))) {
+                    value = value.substring(1, value.length() - 1)
+                }
+                dotenv[name] = value
+            }
+        }
+    }
+}
+def cryptServerPublicKey = providers.gradleProperty("cryptServerPublicKeyB64").orNull ?:
+    System.getenv("CRYPT_SERVER_PUBLIC_KEY_B64") ?:
+    dotenv["CRYPT_SERVER_PUBLIC_KEY_B64"] ?:
+    ""
+def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
+    System.getenv("APP_VERSION_NAME") ?:
+    "0.2"
+def appVersionCode = (providers.gradleProperty("appVersionCode").orNull ?:
+    System.getenv("APP_VERSION_CODE") ?:
+    "2").toInteger()
+def configuredReleaseStoreFile = providers.gradleProperty("releaseStoreFile").orNull ?:
+    System.getenv("RELEASE_STORE_FILE")
+def releaseStoreFile = configuredReleaseStoreFile ?
+    rootProject.file(configuredReleaseStoreFile) :
+    rootProject.file("micromsg.keystore")
+if (!releaseStoreFile.isFile()) {
+    def legacyReleaseStoreFile = rootProject.file("../micromsg.keystore")
+    if (legacyReleaseStoreFile.isFile()) {
+        releaseStoreFile = legacyReleaseStoreFile
+    }
+}
+def releaseStorePassword = providers.gradleProperty("releaseStorePassword").orNull ?:
+    System.getenv("RELEASE_STORE_PASSWORD") ?:
+    "password"
+def releaseKeyAlias = providers.gradleProperty("releaseKeyAlias").orNull ?:
+    System.getenv("RELEASE_KEY_ALIAS") ?:
+    "micromsg"
+def releaseKeyPassword = providers.gradleProperty("releaseKeyPassword").orNull ?:
+    System.getenv("RELEASE_KEY_PASSWORD") ?:
+    releaseStorePassword
+
+// Dependencies required for the module. The coreLibraryDesugaring library provides
+// implementations of newer Java APIs and also rewrites lambda bytecode to be
+// compatible with older runtimes.
+dependencies {
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:2.0.4"
+    testImplementation "junit:junit:4.13.2"
+}
+
+android {
+    namespace "ru.e6atb.chat"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "ru.e6atb.chat"
+        // Support Android from version 2.3.6 (API level 10) upwards.
+        minSdk 10
+        targetSdk 35
+        versionCode appVersionCode
+        versionName appVersionName
+        buildConfigField "String", "CRYPT_SERVER_PUBLIC_KEY_B64", "\"${cryptServerPublicKey}\""
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    // Enable Java 8 language features and core‑library desugaring so that lambda
+    // expressions (which generate synthetic classes) work on older Android
+    // versions such as API 10.
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    // ---------------------------------------------------------------------
+    // Signing configuration for release builds.
+    // CI writes `micromsg.keystore` into the repository root. The legacy
+    // parent-directory location is still accepted for local builds from micro-chat.
+    // ---------------------------------------------------------------------
+    signingConfigs {
+        release {
+            storeFile releaseStoreFile
+            storePassword releaseStorePassword
+            keyAlias releaseKeyAlias
+            keyPassword releaseKeyPassword
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            // Use the generated keystore for signing release builds.
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+gradle.taskGraph.whenReady { graph ->
+    boolean releaseRequested = graph.allTasks.any {
+        it.project == project && it.name.toLowerCase().contains("release")
+    }
+    if (releaseRequested && cryptServerPublicKey.trim().isEmpty()) {
+        throw new GradleException(
+            "Release build requires -PcryptServerPublicKeyB64=<server public key>"
+        )
+    }
+    if (releaseRequested && !releaseStoreFile.isFile()) {
+        throw new GradleException(
+            "Release build requires micromsg.keystore in the repository root or -PreleaseStoreFile=<path>"
+        )
+    }
+}
