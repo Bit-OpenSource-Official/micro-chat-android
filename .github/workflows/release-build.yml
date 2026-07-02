@@ -97,16 +97,31 @@ jobs:
             -PappVersionCode="${{ steps.version.outputs.code }}"
 
       - name: Prepare APK asset
+        shell: bash
         run: |
           mkdir -p release
-          cp app/build/outputs/apk/release/app-release.apk \
-            "release/e6atb-chat-${{ steps.version.outputs.name }}.apk"
+          apk="release/e6atb-chat-${{ steps.version.outputs.name }}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "${apk}"
+          apk_sha256="$(sha256sum "${apk}" | awk '{print $1}')"
+          apk_size="$(wc -c < "${apk}")"
+          cat > release/update.json <<EOF
+          {
+            "packageName": "ru.e6atb.chat",
+            "versionName": "${{ steps.version.outputs.name }}",
+            "versionCode": ${{ steps.version.outputs.code }},
+            "apkName": "e6atb-chat-${{ steps.version.outputs.name }}.apk",
+            "apkSize": ${apk_size},
+            "apkSha256": "${apk_sha256}"
+          }
+          EOF
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: e6atb-chat-${{ steps.version.outputs.name }}-release
-          path: release/e6atb-chat-${{ steps.version.outputs.name }}.apk
+          path: |
+            release/e6atb-chat-${{ steps.version.outputs.name }}.apk
+            release/update.json
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -115,11 +130,12 @@ jobs:
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_NAME: E6atb Chat ${{ steps.version.outputs.name }}
           APK_PATH: release/e6atb-chat-${{ steps.version.outputs.name }}.apk
+          UPDATE_PATH: release/update.json
         run: |
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" "${APK_PATH}" --clobber
+            gh release upload "${RELEASE_TAG}" "${APK_PATH}" "${UPDATE_PATH}" --clobber
           else
-            gh release create "${RELEASE_TAG}" "${APK_PATH}" \
+            gh release create "${RELEASE_TAG}" "${APK_PATH}" "${UPDATE_PATH}" \
               --target "${GITHUB_SHA}" \
               --title "${RELEASE_NAME}" \
               --notes "Release ${RELEASE_NAME}"

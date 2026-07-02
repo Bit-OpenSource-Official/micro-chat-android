@@ -28,4 +28,12 @@ public final class MainActivityTextTest {
 		assertEquals(false, MiniTaLib.isInvalidTokenError(new RuntimeException("unauthorized")));
 		assertEquals(true, MiniTaLib.isInvalidTokenError(new RuntimeException("invalid token")));
 	}
+
+	@Test
+	public void githubOtaVersionComparisonUsesNumericParts() {
+		assertEquals(true, GithubOtaUpdater.compareVersionNames("v1.10.0", "1.2.9") > 0);
+		assertEquals(true, GithubOtaUpdater.compareVersionNames("1.0.0", "v1") == 0);
+		assertEquals(true, GithubOtaUpdater.isNewer("0.1", 42, "9.9", 41));
+		assertEquals(false, GithubOtaUpdater.isNewer("9.9", 42, "0.1", 42));
+	}
 }

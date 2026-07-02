@@ -40,6 +40,13 @@ def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
 def appVersionCode = (providers.gradleProperty("appVersionCode").orNull ?:
     System.getenv("APP_VERSION_CODE") ?:
     "2").toInteger()
+def githubRepository = providers.gradleProperty("githubRepository").orNull ?:
+    System.getenv("GITHUB_REPOSITORY") ?:
+    dotenv["GITHUB_REPOSITORY"] ?:
+    ""
+def javaString = { value ->
+    (value == null ? "" : value).replace("\\", "\\\\").replace("\"", "\\\"")
+}
 def configuredReleaseStoreFile = providers.gradleProperty("releaseStoreFile").orNull ?:
     System.getenv("RELEASE_STORE_FILE")
 def releaseStoreFile = configuredReleaseStoreFile ?
@@ -81,6 +88,7 @@ android {
         versionCode appVersionCode
         versionName appVersionName
         buildConfigField "String", "CRYPT_SERVER_PUBLIC_KEY_B64", "\"${cryptServerPublicKey}\""
+        buildConfigField "String", "GITHUB_REPOSITORY", "\"${javaString(githubRepository)}\""
     }
 
     buildFeatures {

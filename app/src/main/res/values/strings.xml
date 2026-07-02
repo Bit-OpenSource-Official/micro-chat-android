@@ -134,6 +134,13 @@
 	<string name="status_user_unbanned">user unbanned</string>
 	<string name="status_unknown_error">unknown error</string>
 	<string name="status_operation_error">error: %1$s</string>
+	<string name="status_update_not_configured">GitHub updates are not configured</string>
+	<string name="status_update_checking">checking GitHub releases...</string>
+	<string name="status_update_none">app is up to date</string>
+	<string name="status_update_downloading">downloading update %1$s...</string>
+	<string name="status_update_ready">update %1$s is ready</string>
+	<string name="status_update_install_permission">allow installs from this source, then check updates again</string>
+	<string name="status_update_install_error">update install error: %1$s</string>
 	<string name="status_voice_connected">voice connected</string>
 	<string name="status_voice_connection_closed">voice: connection closed</string>
 	<string name="status_voice_connecting">voice: connecting</string>
@@ -198,6 +205,7 @@
 	<string name="settings_section_app">App</string>
 	<string name="settings_server">Server</string>
 	<string name="settings_interface">Interface</string>
+	<string name="settings_updates">Updates</string>
 	<string name="settings_section_actions">Actions</string>
 	<string name="settings_delete_account">Delete account</string>
 	<string name="settings_logout">Log out</string>
@@ -210,6 +218,8 @@
 	<string name="settings_privacy_subtitle">Messages: %1$s; calls: %2$s; invites: %3$s</string>
 	<string name="settings_status_visible">Status bar enabled</string>
 	<string name="settings_status_hidden">Status bar hidden</string>
+	<string name="settings_updates_subtitle">GitHub Releases, current: %1$s</string>
+	<string name="settings_updates_not_configured">GitHub repository is not configured</string>
 	<string name="settings_logout_subtitle">End current session</string>
 	<string name="settings_app_version">App version</string>
 	<string name="settings_name">Name</string>

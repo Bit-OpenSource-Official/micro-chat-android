@@ -64,8 +64,17 @@ gradle :app:assembleRelease -PappVersionName=1.2.3 -PappVersionCode=123
 При создании или обновлении ветки `release/VERSION` workflow собирает release APK.
 `VERSION` из имени ветки передается в `versionName`, поэтому в приложении будет
 показана та же версия. APK загружается в GitHub Actions artifacts и публикуется
-в GitHub Releases с тегом `vVERSION`. Для сборки добавь в GitHub Secrets
-значение `CRYPT_SERVER_PUBLIC_KEY_B64`.
+в GitHub Releases с тегом `vVERSION`. Рядом с APK публикуется `update.json`;
+Android-клиент читает GitHub Releases API из настроек приложения, сравнивает
+`versionCode`, скачивает APK и открывает системный установщик.
+
+Для сборки добавь в GitHub Secrets значение `CRYPT_SERVER_PUBLIC_KEY_B64`.
+В GitHub Actions репозиторий для OTA берется из `GITHUB_REPOSITORY`
+автоматически. Для локальной сборки его можно задать вручную:
+
+```bash
+gradle :app:assembleRelease -PgithubRepository=OWNER/REPO
+```
 
 Для постоянной подписи APK добавь secrets:
 

@@ -25,6 +25,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.text.InputType;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
@@ -1680,6 +1681,12 @@ public final class MainActivity extends Activity {
 				showSettingsInterface();
 			}
 		}));
+		settings.addView(settingsRow(getString(R.string.settings_updates), updateSettingsSubtitle(), new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				checkGithubUpdate();
+			}
+		}));
 		settings.addView(settingsSection(getString(R.string.settings_section_actions)));
 		settings.addView(settingsRow(getString(R.string.settings_delete_account), getString(R.string.settings_delete_account_subtitle), new View.OnClickListener() {
 			@Override
@@ -1697,6 +1704,81 @@ public final class MainActivity extends Activity {
 
 		scroll.addView(settings, new ScrollView.LayoutParams(-1, -2));
 		content.addView(scroll, fill());
+	}
+
+	private String updateSettingsSubtitle() {
+		String repository = BuildConfig.GITHUB_REPOSITORY == null ? "" : BuildConfig.GITHUB_REPOSITORY.trim();
+		if (repository.length() == 0) return getString(R.string.settings_updates_not_configured);
+		return getString(R.string.settings_updates_subtitle, BuildConfig.VERSION_NAME);
+	}
+
+	private void checkGithubUpdate() {
+		final String repository = BuildConfig.GITHUB_REPOSITORY == null ? "" : BuildConfig.GITHUB_REPOSITORY.trim();
+		if (repository.length() == 0) {
+			status.setText(getString(R.string.status_update_not_configured));
+			return;
+		}
+		status.setText(getString(R.string.status_update_checking));
+		run("github_update", new Task() {
+			@Override
+			public void run() throws Exception {
+				final GithubOtaUpdater.Update update = GithubOtaUpdater.findLatest(
+						repository,
+						getPackageName(),
+						BuildConfig.VERSION_NAME,
+						BuildConfig.VERSION_CODE);
+				if (update == null) {
+					ui(new Runnable() {
+						@Override
+						public void run() {
+							status.setText(getString(R.string.status_update_none));
+						}
+					});
+					return;
+				}
+				ui(new Runnable() {
+					@Override
+					public void run() {
+						status.setText(getString(R.string.status_update_downloading, update.versionName));
+					}
+				});
+				final File apk = GithubOtaUpdater.download(MainActivity.this, update);
+				ui(new Runnable() {
+					@Override
+					public void run() {
+						installGithubUpdate(apk, update.versionName);
+					}
+				});
+			}
+		});
+	}
+
+	private void installGithubUpdate(File apk, String versionName) {
+		if (apk == null || !apk.isFile()) {
+			status.setText(getString(R.string.status_download_folder_not_available));
+			return;
+		}
+		if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+			status.setText(getString(R.string.status_update_install_permission));
+			try {
+				Intent intent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()));
+				startActivity(intent);
+			} catch (Exception e) {
+				openUrl("https://github.com/" + BuildConfig.GITHUB_REPOSITORY + "/releases/latest");
+			}
+			return;
+		}
+		try {
+			Intent intent = new Intent(Intent.ACTION_VIEW);
+			intent.setDataAndType(localFileUri(apk), "application/vnd.android.package-archive");
+			intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+			startActivity(intent);
+			status.setText(getString(R.string.status_update_ready, versionName));
+		} catch (ActivityNotFoundException e) {
+			status.setText(getString(R.string.status_no_app_to_open, apk.getName()));
+		} catch (Exception e) {
+			status.setText(getString(R.string.status_update_install_error, errorText(e)));
+		}
 	}
 
 	private LinearLayout settingsProfileHeader() {
