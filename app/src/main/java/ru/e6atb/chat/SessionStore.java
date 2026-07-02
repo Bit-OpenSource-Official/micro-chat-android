@@ -18,6 +18,7 @@ final class SessionStore {
 	private static final String LEGACY_LOGIN = "login";
 	private static final String LAST_UPDATE = "last_update";
 	private static final String BACKGROUND_LAST_UPDATE = "background_last_update";
+	private static final String LAST_GITHUB_UPDATE_CHECK_AT = "last_github_update_check_at";
 	private static final String SHOW_STATUS = "show_status";
 	private static final String USE_INSETS = "use_insets";
 	private static final String LANGUAGE = "language";
@@ -97,6 +98,14 @@ final class SessionStore {
 
 	static void backgroundLastUpdate(Context context, long id) {
 		setLong(context, BACKGROUND_LAST_UPDATE, id);
+	}
+
+	static long lastGithubUpdateCheckAt(Context context) {
+		return longValue(context, LAST_GITHUB_UPDATE_CHECK_AT);
+	}
+
+	static void lastGithubUpdateCheckAt(Context context, long timestamp) {
+		setLong(context, LAST_GITHUB_UPDATE_CHECK_AT, timestamp);
 	}
 
 	private static long longValue(Context context, String key) {

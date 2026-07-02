@@ -4,6 +4,7 @@
 	<string name="loading_short">...</string>
 	<string name="action_back">Назад</string>
 	<string name="action_refresh">Обновить</string>
+	<string name="action_update">Обновить</string>
 	<string name="action_send">Отправить</string>
 	<string name="action_cancel">Отмена</string>
 	<string name="action_ok">OK</string>
@@ -141,6 +142,8 @@
 	<string name="status_update_ready">обновление %1$s готово</string>
 	<string name="status_update_install_permission">разрешите установку из этого источника и проверьте обновления еще раз</string>
 	<string name="status_update_install_error">ошибка установки обновления: %1$s</string>
+	<string name="update_available_title">Доступно обновление</string>
+	<string name="update_available_body">Текущая версия: %1$s\nНовая версия: %2$s\nСкачать и установить сейчас?</string>
 	<string name="status_voice_connected">голос подключен</string>
 	<string name="status_voice_connection_closed">голос: соединение закрыто</string>
 	<string name="status_voice_connecting">голос: подключение</string>

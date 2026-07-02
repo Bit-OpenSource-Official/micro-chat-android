@@ -4,6 +4,7 @@
 	<string name="loading_short">...</string>
 	<string name="action_back">חזרה</string>
 	<string name="action_refresh">רענן</string>
+	<string name="action_update">עדכן</string>
 	<string name="action_send">שלח</string>
 	<string name="action_cancel">ביטול</string>
 	<string name="action_ok">אישור</string>
@@ -187,6 +188,8 @@
 	<string name="settings_status_hidden">שורת הסטטוס מוסתרת</string>
 	<string name="settings_logout_subtitle">סיים את הסשן הנוכחי</string>
 	<string name="settings_app_version">גרסת האפליקציה</string>
+	<string name="update_available_title">עדכון זמין</string>
+	<string name="update_available_body">גרסה נוכחית: %1$s\nגרסה חדשה: %2$s\nלהוריד ולהתקין עכשיו?</string>
 	<string name="settings_name">שם</string>
 	<string name="settings_public_name_hint">שם ציבורי</string>
 	<string name="settings_save_username">שמור username</string>

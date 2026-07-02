@@ -4,6 +4,7 @@
 	<string name="loading_short">...</string>
 	<string name="action_back">Back</string>
 	<string name="action_refresh">Refresh</string>
+	<string name="action_update">Update</string>
 	<string name="action_send">Send</string>
 	<string name="action_cancel">Cancel</string>
 	<string name="action_ok">OK</string>
@@ -141,6 +142,8 @@
 	<string name="status_update_ready">update %1$s is ready</string>
 	<string name="status_update_install_permission">allow installs from this source, then check updates again</string>
 	<string name="status_update_install_error">update install error: %1$s</string>
+	<string name="update_available_title">Update available</string>
+	<string name="update_available_body">Current version: %1$s\nNew version: %2$s\nDownload and install now?</string>
 	<string name="status_voice_connected">voice connected</string>
 	<string name="status_voice_connection_closed">voice: connection closed</string>
 	<string name="status_voice_connecting">voice: connecting</string>

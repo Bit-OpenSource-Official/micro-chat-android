@@ -115,6 +115,7 @@ public final class MainActivity extends Activity {
 	private static final int USERNAME_RESERVATION_FEE_DSR = 20;
 	private static final int MAX_INCOMING_CALL_AGE_SEC = 120;
 	private static final long EMAIL_CODE_RESEND_DELAY_MS = 5 * 60 * 1000L;
+	private static final long GITHUB_UPDATE_CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L;
 	private static final String PERMISSION_RECORD_AUDIO = "android.permission.RECORD_AUDIO";
 	private static final String PERMISSION_READ_EXTERNAL_STORAGE = "android.permission.READ_EXTERNAL_STORAGE";
 	private static final String PERMISSION_POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS";
@@ -323,6 +324,7 @@ public final class MainActivity extends Activity {
 		requestReadStoragePermission();
 		restoreSession();
 		handleIntent(getIntent());
+		maybeOfferGithubUpdate();
 	}
 
 	@Override
@@ -411,6 +413,7 @@ public final class MainActivity extends Activity {
 	protected void onResume() {
 		super.onResume();
 		activityResumed = true;
+		maybeOfferGithubUpdate();
 		if (ta != null) startPolling();
 	}
 
@@ -1700,7 +1703,7 @@ public final class MainActivity extends Activity {
 				showSettingsLogout();
 			}
 		}));
-		settings.addView(settingsInfoRow(getString(R.string.settings_app_version), BuildConfig.VERSION_NAME));
+		settings.addView(settingsVersionText());
 
 		scroll.addView(settings, new ScrollView.LayoutParams(-1, -2));
 		content.addView(scroll, fill());
@@ -1739,18 +1742,78 @@ public final class MainActivity extends Activity {
 				ui(new Runnable() {
 					@Override
 					public void run() {
-						status.setText(getString(R.string.status_update_downloading, update.versionName));
-					}
-				});
-				final File apk = GithubOtaUpdater.download(MainActivity.this, update);
-				ui(new Runnable() {
-					@Override
-					public void run() {
-						installGithubUpdate(apk, update.versionName);
+						downloadAndInstallGithubUpdate(update);
 					}
 				});
 			}
 		});
+	}
+
+	private void maybeOfferGithubUpdate() {
+		final String repository = BuildConfig.GITHUB_REPOSITORY == null ? "" : BuildConfig.GITHUB_REPOSITORY.trim();
+		if (repository.length() == 0) return;
+		long now = System.currentTimeMillis();
+		long lastCheck = SessionStore.lastGithubUpdateCheckAt(this);
+		if (lastCheck > 0 && now - lastCheck < GITHUB_UPDATE_CHECK_INTERVAL_MS) return;
+		SessionStore.lastGithubUpdateCheckAt(this, now);
+		io.execute(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					final GithubOtaUpdater.Update update = GithubOtaUpdater.findLatest(
+							repository,
+							getPackageName(),
+							BuildConfig.VERSION_NAME,
+							BuildConfig.VERSION_CODE);
+					if (update == null) return;
+					ui(new Runnable() {
+						@Override
+						public void run() {
+							if (isFinishing()) return;
+							showGithubUpdateOffer(update);
+						}
+					});
+				} catch (Exception ignored) {
+				}
+			}
+		});
+	}
+
+	private void showGithubUpdateOffer(final GithubOtaUpdater.Update update) {
+		showConfirmDialog(
+				getString(R.string.update_available_title),
+				getString(R.string.update_available_body, BuildConfig.VERSION_NAME, updateVersionLabel(update)),
+				getString(R.string.action_update),
+				new Runnable() {
+					@Override
+					public void run() {
+						downloadAndInstallGithubUpdate(update);
+					}
+				});
+	}
+
+	private void downloadAndInstallGithubUpdate(final GithubOtaUpdater.Update update) {
+		final String versionName = updateVersionLabel(update);
+		status.setText(getString(R.string.status_update_downloading, versionName));
+		run("github_update_download", new Task() {
+			@Override
+			public void run() throws Exception {
+				final File apk = GithubOtaUpdater.download(MainActivity.this, update);
+				ui(new Runnable() {
+					@Override
+					public void run() {
+						installGithubUpdate(apk, versionName);
+					}
+				});
+			}
+		});
+	}
+
+	private String updateVersionLabel(GithubOtaUpdater.Update update) {
+		if (update != null && update.versionName != null && update.versionName.length() > 0) {
+			return update.versionName;
+		}
+		return "latest";
 	}
 
 	private void installGithubUpdate(File apk, String versionName) {
@@ -1846,28 +1909,17 @@ public final class MainActivity extends Activity {
 		return row;
 	}
 
-	private LinearLayout settingsInfoRow(String name, String detail) {
-		LinearLayout row = new LinearLayout(this);
-		row.setOrientation(LinearLayout.HORIZONTAL);
-		row.setGravity(Gravity.CENTER_VERTICAL);
-		row.setPadding(pad, gap, pad, gap);
-		row.setBackgroundDrawable(shape(surface, 0, elementRadius()));
-
-		TextView title = label(name);
-		title.setTextSize(16);
-		title.setTextColor(textColor);
-		row.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-
-		TextView value = label(detail);
-		value.setTextSize(13);
-		value.setTextColor(muted);
-		value.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-		row.addView(value, new LinearLayout.LayoutParams(0, -2, 1));
+	private TextView settingsVersionText() {
+		TextView version = label(getString(R.string.settings_app_version) + ": " + BuildConfig.VERSION_NAME);
+		version.setTextSize(13);
+		version.setTextColor(muted);
+		version.setGravity(Gravity.CENTER);
+		version.setPadding(pad, gap, pad, pad);
 
 		LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-		lp.setMargins(0, 0, 0, gap / 2);
-		row.setLayoutParams(lp);
-		return row;
+		lp.setMargins(0, gap / 2, 0, 0);
+		version.setLayoutParams(lp);
+		return version;
 	}
 
 	private LinearLayout settingsPage(String titleText, Page pageValue) {
