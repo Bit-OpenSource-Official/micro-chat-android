@@ -30,10 +30,6 @@ if (dotenvFile.isFile()) {
         }
     }
 }
-def cryptServerPublicKey = providers.gradleProperty("cryptServerPublicKeyB64").orNull ?:
-    System.getenv("CRYPT_SERVER_PUBLIC_KEY_B64") ?:
-    dotenv["CRYPT_SERVER_PUBLIC_KEY_B64"] ?:
-    ""
 def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
     System.getenv("APP_VERSION_NAME") ?:
     "0.2"
@@ -69,7 +65,6 @@ def releaseKeyPassword = providers.gradleProperty("releaseKeyPassword").orNull ?
     releaseStorePassword
 
 dependencies {
-    implementation "org.bouncycastle:bcprov-jdk15to18:1.84"
     testImplementation "junit:junit:4.13.2"
 }
 
@@ -84,7 +79,6 @@ android {
         targetSdk 35
         versionCode appVersionCode
         versionName appVersionName
-        buildConfigField "String", "CRYPT_SERVER_PUBLIC_KEY_B64", "\"${cryptServerPublicKey}\""
         buildConfigField "String", "GITHUB_REPOSITORY", "\"${javaString(githubRepository)}\""
     }
 
@@ -124,11 +118,6 @@ android {
 gradle.taskGraph.whenReady { graph ->
     boolean releaseRequested = graph.allTasks.any {
         it.project == project && it.name.toLowerCase().contains("release")
-    }
-    if (releaseRequested && cryptServerPublicKey.trim().isEmpty()) {
-        throw new GradleException(
-            "Release build requires -PcryptServerPublicKeyB64=<server public key>"
-        )
     }
     if (releaseRequested && !releaseStoreFile.isFile()) {
         throw new GradleException(

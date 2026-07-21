@@ -6,7 +6,6 @@ import org.json.JSONObject;
 import android.util.Base64;
 import android.content.Context;
 
-import rs.ove.crypt.proto.CryptTcpClient;
 import rs.ove.crypt.proto.E2ECipher;
 import rs.ove.crypt.proto.E2EKeyBackup;
 
@@ -20,7 +19,7 @@ import java.util.Locale;
 
 final class MiniTaLib {
 	private final String baseUrl;
-	private final CryptTcpClient transport = new CryptTcpClient();
+	private final TlsHttpClient transport;
 	private final Context context;
 	private final HashMap<String, String> peerE2EKeys = new HashMap<String, String>();
 	private final HashMap<String, E2ECipher.Session> peerE2ESessions = new HashMap<String, E2ECipher.Session>();
@@ -48,7 +47,8 @@ final class MiniTaLib {
 
 	MiniTaLib(Context context, String baseUrl, String token, String login) {
 		this.context = context == null ? null : context.getApplicationContext();
-		this.baseUrl = trimSlash(baseUrl);
+		this.baseUrl = TlsHttpClient.normalizeBaseUrl(trimSlash(baseUrl));
+		this.transport = new TlsHttpClient(this.baseUrl);
 		this.token = token;
 		this.login = login == null ? "" : login;
 		if (this.context != null && this.login.length() > 0) {
@@ -365,11 +365,11 @@ final class MiniTaLib {
 
 	byte[] downloadFileBytes(String fileID, int maxBytes) throws Exception {
 		String path = "/file/" + enc(fileID);
-		CryptTcpClient.Response response = transport.request(baseUrl, token(), "GET", path, null, 30000);
+		TlsHttpClient.Response response = transport.request(token(), "GET", path, null, 30000);
 		byte[] data = response.body();
 		if (response.code() < 200 || response.code() >= 300) {
 			String text = new String(data, "UTF-8");
-			throw apiException(response.code(), text.length() == 0 ? "TCP " + response.code() : text);
+			throw apiException(response.code(), text.length() == 0 ? "HTTP " + response.code() : text);
 		}
 		if (maxBytes > 0 && data.length > maxBytes) {
 			throw new RuntimeException("file is too large");
@@ -535,11 +535,11 @@ final class MiniTaLib {
 
 	private JSONObject request(String method, String path, JSONObject body, int readTimeoutMs) throws Exception {
 		byte[] bodyBytes = body == null ? null : body.toString().getBytes("UTF-8");
-		CryptTcpClient.Response response = transport.request(baseUrl, token(), method, path, bodyBytes, readTimeoutMs);
+		TlsHttpClient.Response response = transport.request(token(), method, path, bodyBytes, readTimeoutMs);
 		String text = new String(response.body(), "UTF-8");
 		JSONObject out = text.length() == 0 ? new JSONObject() : new JSONObject(text);
 		if (response.code() < 200 || response.code() >= 300) {
-			throw apiException(response.code(), out.optString("error", "TCP " + response.code()));
+			throw apiException(response.code(), out.optString("error", "HTTP " + response.code()));
 		}
 		return out;
 	}
@@ -550,7 +550,7 @@ final class MiniTaLib {
 	}
 
 	private RuntimeException apiException(int code, String message) {
-		String text = message == null || message.length() == 0 ? "TCP " + code : message;
+		String text = message == null || message.length() == 0 ? "HTTP " + code : message;
 		if (code == 401 && isCloudPasswordRequiredMessage(text)) {
 			return new RuntimeException(text);
 		}
@@ -591,27 +591,18 @@ final class MiniTaLib {
 		URI uri = normalizedUri(baseUrl);
 		String scheme = uri.getScheme();
 		String wsScheme;
-		if ("https".equalsIgnoreCase(scheme) || "tcps".equalsIgnoreCase(scheme) || "wss".equalsIgnoreCase(scheme)) {
-			wsScheme = "wss";
-		} else {
-			wsScheme = "ws";
-		}
+		if (!"https".equalsIgnoreCase(scheme)) throw new IOException("TLS is required for voice connections");
+		wsScheme = "wss";
 		return wsScheme + "://" + hostPort(uri);
 	}
 
 	private String wsHttpBaseUrl() throws Exception {
 		URI uri = normalizedUri(baseUrl);
-		String scheme = uri.getScheme();
-		String httpScheme = "https".equalsIgnoreCase(scheme) || "tcps".equalsIgnoreCase(scheme) || "wss".equalsIgnoreCase(scheme) ? "https" : "http";
-		return httpScheme + "://" + hostPort(uri);
+		return "https://" + hostPort(uri);
 	}
 
 	private static URI normalizedUri(String raw) {
-		String value = raw == null || raw.trim().length() == 0 ? "127.0.0.1:8080" : raw.trim();
-		if (value.indexOf("://") < 0) {
-			value = "tcp" + "://" + value;
-		}
-		return URI.create(value);
+		return URI.create(TlsHttpClient.normalizeBaseUrl(raw));
 	}
 
 	private static String hostPort(URI uri) {
@@ -635,15 +626,11 @@ final class MiniTaLib {
 
 	private static String trimSlash(String s) {
 		if (s == null || s.length() == 0) {
-			return "127.0.0.1:8080";
+			return "https://127.0.0.1:8080";
 		}
 		s = s.trim();
 		while (s.endsWith("/")) {
 			s = s.substring(0, s.length() - 1);
-		}
-		String legacyPrefix = "tcp" + "://";
-		if (s.toLowerCase(Locale.US).startsWith(legacyPrefix)) {
-			return s.substring(legacyPrefix.length());
 		}
 		return s;
 	}

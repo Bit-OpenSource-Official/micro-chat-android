@@ -149,7 +149,6 @@
 	<string name="status_voice_connected">voice connected</string>
 	<string name="status_voice_connection_closed">voice: connection closed</string>
 	<string name="status_joining_voice_channel">joining voice channel...</string>
-	<string name="status_crypto_handshake_failed">crypto handshake failed</string>
 	<string name="status_speaker_unavailable">speaker unavailable</string>
 	<string name="status_microphone_unavailable">microphone unavailable</string>
 	<string name="wallet_title">Wallet</string>

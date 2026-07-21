@@ -22,12 +22,9 @@ RUN yes | sdkmanager --licenses >/dev/null \
     && sdkmanager "platform-tools" "platforms;android-35" "build-tools;34.0.0"
 
 WORKDIR /src
-ARG CRYPT_SERVER_PUBLIC_KEY_B64
 COPY settings.gradle build.gradle ./
 COPY app/build.gradle app/proguard-rules.pro app/
 RUN gradle --no-daemon :app:dependencies >/dev/null || true
 
 COPY app app
-RUN test -n "$CRYPT_SERVER_PUBLIC_KEY_B64" \
-    && gradle --no-daemon :app:assembleRelease \
-       -PcryptServerPublicKeyB64="$CRYPT_SERVER_PUBLIC_KEY_B64"
+RUN gradle --no-daemon :app:assembleRelease

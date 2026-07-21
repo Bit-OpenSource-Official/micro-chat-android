@@ -86,7 +86,7 @@ import android.util.Base64;
 import android.widget.ImageView;
 
 public final class MainActivity extends Activity {
-	public static final String DEFAULT_SERVER = "danila.e6atb.ru:8080";
+	public static final String DEFAULT_SERVER = "https://danila.e6atb.ru";
 	public static final String ACTION_ACCEPT_CALL = "ru.e6atb.chat.ACCEPT_CALL";
 	public static final String ACTION_OPEN_CALL = "ru.e6atb.chat.OPEN_CALL";
 	public static final String EXTRA_PEER = "peer";

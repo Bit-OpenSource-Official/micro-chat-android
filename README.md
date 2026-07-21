@@ -7,32 +7,28 @@
 - Java, без Compose, AndroidX, Retrofit, Room и других runtime-зависимостей.
 - Страницы: Login, Chats, Chat, Settings.
 - Текст, файлы, кошелек DSR и голосовые звонки.
-- HTTP long polling через `MiniTaLib`.
+- HTTPS long polling через `MiniTaLib`.
 - Сохранение авторизации после перезапуска приложения.
 - Фоновые уведомления через foreground service.
 - История чата сначала открывается на последних сообщениях; старые догружаются при скролле вверх.
-- Голосовые звонки 1-на-1 без видео: входящий звонок показывает рингтон и кнопки Accept/Decline, PCM-аудио идёт через WebSocket `/voice`.
-- Cleartext HTTP включен для локальной разработки.
+- Голосовые звонки 1-на-1 без видео: входящий звонок показывает рингтон и кнопки Accept/Decline, PCM-аудио идёт через защищённый WebSocket `wss://…/voice`.
+- Все соединения с сервером используют стандартный TLS; cleartext HTTP/WebSocket и старый кастомный транспорт не поддерживаются.
 - Release APK собирается с R8/minify и debug-подписью для быстрой установки.
 
-## Запуск backend
+## Подключение к backend
 
-Для хоста `10.100.2.21`:
-
-```bash
-ADDR=0.0.0.0:8080 cargo run --manifest-path micromsg/Cargo.toml --bin micromsg
-```
+Backend должен быть опубликован через HTTPS с сертификатом, которому доверяет Android. Например, TLS можно завершить на Caddy или nginx, а внутренний HTTP-порт сервера оставить доступным только с localhost/приватной сети. В `micromsg` при этом включается `TRUST_HTTPS_PROXY=1`, а proxy передаёт `X-Forwarded-Proto: https` и WebSocket upgrade для `/voice`.
 
 В готовом APK по умолчанию стоит адрес:
 
-```text
-10.100.2.21:8080
+```bash
+https://danila.e6atb.ru
 ```
 
-Если нужен Android Emulator на той же машине, вручную поменяй поле server на:
+Для локальной разработки нужен локальный доверенный сертификат, например:
 
 ```text
-10.0.2.2:8080
+https://dev-chat.example.test:8443
 ```
 
 ## Сборка клиента
@@ -45,13 +41,9 @@ gradle :app:assembleRelease
 ```
 
 Для локальной сборки нужны Android SDK и Gradle. Если их нет, используй Docker-сборку ниже.
-Release-сборка требует ключ сервера и keystore для подписи. По умолчанию Gradle
+Release-сборка требует keystore для подписи. По умолчанию Gradle
 ищет `micromsg.keystore` в корне репозитория, а для локальной совместимости
 также принимает старый путь `../micromsg.keystore`.
-
-```bash
-CRYPT_SERVER_PUBLIC_KEY_B64=... gradle :app:assembleRelease
-```
 
 Версию приложения можно задать Gradle-параметрами:
 
@@ -68,7 +60,6 @@ gradle :app:assembleRelease -PappVersionName=1.2.3 -PappVersionCode=123
 Android-клиент читает GitHub Releases API из настроек приложения, сравнивает
 `versionCode`, скачивает APK и открывает системный установщик.
 
-Для сборки добавь в GitHub Secrets значение `CRYPT_SERVER_PUBLIC_KEY_B64`.
 В GitHub Actions репозиторий для OTA берется из `GITHUB_REPOSITORY`
 автоматически. Для локальной сборки его можно задать вручную:
 

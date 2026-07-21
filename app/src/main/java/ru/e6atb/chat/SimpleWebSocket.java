@@ -8,8 +8,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.net.URI;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.util.Random;
+
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocket;
 
 import rs.ove.crypt.proto.CompatSocketConnector;
 import rs.ove.crypt.proto.Base64Codec;
@@ -33,8 +38,8 @@ final class SimpleWebSocket implements Closeable {
 		URI uri = URI.create(rawUrl);
 		String scheme = uri.getScheme();
 		boolean tls = "wss".equalsIgnoreCase(scheme);
-		if (!tls && !"ws".equalsIgnoreCase(scheme)) {
-			throw new IOException("unsupported websocket scheme: " + scheme);
+		if (!tls) {
+			throw new IOException("TLS is required; use a wss:// websocket URL");
 		}
 		String host = uri.getHost();
 		if (host == null || host.length() == 0) {
@@ -45,6 +50,14 @@ final class SimpleWebSocket implements Closeable {
 			port = tls ? 443 : 80;
 		}
 		socket = CompatSocketConnector.connect(host, port, tls, CONNECT_TIMEOUT_MS);
+		if (!(socket instanceof SSLSocket)) {
+			throw new IOException("TLS websocket connection was not established");
+		}
+		SSLSession session = ((SSLSocket)socket).getSession();
+		if (!HttpsURLConnection.getDefaultHostnameVerifier().verify(host, session)) {
+			try { socket.close(); } catch (Exception ignored) {}
+			throw new IOException("TLS hostname verification failed for " + host);
+		}
 		in = socket.getInputStream();
 		out = socket.getOutputStream();
 
@@ -83,9 +96,32 @@ final class SimpleWebSocket implements Closeable {
 			String status = end > 0 ? response.substring(0, end) : response.trim();
 			throw new IOException("websocket upgrade failed: " + status);
 		}
+		String expectedAccept = websocketAccept(key);
+		String actualAccept = headerValue(response, "Sec-WebSocket-Accept");
+		if (!expectedAccept.equals(actualAccept)) {
+			throw new IOException("websocket upgrade returned an invalid accept key");
+		}
 		// Voice frames can legitimately be silent for longer than the connection
 		// timeout. Keep the timeout for connect/upgrade only.
 		socket.setSoTimeout(0);
+	}
+
+	private static String websocketAccept(String key) throws Exception {
+		MessageDigest digest = MessageDigest.getInstance("SHA-1");
+		return Base64Codec.encode(digest.digest(
+				(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").getBytes("US-ASCII")
+		));
+	}
+
+	private static String headerValue(String headers, String name) {
+		String[] lines = headers.split("\\r\\n");
+		for (int i = 1; i < lines.length; i++) {
+			int colon = lines[i].indexOf(':');
+			if (colon > 0 && name.equalsIgnoreCase(lines[i].substring(0, colon).trim())) {
+				return lines[i].substring(colon + 1).trim();
+			}
+		}
+		return "";
 	}
 
 	synchronized void sendBinary(byte[] payload, int length) throws IOException {

@@ -149,7 +149,6 @@
 	<string name="status_voice_connected">голос подключен</string>
 	<string name="status_voice_connection_closed">голос: соединение закрыто</string>
 	<string name="status_joining_voice_channel">вхожу в голосовой канал...</string>
-	<string name="status_crypto_handshake_failed">ошибка криптографического handshake</string>
 	<string name="status_speaker_unavailable">динамик недоступен</string>
 	<string name="status_microphone_unavailable">микрофон недоступен</string>
 	<string name="wallet_title">Кошелек</string>
