@@ -69,6 +69,7 @@ def releaseKeyPassword = providers.gradleProperty("releaseKeyPassword").orNull ?
     releaseStorePassword
 
 dependencies {
+    implementation "org.bouncycastle:bcprov-jdk15to18:1.84"
     testImplementation "junit:junit:4.13.2"
 }
 

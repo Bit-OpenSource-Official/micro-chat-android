@@ -101,7 +101,7 @@ public final class CryptTcpClient {
 		Socket socket = CompatSocketConnector.connect(endpoint.host, endpoint.port, endpoint.tls, timeoutMs);
 		InputStream input = socket.getInputStream();
 		OutputStream output = socket.getOutputStream();
-		CryptSession session = CryptSession.client(input, output);
+		SecureSessionV4 session = SecureSessionV4.client(input, output, CryptIdentity.serverPublicKey());
 		return new Connection(endpoint, socket, input, output, session, now);
 	}
 
@@ -153,10 +153,10 @@ public final class CryptTcpClient {
 		private final Socket socket;
 		private final InputStream input;
 		private final OutputStream output;
-		private final CryptSession session;
+		private final SecureSessionV4 session;
 		private long lastUsedAt;
 
-		private Connection(Endpoint endpoint, Socket socket, InputStream input, OutputStream output, CryptSession session, long lastUsedAt) {
+		private Connection(Endpoint endpoint, Socket socket, InputStream input, OutputStream output, SecureSessionV4 session, long lastUsedAt) {
 			this.endpoint = endpoint;
 			this.socket = socket;
 			this.input = input;

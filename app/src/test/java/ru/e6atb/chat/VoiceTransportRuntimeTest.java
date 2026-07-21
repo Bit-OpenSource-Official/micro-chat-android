@@ -3,7 +3,7 @@ package ru.e6atb.chat;
 import org.junit.Assume;
 import org.junit.Test;
 
-import rs.ove.crypt.proto.CryptSession;
+import rs.ove.crypt.proto.SecureSessionV4;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -18,23 +18,26 @@ public final class VoiceTransportRuntimeTest {
 		String address = System.getenv("MICROMSG_TEST_ADDR");
 		Assume.assumeTrue(address != null && address.length() > 0);
 		String login = "voice_runtime_" + Long.toString(System.nanoTime(), 36);
+		String peerLogin = "vrp_" + Long.toString(System.nanoTime(), 36);
 		String registered = request(address, "", "POST", "/register",
-				"{\"login\":\"" + login + "\",\"password\":\"secret\"}");
+				"{\"username\":\"" + login + "\",\"password\":\"secret\"}");
+		request(address, "", "POST", "/register",
+				"{\"username\":\"" + peerLogin + "\",\"password\":\"secret\"}");
 		String token = jsonString(registered, "token");
 		String ticketBody = request(address, token, "POST", "/voice-ticket",
-				"{\"peer\":\"" + login + "\"}");
+				"{\"peer\":\"" + peerLogin + "\"}");
 		String ticket = jsonString(ticketBody, "ticket");
 		String url = new MiniTaLib(address, token).voiceSocketUrl(ticket);
 		assertTrue(url.startsWith("ws://" + address + "/voice?ticket="));
 		SimpleWebSocket socket = new SimpleWebSocket();
 		try {
 			socket.connect(url);
-			CryptSession.ClientHello hello = CryptSession.createClientHello();
+			SecureSessionV4.ClientHello hello = SecureSessionV4.createClientHello();
 			byte[] message = hello.message();
 			socket.sendBinary(message, message.length);
 			SimpleWebSocket.Frame frame = socket.readFrame();
 			assertEquals(SimpleWebSocket.BINARY, frame.opcode);
-			CryptSession.openClient(hello, frame.payload);
+			SecureSessionV4.openClient(hello, frame.payload);
 		} finally {
 			socket.close();
 		}
@@ -47,7 +50,13 @@ public final class VoiceTransportRuntimeTest {
 		try {
 			InputStream input = socket.getInputStream();
 			OutputStream output = socket.getOutputStream();
-			CryptSession session = CryptSession.client(input, output);
+			SecureSessionV4 session = SecureSessionV4.client(
+					input,
+					output,
+					ru.e6atb.chat.BuildConfig.CRYPT_SERVER_PUBLIC_KEY_B64.isEmpty()
+							? new byte[0]
+							: java.util.Base64.getDecoder().decode(ru.e6atb.chat.BuildConfig.CRYPT_SERVER_PUBLIC_KEY_B64)
+			);
 			String encodedBody = Base64.getEncoder().encodeToString(body.getBytes("UTF-8"));
 			String request = "{\"method\":\"" + method + "\",\"path\":\"" + path + "\"" +
 					(token.length() == 0 ? "" : ",\"token\":\"" + token + "\"") +
