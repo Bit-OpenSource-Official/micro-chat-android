@@ -12,6 +12,8 @@ import android.media.MediaRecorder;
 import java.io.Closeable;
 import java.io.IOException;
 
+import rs.ove.crypt.proto.SecureSessionV4;
+
 final class VoiceCall {
 	static final String STATE_ENDED = "call_ended";
 	static final String STATE_CONNECTED = "voice_connected";
@@ -25,6 +27,7 @@ final class VoiceCall {
 
 	private volatile boolean running;
 	private SimpleWebSocket ws;
+	private SecureSessionV4 crypt;
 	private AudioRecord recorder;
 	private AudioTrack player;
 	private Thread readThread;
@@ -60,6 +63,7 @@ final class VoiceCall {
 
 	private void stop(boolean notify) {
 		running = false;
+		crypt = null;
 		closeQuietly(ws);
 		ws = null;
 		releaseRecorder();
@@ -72,6 +76,7 @@ final class VoiceCall {
 		try {
 			ws = new SimpleWebSocket();
 			ws.connect(url);
+			crypt = connectCrypt(context, ws);
 			setupPlayer(context);
 			setupRecorder(context);
 			player.play();
@@ -86,8 +91,9 @@ final class VoiceCall {
 					break;
 				}
 				if (frame.opcode == SimpleWebSocket.BINARY && frame.payload.length > 0) {
-					if (frame.payload.length > 0) {
-						player.write(frame.payload, 0, frame.payload.length);
+					byte[] plain = crypt.openApplicationRecord(frame.payload);
+					if (plain.length > 0) {
+						player.write(plain, 0, plain.length);
 					}
 				}
 			}
@@ -107,6 +113,17 @@ final class VoiceCall {
 			}
 			stop(false);
 		}
+	}
+
+	private SecureSessionV4 connectCrypt(Context context, SimpleWebSocket ws) throws Exception {
+		SecureSessionV4.ClientHello hello = SecureSessionV4.createClientHello();
+		byte[] message = hello.message();
+		ws.sendBinary(message, message.length);
+		SimpleWebSocket.Frame frame = ws.readFrame();
+		if (frame.opcode != SimpleWebSocket.BINARY) {
+			throw new IOException(text(context, R.string.status_crypto_handshake_failed));
+		}
+		return SecureSessionV4.openClient(hello, frame.payload);
 	}
 
 	private void setupPlayer(Context context) {
@@ -176,7 +193,8 @@ final class VoiceCall {
 						try {
 							byte[] plain = new byte[n];
 							System.arraycopy(buf, 0, plain, 0, n);
-							ws.sendBinary(plain, plain.length);
+							byte[] sealed = crypt.sealApplicationRecord(plain);
+							ws.sendBinary(sealed, sealed.length);
 						} catch (Exception e) {
 							if (running) {
 								state(STATE_SEND_ERROR_PREFIX + errorText(e));

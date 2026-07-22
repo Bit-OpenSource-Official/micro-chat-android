@@ -67,8 +67,12 @@ final class SessionStore {
 		while (s.endsWith("/")) {
 			s = s.substring(0, s.length() - 1);
 		}
-		if (s.length() == 0) return s;
-		return TlsHttpClient.normalizeBaseUrl(s);
+		String lower = s.toLowerCase(java.util.Locale.US);
+		String legacyPrefix = "tcp" + "://";
+		if (lower.startsWith(legacyPrefix)) {
+			return s.substring(legacyPrefix.length());
+		}
+		return s;
 	}
 
 	static String token(Context context) {
