@@ -24,6 +24,11 @@ ms.ove.rs:8080
 Это native MST4 (`RCP4/RSP4`) поверх TCP с закреплённым публичным ключом
 messenger. Адрес можно изменить в настройках приложения.
 
+Ссылки на ботов имеют вид
+`https://ms.ove.rs/bot/<bot_login>?start=<payload>`, fallback для браузеров —
+`ovechat://bot/<bot_login>?start=<payload>`. После авторизации приложение
+открывает диалог и один раз ставит `/start <payload>` в очередь отправки.
+
 ## Сборка клиента
 
 Открой этот репозиторий в Android Studio или собери Gradle:

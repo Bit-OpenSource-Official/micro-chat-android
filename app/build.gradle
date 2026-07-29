@@ -36,10 +36,10 @@ def cryptServerPublicKey = providers.gradleProperty("cryptServerPublicKeyB64").o
     ""
 def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
     System.getenv("APP_VERSION_NAME") ?:
-    "0.7.17"
+    "0.8.1"
 def appVersionCode = (providers.gradleProperty("appVersionCode").orNull ?:
     System.getenv("APP_VERSION_CODE") ?:
-    "100036").toInteger()
+    "100037").toInteger()
 def githubRepository = providers.gradleProperty("githubRepository").orNull ?:
     System.getenv("GITHUB_REPOSITORY") ?:
     dotenv["GITHUB_REPOSITORY"] ?:

@@ -125,6 +125,7 @@ public final class MainActivity extends Activity {
 	private static final String PERMISSION_READ_EXTERNAL_STORAGE = "android.permission.READ_EXTERNAL_STORAGE";
 	private static final String PERMISSION_POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS";
 	private static final String PERMISSION_CAMERA = "android.permission.CAMERA";
+	private static final String EXTRA_BOT_LINK_CONSUMED = "bot_link_consumed";
 	private static final int LANGUAGE_SYSTEM_ID = 1001;
 	private static final int LANGUAGE_ENGLISH_ID = 1002;
 	private static final int LANGUAGE_RUSSIAN_ID = 1003;
@@ -551,6 +552,17 @@ public final class MainActivity extends Activity {
 			}
 			return;
 		}
+		if (isBotIntent(intent)) {
+			if (!intent.getBooleanExtra(EXTRA_BOT_LINK_CONSUMED, false)) {
+				BotDeepLinkParser.Link link = BotDeepLinkParser.parse(
+						intent.getData() == null ? "" : intent.getData().toString());
+				if (link != null) {
+					intent.putExtra(EXTRA_BOT_LINK_CONSUMED, true);
+					openBotDeepLink(link);
+				}
+			}
+			return;
+		}
 		if (ACTION_OPEN_CALL.equals(intent.getAction()) || intent.hasExtra(EXTRA_CALL)) {
 			String peerName = intent.getStringExtra(EXTRA_PEER);
 			if (peerName == null || peerName.trim().isEmpty()) {
@@ -583,10 +595,18 @@ public final class MainActivity extends Activity {
 	private boolean requiresSession(Intent intent) {
 		if (intent == null) return false;
 		return isOAuthIntent(intent)
+				|| isBotIntent(intent)
 				|| ACTION_OPEN_CALL.equals(intent.getAction())
 				|| ACTION_ACCEPT_CALL.equals(intent.getAction())
 				|| intent.hasExtra(EXTRA_CALL)
 				|| intent.hasExtra(EXTRA_CHAT);
+	}
+
+	private boolean isBotIntent(Intent intent) {
+		return intent != null
+				&& Intent.ACTION_VIEW.equals(intent.getAction())
+				&& intent.getData() != null
+				&& BotDeepLinkParser.parse(intent.getData().toString()) != null;
 	}
 
 	private boolean isOAuthIntent(Intent intent) {
@@ -599,6 +619,34 @@ public final class MainActivity extends Activity {
 				&& "ms.ove.rs".equalsIgnoreCase(data.getHost())
 				&& "/oauth/device".equals(data.getPath());
 		return custom || web;
+	}
+
+	private void openBotDeepLink(final BotDeepLinkParser.Link link) {
+		final MiniTaLib c = ta;
+		if (c == null || link == null) return;
+		status.setText(getString(R.string.loading));
+		run("open_bot_link", new Task() {
+			@Override
+			public void run() throws Exception {
+				final MiniTaLib.HistoryPage pageData =
+						c.getHistoryPageBefore(link.login, 0, HISTORY_PAGE);
+				final String resolvedPeer = resolvedPeerName(pageData.peer, link.login);
+				cacheSaveHistory(resolvedPeer, pageData.messages);
+				ui(new Runnable() {
+					@Override
+					public void run() {
+						currentPeer = resolvedPeer;
+						currentPeerUser = pageData.peer;
+						currentPeerBanned = false;
+						currentPeerBannedByMe = false;
+						currentPeerBannedMe = false;
+						showChat();
+						renderHistory(pageData.messages, resolvedPeer, false);
+						sendChatMessage(resolvedPeer, link.startCommand(), false);
+					}
+				});
+			}
+		});
 	}
 
 	private void openOAuthDeviceRequest(String rawCode) {

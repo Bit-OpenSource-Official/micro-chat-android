@@ -15,8 +15,8 @@ Required environment:
 Optional environment:
   ENV_FILE=./.env
   GRADLE_USER_HOME=/tmp/ove-android-gradle
-  APP_VERSION_NAME=0.7.17
-  APP_VERSION_CODE=100036
+  APP_VERSION_NAME=0.8.1
+  APP_VERSION_CODE=100037
 
 Output:
   app/build/outputs/apk/release/app-release.apk
@@ -36,5 +36,5 @@ cd "$ROOT"
 env -u JDK_JAVA_OPTIONS GRADLE_USER_HOME="${GRADLE_USER_HOME:-/tmp/ove-android-gradle}" \
 	gradle clean :app:assembleRelease \
 	-PcryptServerPublicKeyB64="$CRYPT_SERVER_PUBLIC_KEY_B64" \
-	-PappVersionName="${APP_VERSION_NAME:-0.7.17}" \
-	-PappVersionCode="${APP_VERSION_CODE:-100036}"
+	-PappVersionName="${APP_VERSION_NAME:-0.8.1}" \
+	-PappVersionCode="${APP_VERSION_CODE:-100037}"
