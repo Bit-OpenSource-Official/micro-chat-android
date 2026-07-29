@@ -9,11 +9,11 @@ public final class OAuthCodeParserTest {
 	public void acceptsCodeAndBothLinkFormats() {
 		assertEquals("AB12-CD34", OAuthCodeParser.parse("ab12-cd34"));
 		assertEquals("AB12-CD34", OAuthCodeParser.parse("ovechat://authorize?user_code=AB12-CD34"));
-		assertEquals("AB12-CD34", OAuthCodeParser.parse("https://m.ove.rs/oauth/device?user_code=AB12-CD34"));
+		assertEquals("AB12-CD34", OAuthCodeParser.parse("https://ms.ove.rs/oauth/device?user_code=AB12-CD34"));
 	}
 
 	@Test
 	public void rejectsTextWithoutCode() {
-		assertEquals("", OAuthCodeParser.parse("https://m.ove.rs/oauth/device"));
+		assertEquals("", OAuthCodeParser.parse("https://ms.ove.rs/oauth/device"));
 	}
 }

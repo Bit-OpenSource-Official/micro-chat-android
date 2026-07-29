@@ -68,7 +68,8 @@ final class SessionStore {
 		Properties properties = load(context);
 		String s = normalizeServer(properties.getProperty(SERVER, fallback));
 		if ("danila.e6atb.ru:8080".equalsIgnoreCase(s)
-				|| "10.100.2.21:8080".equalsIgnoreCase(s)) {
+				|| "10.100.2.21:8080".equalsIgnoreCase(s)
+				|| "m.ove.rs:8080".equalsIgnoreCase(s)) {
 			s = normalizeServer(fallback);
 			properties.setProperty(SERVER, s);
 			store(context, properties);

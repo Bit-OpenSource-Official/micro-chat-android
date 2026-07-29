@@ -25,6 +25,7 @@
 	<string name="action_reject">Отклонить</string>
 	<string name="oauth_authorize_title">Авторизация сервиса</string>
 	<string name="oauth_authorize_body">Сервис: %1$s\nAudience: %2$s\nКод: %3$s\n\nПодтверждайте только если вы начали этот вход.</string>
+	<string name="oauth_action_description">Действие:\n%1$s</string>
 	<string name="oauth_authorized">авторизация сервиса подтверждена</string>
 	<string name="oauth_rejected">авторизация сервиса отклонена</string>
 	<string name="oauth_swipe_approve">Свайп для подтверждения</string>

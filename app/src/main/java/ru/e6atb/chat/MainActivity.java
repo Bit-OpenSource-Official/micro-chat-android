@@ -87,7 +87,7 @@ import android.util.Base64;
 import android.widget.ImageView;
 
 public final class MainActivity extends Activity {
-	public static final String DEFAULT_SERVER = "m.ove.rs:8080";
+	public static final String DEFAULT_SERVER = "ms.ove.rs:8080";
 	public static final String ACTION_ACCEPT_CALL = "ru.e6atb.chat.ACCEPT_CALL";
 	public static final String ACTION_OPEN_CALL = "ru.e6atb.chat.OPEN_CALL";
 	public static final String EXTRA_PEER = "peer";
@@ -596,7 +596,7 @@ public final class MainActivity extends Activity {
 		boolean custom = "ovechat".equalsIgnoreCase(data.getScheme())
 				&& "authorize".equalsIgnoreCase(data.getHost());
 		boolean web = "https".equalsIgnoreCase(data.getScheme())
-				&& "m.ove.rs".equalsIgnoreCase(data.getHost())
+				&& "ms.ove.rs".equalsIgnoreCase(data.getHost())
 				&& "/oauth/device".equals(data.getPath());
 		return custom || web;
 	}
@@ -640,6 +640,9 @@ public final class MainActivity extends Activity {
 				request.audience,
 				request.userCode
 		);
+		if (request.actionDescription.length() > 0) {
+			detail += "\n\n" + getString(R.string.oauth_action_description, request.actionDescription);
+		}
 		TextView details = label(detail);
 		details.setTextColor(muted);
 		box.addView(spaced(details));

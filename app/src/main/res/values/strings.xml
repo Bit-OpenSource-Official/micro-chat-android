@@ -25,6 +25,7 @@
 	<string name="action_reject">Reject</string>
 	<string name="oauth_authorize_title">Authorize service</string>
 	<string name="oauth_authorize_body">Service: %1$s\nAudience: %2$s\nCode: %3$s\n\nApprove only if you started this sign-in.</string>
+	<string name="oauth_action_description">Action:\n%1$s</string>
 	<string name="oauth_authorized">service authorization approved</string>
 	<string name="oauth_rejected">service authorization rejected</string>
 	<string name="oauth_swipe_approve">Swipe to approve</string>

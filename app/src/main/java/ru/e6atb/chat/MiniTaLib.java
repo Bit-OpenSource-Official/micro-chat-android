@@ -102,6 +102,7 @@ final class MiniTaLib {
 			out.optString("client_id"),
 			out.optString("client_name"),
 			out.optString("audience"),
+			out.optString("action_description"),
 			out.optLong("expires_at"),
 			out.optString("status")
 		);
@@ -119,14 +120,16 @@ final class MiniTaLib {
 		final String clientID;
 		final String clientName;
 		final String audience;
+		final String actionDescription;
 		final long expiresAt;
 		final String status;
 
-		OAuthDeviceRequest(String userCode, String clientID, String clientName, String audience, long expiresAt, String status) {
+		OAuthDeviceRequest(String userCode, String clientID, String clientName, String audience, String actionDescription, long expiresAt, String status) {
 			this.userCode = userCode;
 			this.clientID = clientID;
 			this.clientName = clientName;
 			this.audience = audience;
+			this.actionDescription = actionDescription;
 			this.expiresAt = expiresAt;
 			this.status = status;
 		}
