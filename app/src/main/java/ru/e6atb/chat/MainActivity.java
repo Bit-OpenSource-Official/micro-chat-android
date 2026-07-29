@@ -67,6 +67,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.Date;
+import java.util.UUID;
 import java.text.SimpleDateFormat;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
@@ -86,7 +87,7 @@ import android.util.Base64;
 import android.widget.ImageView;
 
 public final class MainActivity extends Activity {
-	public static final String DEFAULT_SERVER = "danila.e6atb.ru:8080";
+	public static final String DEFAULT_SERVER = "m.ove.rs:8080";
 	public static final String ACTION_ACCEPT_CALL = "ru.e6atb.chat.ACCEPT_CALL";
 	public static final String ACTION_OPEN_CALL = "ru.e6atb.chat.OPEN_CALL";
 	public static final String EXTRA_PEER = "peer";
@@ -94,11 +95,23 @@ public final class MainActivity extends Activity {
 	public static final String EXTRA_CHAT = "chat_peer";
 
 	private static final int HISTORY_PAGE = 40;
+	private static final long PAID_REACTION_BATCH_DELAY_MS = 500;
+	private static final String[] QUICK_REACTIONS = {"👍", "❤️", "😂", "😮", "😢", "👎"};
+	private static final String[] ALL_REACTIONS = {
+		"👍", "❤️", "😂", "😮", "😢", "👎", "🔥", "🥰", "👏", "😁", "🤔", "🤯",
+		"😱", "🤬", "🎉", "🤩", "🤮", "💩", "🙏", "👌", "🕊️", "🤡", "🥱", "🥴",
+		"😍", "🐳", "❤‍🔥", "🌚", "🌭", "💯", "🤣", "⚡", "🍌", "🏆", "💔", "🤨",
+		"😐", "🍓", "🍾", "💋", "🖕", "😈", "😴", "😭", "🤓", "👻", "👨‍💻", "👀",
+		"🎃", "🙈", "😇", "😨", "🤝", "✍️", "🤗", "🫡", "🎅", "🎄", "☃️", "💅",
+		"🤪", "🗿", "🆒", "💘", "🙉", "🦄", "😘", "💊", "🙊", "😎", "👾", "🤷"
+	};
 	private static final int REQ_NOTIFICATIONS = 10;
 	private static final int REQ_MICROPHONE = 11;
 	private static final int REQ_READ_STORAGE = 12;
 	private static final int REQ_PICK_IMAGE = 13;
 	private static final int REQ_PICK_FILE = 14;
+	private static final int REQ_CAMERA = 15;
+	private static final int REQ_QR_SCAN = 16;
 	private static final String CALL_NOTIFICATION_CHANNEL = "calls_visual";
 	private static final int ACTIVE_CALL_NOTIFICATION_ID = 3;
 	private static final int MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
@@ -111,6 +124,7 @@ public final class MainActivity extends Activity {
 	private static final String PERMISSION_RECORD_AUDIO = "android.permission.RECORD_AUDIO";
 	private static final String PERMISSION_READ_EXTERNAL_STORAGE = "android.permission.READ_EXTERNAL_STORAGE";
 	private static final String PERMISSION_POST_NOTIFICATIONS = "android.permission.POST_NOTIFICATIONS";
+	private static final String PERMISSION_CAMERA = "android.permission.CAMERA";
 	private static final int LANGUAGE_SYSTEM_ID = 1001;
 	private static final int LANGUAGE_ENGLISH_ID = 1002;
 	private static final int LANGUAGE_RUSSIAN_ID = 1003;
@@ -143,6 +157,9 @@ public final class MainActivity extends Activity {
 	private final Handler main = new Handler(Looper.getMainLooper());
 	private final ExecutorService io = Executors.newFixedThreadPool(2);
 	private final ExecutorService cacheIo = Executors.newSingleThreadExecutor();
+	private final ExecutorService paidReactionIo = Executors.newSingleThreadExecutor();
+	private final Map < Long, Long > pendingPaidReactionDeltas = new HashMap < Long, Long > ();
+	private final Map < Long, PaidReactionBatch > paidReactionBatches = new HashMap < Long, PaidReactionBatch > ();
 	private final Set < Long > seenMessages = new HashSet < Long > ();
 	private final Map < String, Bitmap > imagePreviewCache = new HashMap < String, Bitmap > ();
 	private final Map < String, String > imagePreviewErrors = new HashMap < String, String > ();
@@ -332,6 +349,7 @@ public final class MainActivity extends Activity {
 				|| page == Page.SETTINGS_SESSIONS
 				|| page == Page.SETTINGS_CLOUD_PASSWORD
 				|| page == Page.SETTINGS_E2E_KEYS
+				|| page == Page.SETTINGS_AUTHORIZATION
 				|| page == Page.SETTINGS_DELETE_ACCOUNT
 				|| page == Page.SETTINGS_LOGOUT
 				|| page == Page.SETTINGS_SERVER
@@ -340,6 +358,14 @@ public final class MainActivity extends Activity {
 	}
 
 	public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+		if (requestCode == REQ_CAMERA) {
+			if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+				startOAuthQrScanner();
+			} else {
+				status.setText(getString(R.string.oauth_camera_required));
+			}
+			return;
+		}
 		if (requestCode == REQ_MICROPHONE && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
 			String outgoingPeer = pendingOutgoingConnectPeer;
 			pendingOutgoingConnectPeer = "";
@@ -397,6 +423,11 @@ public final class MainActivity extends Activity {
 		voiceCall.stop();
 		io.shutdownNow();
 		cacheIo.shutdownNow();
+		for (PaidReactionBatch batch : paidReactionBatches.values()) {
+			main.removeCallbacks(batch.flush);
+		}
+		paidReactionBatches.clear();
+		paidReactionIo.shutdownNow();
 		super.onDestroy();
 	}
 
@@ -461,9 +492,10 @@ public final class MainActivity extends Activity {
 		}
 		final String url = SessionStore.server(this, DEFAULT_SERVER);
 		final String token = SessionStore.token(this);
+		myID = SessionStore.userId(this);
 		myLogin = SessionStore.login(this);
 		lastUpdate = SessionStore.lastUpdate(this);
-		ta = new MiniTaLib(this, url, token, myLogin);
+		ta = new MiniTaLib(this, url, token, myID, myLogin);
 		final MiniTaLib c = ta;
 		status.setText(getString(R.string.status_online));
 		showChats();
@@ -475,7 +507,7 @@ public final class MainActivity extends Activity {
 				MiniTaLib.User u = c.me();
 				applyOwnUser(u);
 
-				SessionStore.save(MainActivity.this, url, token, myLogin);
+				SessionStore.save(MainActivity.this, url, token, myID, myLogin);
 
 				ui(new Runnable() {
 					@Override
@@ -511,6 +543,14 @@ public final class MainActivity extends Activity {
 			pendingSessionIntent = new Intent(intent);
 			return;
 		}
+		if (isOAuthIntent(intent)) {
+			Uri data = intent.getData();
+			String userCode = data == null ? "" : data.getQueryParameter("user_code");
+			if (userCode != null && !userCode.trim().isEmpty()) {
+				openOAuthDeviceRequest(userCode.trim());
+			}
+			return;
+		}
 		if (ACTION_OPEN_CALL.equals(intent.getAction()) || intent.hasExtra(EXTRA_CALL)) {
 			String peerName = intent.getStringExtra(EXTRA_PEER);
 			if (peerName == null || peerName.trim().isEmpty()) {
@@ -542,10 +582,99 @@ public final class MainActivity extends Activity {
 
 	private boolean requiresSession(Intent intent) {
 		if (intent == null) return false;
-		return ACTION_OPEN_CALL.equals(intent.getAction())
+		return isOAuthIntent(intent)
+				|| ACTION_OPEN_CALL.equals(intent.getAction())
 				|| ACTION_ACCEPT_CALL.equals(intent.getAction())
 				|| intent.hasExtra(EXTRA_CALL)
 				|| intent.hasExtra(EXTRA_CHAT);
+	}
+
+	private boolean isOAuthIntent(Intent intent) {
+		if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return false;
+		Uri data = intent.getData();
+		if (data == null) return false;
+		boolean custom = "ovechat".equalsIgnoreCase(data.getScheme())
+				&& "authorize".equalsIgnoreCase(data.getHost());
+		boolean web = "https".equalsIgnoreCase(data.getScheme())
+				&& "m.ove.rs".equalsIgnoreCase(data.getHost())
+				&& "/oauth/device".equals(data.getPath());
+		return custom || web;
+	}
+
+	private void openOAuthDeviceRequest(String rawCode) {
+		final String userCode = OAuthCodeParser.parse(rawCode);
+		if (userCode.length() == 0) {
+			status.setText(getString(R.string.oauth_invalid_code));
+			return;
+		}
+		final MiniTaLib client = ta;
+		if (client == null) return;
+		run("oauth_device", new Task() {
+			@Override
+			public void run() throws Exception {
+				final MiniTaLib.OAuthDeviceRequest request = client.oauthDeviceRequest(userCode);
+				ui(new Runnable() {
+					@Override
+					public void run() {
+						if (!"pending".equals(request.status)) {
+							status.setText(getString(R.string.oauth_already_decided));
+							return;
+						}
+						showOAuthConfirmDialog(request);
+					}
+				});
+			}
+		});
+	}
+
+	private void showOAuthConfirmDialog(final MiniTaLib.OAuthDeviceRequest request) {
+		final Dialog dialog = new Dialog(this);
+		LinearLayout box = new LinearLayout(this);
+		box.setOrientation(LinearLayout.VERTICAL);
+		box.setPadding(pad, pad, pad, pad);
+		box.setBackgroundDrawable(shape(surface, 0, buttonRadius()));
+		box.addView(title(getString(R.string.oauth_authorize_title)), new LinearLayout.LayoutParams(-1, -2));
+		String detail = getString(
+				R.string.oauth_authorize_body,
+				request.clientName.length() == 0 ? request.clientID : request.clientName,
+				request.audience,
+				request.userCode
+		);
+		TextView details = label(detail);
+		details.setTextColor(muted);
+		box.addView(spaced(details));
+		final PaymentSliderView slider = paymentSlider(getString(R.string.oauth_swipe_approve));
+		slider.setOnConfirmAction(new Runnable() {
+			@Override public void run() {
+				dialog.dismiss();
+				decideOAuth(request.userCode, true);
+			}
+		});
+		box.addView(slider, new LinearLayout.LayoutParams(-1, dp(56)));
+		Button reject = button(getString(R.string.action_reject), new View.OnClickListener() {
+			@Override public void onClick(View view) {
+				dialog.dismiss();
+				decideOAuth(request.userCode, false);
+			}
+		});
+		box.addView(spaced(reject));
+		setScrollableDialogContent(dialog, box);
+		showStyledDialog(dialog);
+	}
+
+	private void decideOAuth(final String userCode, final boolean approve) {
+		final MiniTaLib client = ta;
+		if (client == null) return;
+		run("oauth_decision", new Task() {
+			@Override public void run() throws Exception {
+				client.oauthDeviceDecision(userCode, approve);
+				ui(new Runnable() {
+					@Override public void run() {
+						status.setText(getString(approve ? R.string.oauth_authorized : R.string.oauth_rejected));
+					}
+				});
+			}
+		});
 	}
 
 	private void flushPendingSessionIntent() {
@@ -961,7 +1090,7 @@ public final class MainActivity extends Activity {
 		cancelLp.setMargins(0, gap, 0, 0);
 		box.addView(cancel, cancelLp);
 
-		dialog.setContentView(box);
+		setScrollableDialogContent(dialog, box);
 		showStyledDialog(dialog);
 	}
 
@@ -1497,12 +1626,14 @@ public final class MainActivity extends Activity {
 	}
 
 	private MiniTaLib.NodeStatus e2eKeyStatus(MiniTaLib c) {
-		String login = myLogin == null ? "" : myLogin.trim();
-		if (login.length() == 0) {
-			return new MiniTaLib.NodeStatus("e2e", getString(R.string.node_e2e_keys), "username_required", 0, 1);
+		String accountKey = myID == null || myID.trim().length() == 0
+				? (myLogin == null ? "" : myLogin.trim())
+				: myID.trim();
+		if (accountKey.length() == 0) {
+			return new MiniTaLib.NodeStatus("e2e", getString(R.string.node_e2e_keys), "check_failed", 0, 1);
 		}
 		try {
-			rs.ove.crypt.proto.E2ECipher.Identity local = SessionStore.e2eIdentity(this, login);
+			rs.ove.crypt.proto.E2ECipher.Identity local = SessionStore.e2eIdentity(this, accountKey);
 			String registered = c == null ? "" : c.ownE2EPublicKey();
 			if (local != null && registered.length() > 0 && local.publicKeyB64.equals(registered)) {
 				return new MiniTaLib.NodeStatus("e2e", getString(R.string.node_e2e_keys), "online", 1, 1);
@@ -1555,7 +1686,6 @@ public final class MainActivity extends Activity {
 		if ("loading".equals(value)) return getString(R.string.node_status_loading);
 		if ("online".equals(value)) return getString(R.string.node_status_online);
 		if ("partial".equals(value)) return getString(R.string.node_status_partial);
-		if ("username_required".equals(value)) return getString(R.string.node_status_username_required);
 		if ("not_generated".equals(value)) return getString(R.string.node_status_not_generated);
 		if ("local_only".equals(value)) return getString(R.string.node_status_local_only);
 		if ("server_only".equals(value)) return getString(R.string.node_status_server_only);
@@ -1567,7 +1697,6 @@ public final class MainActivity extends Activity {
 	private int nodeStatusColor(String value) {
 		if ("online".equals(value)) return blend(primary, Color.WHITE, 0.18f);
 		if ("partial".equals(value)
-				|| "username_required".equals(value)
 				|| "not_generated".equals(value)
 				|| "local_only".equals(value)
 				|| "server_only".equals(value)
@@ -1612,6 +1741,12 @@ public final class MainActivity extends Activity {
 			@Override
 			public void onClick(View v) {
 				showSettingsE2EKeys();
+			}
+		}));
+		settings.addView(settingsRow(getString(R.string.settings_authorization), getString(R.string.settings_authorization_subtitle), new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				showSettingsAuthorization();
 			}
 		}));
 		settings.addView(settingsRow(getString(R.string.settings_contacts), getString(R.string.settings_contacts_subtitle), new View.OnClickListener() {
@@ -2015,6 +2150,52 @@ public final class MainActivity extends Activity {
 		box.addView(spaced(resetSlider), new LinearLayout.LayoutParams(-1, dp(56)));
 	}
 
+	private void showSettingsAuthorization() {
+		LinearLayout box = settingsPage(getString(R.string.settings_authorization), Page.SETTINGS_AUTHORIZATION);
+		box.addView(spaced(label(getString(R.string.oauth_settings_help))));
+		final EditText code = input(getString(R.string.oauth_code_hint), false);
+		code.setSingleLine(true);
+		code.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+		box.addView(spaced(code));
+		box.addView(spaced(row(
+				primaryButton(getString(R.string.oauth_open_request), new View.OnClickListener() {
+					@Override public void onClick(View view) {
+						openOAuthDeviceRequest(code.getText().toString());
+					}
+				}),
+				button(getString(R.string.action_paste), new View.OnClickListener() {
+					@Override public void onClick(View view) {
+						String pasted = clipboardText();
+						if (pasted.length() > 0) code.setText(pasted);
+					}
+				})
+		)));
+		box.addView(spaced(primaryButton(getString(R.string.oauth_scan_qr), new View.OnClickListener() {
+			@Override public void onClick(View view) {
+				if (!hasPermissionCompat(PERMISSION_CAMERA)) {
+					requestPermissionsCompat(new String[] { PERMISSION_CAMERA }, REQ_CAMERA);
+					return;
+				}
+				startOAuthQrScanner();
+			}
+		})));
+	}
+
+	private void startOAuthQrScanner() {
+		startActivityForResult(new Intent(this, QrScannerActivity.class), REQ_QR_SCAN);
+	}
+
+	private String clipboardText() {
+		Object clipboard = getSystemService(CLIPBOARD_SERVICE);
+		if (clipboard == null) return "";
+		try {
+			Object value = clipboard.getClass().getMethod("getText").invoke(clipboard);
+			return value == null ? "" : value.toString();
+		} catch (Exception ignored) {
+			return "";
+		}
+	}
+
 	private void showSettingsDeleteAccount() {
 		LinearLayout box = settingsPage(getString(R.string.settings_delete_account), Page.SETTINGS_DELETE_ACCOUNT);
 		box.addView(spaced(label(getString(R.string.settings_delete_account_help, accountEmailText()))));
@@ -2410,7 +2591,7 @@ public final class MainActivity extends Activity {
 			public void run() throws Exception {
 				final MiniTaLib.User user = c.setUsername(value);
 				applyOwnUser(user);
-				SessionStore.save(MainActivity.this, server(), c.token(), myLogin);
+				SessionStore.save(MainActivity.this, server(), c.token(), myID, myLogin);
 				ui(new Runnable() {
 					@Override
 					public void run() {
@@ -2439,7 +2620,7 @@ public final class MainActivity extends Activity {
 			public void run() throws Exception {
 				final MiniTaLib.User user = c.setName(value);
 				applyOwnUser(user);
-				SessionStore.save(MainActivity.this, server(), c.token(), myLogin);
+				SessionStore.save(MainActivity.this, server(), c.token(), myID, myLogin);
 				ui(new Runnable() {
 					@Override
 					public void run() {
@@ -2902,7 +3083,7 @@ public final class MainActivity extends Activity {
 
 		seenMessages.clear();
 
-		SessionStore.save(MainActivity.this, url, ta.token(), myLogin);
+		SessionStore.save(MainActivity.this, url, ta.token(), myID, myLogin);
 		SessionStore.lastUpdate(MainActivity.this, 0);
 		SessionStore.backgroundLastUpdate(MainActivity.this, 0);
 
@@ -2941,8 +3122,8 @@ public final class MainActivity extends Activity {
 		applyRootPadding(rootView);
 		requestApplyInsetsCompat(rootView);
 		if (ta != null && !ta.token().isEmpty()) {
-			ta = new MiniTaLib(this, url, ta.token(), myLogin);
-			SessionStore.save(this, url, ta.token(), myLogin);
+			ta = new MiniTaLib(this, url, ta.token(), myID, myLogin);
+			SessionStore.save(this, url, ta.token(), myID, myLogin);
 			startSyncService();
 		} else {
 			ta = null;
@@ -2961,6 +3142,22 @@ public final class MainActivity extends Activity {
 	}
 
 	private void logout() {
+		final String server = SessionStore.server(this, DEFAULT_SERVER);
+		final String account = OutboxDispatcher.accountKey(this);
+		int pending = OutboxStore.count(this, server, account);
+		if (pending > 0) {
+			showConfirmDialog(
+					getString(R.string.logout_pending_title),
+					getString(R.string.logout_pending_message, pending),
+					getString(R.string.settings_logout),
+					new Runnable() {
+						@Override public void run() {
+							OutboxStore.clear(MainActivity.this, server, account);
+							clearSessionAndShowLogin(R.string.status_logged_out);
+						}
+					});
+			return;
+		}
 		clearSessionAndShowLogin(R.string.status_logged_out);
 	}
 
@@ -3034,7 +3231,11 @@ public final class MainActivity extends Activity {
 				currentPeerBannedMe = chat.bannedMe;
 			}
 			String last = chat.last == null ? "" : chatLastText(chat.last);
-			chatRows.add(MessageRow.chat(chatPeerTitle(chat.peer), last));
+			chatRows.add(MessageRow.chat(
+					chatPeerTitle(chat.peer),
+					last,
+					chat.peer != null && chat.peer.verified
+			));
 		}
 		status.setText(getString(R.string.status_chats_count, chats.size(), source));
 	}
@@ -3093,6 +3294,12 @@ public final class MainActivity extends Activity {
 				if (oldestMessage == 0 || message.id < oldestMessage) oldestMessage = message.id;
 				rows.add(toMessageRow(message));
 			}
+		}
+		for (OutboxStore.Entry entry : OutboxStore.load(
+				this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this))) {
+			if (!peerName.equals(entry.peer)) continue;
+			MiniTaLib.Message pending = outboxMessage(entry);
+			if (seenMessages.add(pending.id)) rows.add(toMessageRow(pending));
 		}
 		messageRows.replaceRows(rows);
 		historyLoaded = !cached;
@@ -3206,31 +3413,20 @@ public final class MainActivity extends Activity {
 			return;
 		}
 		if (peerName == null || peerName.length() == 0 || msg == null || msg.length() == 0) return;
-		setSendLoading(true);
 		setActionButtonLoading(actionButton, true, primaryStyle);
-		run("send", new Task() {
-			@Override
-			public void run() throws Exception {
-				try {
-					append(currentPeerIsRoom() ? c.sendPlainMessage(peerName, msg) : c.sendMessage(peerName, msg));
-
-					ui(new Runnable() {
-						@Override
-						public void run() {
-							if (clearInput && text != null) text.setText("");
-						}
-					});
-				} finally {
-					ui(new Runnable() {
-						@Override
-						public void run() {
-							setSendLoading(false);
-							setActionButtonLoading(actionButton, false, primaryStyle);
-						}
-					});
-				}
-			}
-		});
+		try {
+			OutboxStore.Entry entry = OutboxStore.enqueueText(
+					this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this),
+					peerName, currentPeerIsRoom(), msg);
+			addMessageRow(outboxMessage(entry), false);
+			if (clearInput && text != null) text.setText("");
+			if (messageList != null) messageList.setSelection(messageRows.getCount() - 1);
+			dispatchOutbox(c);
+		} catch (Exception e) {
+			status.setText(errorText(e));
+		} finally {
+			setActionButtonLoading(actionButton, false, primaryStyle);
+		}
 	}
 
 	private void handleMessageButton(final MiniTaLib.Message message, final MiniTaLib.Button button, final Button clickedButton) {
@@ -3476,8 +3672,21 @@ public final class MainActivity extends Activity {
 		cancelLp.setMargins(0, gap, 0, 0);
 		box.addView(cancel, cancelLp);
 
-		dialog.setContentView(box);
+		setScrollableDialogContent(dialog, box);
 		showStyledDialog(dialog);
+	}
+
+	private void setScrollableDialogContent(Dialog dialog, View contentView) {
+		BoundedScrollView scroll = new BoundedScrollView(
+				this,
+				getResources().getDisplayMetrics().heightPixels * 4 / 5
+		);
+		scroll.setFillViewport(false);
+		scroll.setBackgroundColor(Color.TRANSPARENT);
+		scroll.setScrollBarStyle(View.SCROLLBARS_OUTSIDE_OVERLAY);
+		scroll.setVerticalScrollBarEnabled(true);
+		scroll.addView(contentView, new ScrollView.LayoutParams(-1, -2));
+		dialog.setContentView(scroll);
 	}
 
 	private void transferDastars(final String to, String rawAmount, final String comment) {
@@ -3518,6 +3727,10 @@ public final class MainActivity extends Activity {
 	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
 		super.onActivityResult(requestCode, resultCode, data);
 		if (resultCode != RESULT_OK || data == null) return;
+		if (requestCode == REQ_QR_SCAN) {
+			openOAuthDeviceRequest(data.getStringExtra(QrScannerActivity.EXTRA_RESULT));
+			return;
+		}
 		Uri uri = data.getData();
 		if (uri == null) return;
 		if (requestCode == REQ_PICK_IMAGE) {
@@ -3564,11 +3777,17 @@ public final class MainActivity extends Activity {
 					if (bytes.length == 0) throw new IOException(getString(R.string.status_empty_file));
 					final String name = displayName;
 					final String mime = type;
-					append(c.uploadFile(peerName, name, mime, bytes));
+					final OutboxStore.Entry entry = OutboxStore.enqueueFile(
+							MainActivity.this, SessionStore.server(MainActivity.this, DEFAULT_SERVER),
+							OutboxDispatcher.accountKey(MainActivity.this), peerName, currentPeerIsRoom(),
+							name, mime, bytes);
 					ui(new Runnable() {
 						@Override
 						public void run() {
 							if (text != null) text.setText("");
+							addMessageRow(outboxMessage(entry), false);
+							if (messageList != null) messageList.setSelection(messageRows.getCount() - 1);
+							dispatchOutbox(c);
 						}
 					});
 				} finally {
@@ -4000,6 +4219,7 @@ public final class MainActivity extends Activity {
 					try {
 						MiniTaLib client = ta;
 						if (client == null) break;
+						dispatchOutbox(client);
 						long newestUpdate = lastUpdate;
 						List<MiniTaLib.Update> updates = client.getUpdates(lastUpdate, 30);
 						if (!polling || generation != pollingGeneration || !activityResumed) {
@@ -4086,10 +4306,18 @@ public final class MainActivity extends Activity {
 			return;
 		}
 		if ("message".equals(u.type)) {
+			if (isOAuthRequestMessage(u.message)) {
+				final String code = oauthRequestCode(u.message);
+				ui(new Runnable() {
+					@Override public void run() {
+						openOAuthDeviceRequest(code);
+					}
+				});
+			}
 			append(u.message);
 			return;
 		}
-		if ("message_read".equals(u.type)) {
+		if ("message_read".equals(u.type) || "message_edit".equals(u.type) || "message_reaction".equals(u.type)) {
 			applyMessageUpdate(u.message);
 			return;
 		}
@@ -4145,6 +4373,16 @@ public final class MainActivity extends Activity {
 				}
 			}
 		});
+	}
+
+	private boolean isOAuthRequestMessage(MiniTaLib.Message message) {
+		JSONObject data = systemMessageData(message);
+		return data != null && "oauth_request".equals(data.optString("kind"));
+	}
+
+	private String oauthRequestCode(MiniTaLib.Message message) {
+		JSONObject data = systemMessageData(message);
+		return data == null ? "" : OAuthCodeParser.parse(data.optString("user_code"));
 	}
 
 	private String callPeer(MiniTaLib.Call call) {
@@ -4821,8 +5059,34 @@ public final class MainActivity extends Activity {
 		}
 	}
 
+	private MiniTaLib.Message outboxMessage(OutboxStore.Entry entry) {
+		MiniTaLib.User me = new MiniTaLib.User(myID, myEmail, myLogin, myNick, myVerified, myBot, 0);
+		return entry.localMessage(me, currentPeer != null && currentPeer.equals(entry.peer) ? currentPeerUser : null);
+	}
+
+	private void dispatchOutbox(MiniTaLib client) {
+		OutboxDispatcher.dispatch(this, client, new OutboxDispatcher.Listener() {
+			@Override
+			public void onChanged(final OutboxStore.Entry entry, final MiniTaLib.Message sent) {
+				ui(new Runnable() {
+					@Override
+					public void run() {
+						if (sent != null) {
+							append(sent);
+						} else if (page == Page.CHAT && entry.peer.equals(currentPeer) && messageRows != null) {
+							messageRows.updateMessage(outboxMessage(entry));
+						}
+					}
+				});
+			}
+		});
+	}
+
 	private void append(final MiniTaLib.Message m) {
 		if (m == null) return;
+		if (m.clientMessageId != null && m.clientMessageId.length() > 0) {
+			OutboxStore.complete(this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this), m.clientMessageId);
+		}
 		String cachedPeer = messagePeer(m);
 		cacheAppendMessage(cachedPeer, m);
 		ui(new Runnable() {
@@ -4836,7 +5100,7 @@ public final class MainActivity extends Activity {
 
 						currentPeerUser = messagePeerUser(m);
 						updateCallButton();
-						addMessageRow(m, false);
+						if (!messageRows.updateMessage(m)) addMessageRow(m, false);
 						refreshChatInput();
 						markReadIfIncoming(m, other);
 
@@ -5024,22 +5288,411 @@ public final class MainActivity extends Activity {
 
 	private void showMessageMenu(final MiniTaLib.Message message) {
 		if (message == null) return;
-		showActionDialog(new String[] {
-			getString(R.string.action_copy),
-			getString(R.string.action_delete),
-			getString(R.string.action_save_favorite)
-		}, new ChoiceHandler() {
+		if (!"sent".equals(message.deliveryState) && !"sent-own".equals(message.deliveryState)) {
+			if (OutboxStore.FAILED.equals(message.deliveryState)) {
+				showActionDialog(new String[] {
+					getString(R.string.action_copy),
+					getString(R.string.action_retry),
+					getString(R.string.action_remove)
+				}, new ChoiceHandler() {
+					@Override public void onChoice(int which) {
+						if (which == 0) copyMessage(message);
+						else if (which == 1) retryOutboxMessage(message);
+						else removeOutboxMessage(message);
+					}
+				});
+			} else {
+				showActionDialog(new String[] { getString(R.string.action_copy) }, new ChoiceHandler() {
+					@Override public void onChoice(int which) { copyMessage(message); }
+				});
+			}
+			return;
+		}
+		final boolean editable = canEditMessage(message);
+		String[] actions = editable
+				? new String[] { getString(R.string.action_copy), getString(R.string.action_edit), getString(R.string.action_delete), getString(R.string.action_save_favorite) }
+				: new String[] { getString(R.string.action_copy), getString(R.string.action_delete), getString(R.string.action_save_favorite) };
+		showMessageActionDialog(message, actions, new ChoiceHandler() {
 			@Override
 			public void onChoice(int which) {
 				if (which == 0) {
 					copyMessage(message);
-				} else if (which == 1) {
+				} else if (editable && which == 1) {
+					editMessage(message);
+				} else if (which == (editable ? 2 : 1)) {
 					deleteMessage(message);
-				} else if (which == 2) {
+				} else {
 					saveToFavorites(message);
 				}
 			}
 		});
+	}
+
+	private void showMessageActionDialog(final MiniTaLib.Message message, final String[] actions, final ChoiceHandler handler) {
+		final Dialog dialog = new Dialog(this);
+		LinearLayout box = dialogBox();
+		TextView reactionTitle = label(getString(R.string.reaction_title));
+		reactionTitle.setTextColor(muted);
+		box.addView(spaced(reactionTitle));
+		android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(this);
+		scroll.setHorizontalScrollBarEnabled(false);
+		LinearLayout row = new LinearLayout(this);
+		row.setOrientation(LinearLayout.HORIZONTAL);
+		if (canPayReaction(message)) {
+			ImageButton star = compactDastarsButton(new View.OnClickListener() {
+				@Override public void onClick(View v) {
+					dialog.dismiss();
+					handlePaidReaction(message, v);
+				}
+			});
+			row.addView(star, compactReactionLayout());
+		}
+		for (final String emoji : QUICK_REACTIONS) {
+			Button reaction = compactReactionButton(emoji, new View.OnClickListener() {
+				@Override public void onClick(View v) {
+					dialog.dismiss();
+					sendFreeReaction(message, ownReaction(message, emoji) ? "" : emoji);
+				}
+			});
+			row.addView(reaction, compactReactionLayout());
+		}
+		Button more = compactReactionButton("…", new View.OnClickListener() {
+			@Override public void onClick(View v) {
+				dialog.dismiss();
+				showAllReactions(message);
+			}
+		});
+		more.setContentDescription(getString(R.string.reaction_more));
+		row.addView(more, compactReactionLayout());
+		scroll.addView(row, new android.widget.HorizontalScrollView.LayoutParams(-2, -2));
+		LinearLayout.LayoutParams scrollLp = new LinearLayout.LayoutParams(-1, -2);
+		scrollLp.setMargins(0, 0, 0, gap);
+		box.addView(scroll, scrollLp);
+		for (int i = 0; i < actions.length; i++) {
+			final int which = i;
+			Button action = button(actions[i], new View.OnClickListener() {
+				@Override public void onClick(View v) {
+					dialog.dismiss();
+					if (handler != null) handler.onChoice(which);
+				}
+			});
+			box.addView(spaced(action));
+		}
+		setScrollableDialogContent(dialog, box);
+		showStyledDialog(dialog);
+	}
+
+	private LinearLayout.LayoutParams compactReactionLayout() {
+		LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(48), dp(48));
+		lp.setMargins(0, 0, gap / 2, 0);
+		return lp;
+	}
+
+	private Button compactReactionButton(String emoji, View.OnClickListener listener) {
+		Button button = new Button(this);
+		button.setText(emoji);
+		button.setTextSize(22);
+		button.setTextColor(textColor);
+		button.setPadding(0, 0, 0, 0);
+		button.setMinWidth(0);
+		button.setMinimumWidth(0);
+		button.setMinHeight(0);
+		button.setMinimumHeight(0);
+		button.setBackgroundDrawable(pressable(surfaceHi, blend(surfaceHi, primary, 0.18f), 0, elementRadius()));
+		button.setOnClickListener(listener);
+		return button;
+	}
+
+	private ImageButton compactDastarsButton(View.OnClickListener listener) {
+		ImageButton button = new ImageButton(this);
+		Drawable icon = getResources().getDrawable(R.drawable.ic_dastars).mutate();
+		icon.setColorFilter(textColor, android.graphics.PorterDuff.Mode.SRC_IN);
+		button.setImageDrawable(icon);
+		button.setScaleType(ImageView.ScaleType.CENTER);
+		button.setPadding(0, 0, 0, 0);
+		button.setMinimumWidth(0);
+		button.setMinimumHeight(0);
+		button.setBackgroundDrawable(pressable(surfaceHi, blend(surfaceHi, primary, 0.18f), 0, elementRadius()));
+		button.setOnClickListener(listener);
+		button.setContentDescription(getString(R.string.paid_reaction_title));
+		return button;
+	}
+
+	private void showAllReactions(final MiniTaLib.Message message) {
+		final Dialog dialog = new Dialog(this);
+		LinearLayout box = dialogBox();
+		box.addView(title(getString(R.string.reaction_title)), new LinearLayout.LayoutParams(-1, -2));
+		if (canPayReaction(message)) {
+			ImageButton star = compactDastarsButton(new View.OnClickListener() {
+				@Override public void onClick(View v) {
+					dialog.dismiss();
+					handlePaidReaction(message, v);
+				}
+			});
+			LinearLayout first = new LinearLayout(this);
+			first.setOrientation(LinearLayout.HORIZONTAL);
+			first.setGravity(Gravity.CENTER_HORIZONTAL);
+			first.addView(star, compactReactionLayout());
+			box.addView(spaced(first));
+		}
+		for (int offset = 0; offset < ALL_REACTIONS.length; offset += 6) {
+			LinearLayout row = new LinearLayout(this);
+			row.setOrientation(LinearLayout.HORIZONTAL);
+			for (int index = offset; index < Math.min(offset + 6, ALL_REACTIONS.length); index++) {
+				final String emoji = ALL_REACTIONS[index];
+				Button reaction = compactReactionButton(emoji, new View.OnClickListener() {
+					@Override public void onClick(View v) {
+						dialog.dismiss();
+						sendFreeReaction(message, ownReaction(message, emoji) ? "" : emoji);
+					}
+				});
+				row.addView(reaction, new LinearLayout.LayoutParams(0, dp(48), 1));
+			}
+			box.addView(row, new LinearLayout.LayoutParams(-1, -2));
+		}
+		Button close = button(getString(R.string.action_close), new View.OnClickListener() {
+			@Override public void onClick(View v) { dialog.dismiss(); }
+		});
+		box.addView(spaced(close));
+		setScrollableDialogContent(dialog, box);
+		showStyledDialog(dialog);
+	}
+
+	private boolean ownReaction(MiniTaLib.Message message, String emoji) {
+		if (message == null || message.reactions == null) return false;
+		for (MiniTaLib.Reaction reaction : message.reactions) {
+			if (reaction.mine && emoji.equals(reaction.emoji)) return true;
+		}
+		return false;
+	}
+
+	private boolean canPayReaction(MiniTaLib.Message message) {
+		return message != null
+				&& message.id > 0
+				&& !message.system
+				&& ("sent".equals(message.deliveryState) || "sent-own".equals(message.deliveryState))
+				&& !isOwnUser(message.from);
+	}
+
+	private void sendFreeReaction(final MiniTaLib.Message message, final String emoji) {
+		final MiniTaLib client = ta;
+		if (client == null || message == null || message.id <= 0) return;
+		run("reaction", new Task() {
+			@Override public void run() throws Exception {
+				applyMessageUpdate(client.reactMessage(message.id, emoji));
+			}
+		});
+	}
+
+	private void handlePaidReaction(final MiniTaLib.Message message, View source) {
+		if (!canPayReaction(message)) return;
+		if (hasWalletBalance && walletBalance <= 0) {
+			showDastarsTopUpDialog();
+			return;
+		}
+		if ((message.paidReaction != null && message.paidReaction.mineAmount > 0)
+				|| pendingPaidReactionDelta(message.id) > 0) {
+			animateReactionView(source);
+			sendPaidReaction(message, 1);
+			return;
+		}
+		final EditText amount = input(getString(R.string.paid_reaction_amount_hint), false);
+		amount.setInputType(InputType.TYPE_CLASS_NUMBER);
+		showContentDialog(
+				getString(R.string.paid_reaction_title),
+				amount,
+				getString(R.string.action_send),
+				new Runnable() {
+					@Override public void run() {
+						String raw = amount.getText().toString().trim();
+						if (raw.length() == 0) return;
+						try {
+							long value = Long.parseLong(raw);
+							if (value > 0) sendPaidReaction(message, value);
+						} catch (NumberFormatException e) {
+							status.setText(getString(R.string.status_bad_dsr_invoice));
+						}
+					}
+				},
+				getString(R.string.action_cancel)
+		);
+	}
+
+	private void sendPaidReaction(final MiniTaLib.Message message, final long amount) {
+		final MiniTaLib client = ta;
+		if (client == null || amount <= 0) return;
+		if (hasWalletBalance && amount > walletBalance) {
+			showDastarsTopUpDialog();
+			return;
+		}
+		final boolean adjustKnownBalance = hasWalletBalance;
+		if (adjustKnownBalance) walletBalance = Math.max(0, walletBalance - amount);
+		adjustPendingPaidReaction(message.id, amount);
+		final Long messageId = Long.valueOf(message.id);
+		PaidReactionBatch batch = paidReactionBatches.get(messageId);
+		if (batch == null) {
+			final long id = message.id;
+			batch = new PaidReactionBatch();
+			batch.flush = new Runnable() {
+				@Override public void run() {
+					flushPaidReactionBatch(id);
+				}
+			};
+			paidReactionBatches.put(messageId, batch);
+		}
+		batch.message = message;
+		batch.amount = safeAdd(batch.amount, amount);
+		batch.adjustKnownBalance = batch.adjustKnownBalance || adjustKnownBalance;
+		main.removeCallbacks(batch.flush);
+		main.postDelayed(batch.flush, PAID_REACTION_BATCH_DELAY_MS);
+	}
+
+	private void flushPaidReactionBatch(long messageId) {
+		PaidReactionBatch batch = paidReactionBatches.remove(Long.valueOf(messageId));
+		if (batch == null || batch.message == null || batch.amount <= 0) return;
+		executePaidReaction(batch.message, batch.amount, batch.adjustKnownBalance);
+	}
+
+	private void executePaidReaction(
+			final MiniTaLib.Message message,
+			final long amount,
+			final boolean adjustKnownBalance
+	) {
+		final MiniTaLib client = ta;
+		if (client == null) {
+			adjustPendingPaidReaction(message.id, -amount);
+			if (adjustKnownBalance) walletBalance = safeAdd(walletBalance, amount);
+			return;
+		}
+		final String key = "paid-reaction:" + UUID.randomUUID().toString();
+		paidReactionIo.execute(new Runnable() {
+			@Override public void run() {
+				try {
+					final MiniTaLib.Message updated = client.sendPaidReaction(message.id, amount, key);
+					final String cachedPeer = messagePeer(updated);
+					cacheAppendMessage(cachedPeer, updated);
+					ui(new Runnable() {
+						@Override public void run() {
+							adjustPendingPaidReaction(message.id, -amount);
+							if (page == Page.CHAT && cachedPeer.equals(currentPeer) && messageRows != null) {
+								messageRows.updateMessage(updated);
+							}
+							if (page == Page.CHATS) loadChats();
+						}
+					});
+				} catch (final Exception error) {
+					ui(new Runnable() {
+						@Override public void run() {
+							adjustPendingPaidReaction(message.id, -amount);
+							if (adjustKnownBalance) walletBalance = safeAdd(walletBalance, amount);
+							if (MiniTaLib.isInvalidTokenError(error)) {
+								handleInvalidToken();
+								return;
+							}
+							if (isInsufficientDastarsError(error)) {
+								showDastarsTopUpDialog();
+								return;
+							}
+							status.setText(getString(R.string.status_operation_error, errorText(error)));
+						}
+					});
+				}
+			}
+		});
+	}
+
+	private static final class PaidReactionBatch {
+		MiniTaLib.Message message;
+		long amount;
+		boolean adjustKnownBalance;
+		Runnable flush;
+	}
+
+	private long pendingPaidReactionDelta(long messageId) {
+		Long value = pendingPaidReactionDeltas.get(Long.valueOf(messageId));
+		return value == null ? 0 : value.longValue();
+	}
+
+	private void adjustPendingPaidReaction(long messageId, long delta) {
+		long next = safeAdd(pendingPaidReactionDelta(messageId), delta);
+		if (next <= 0) pendingPaidReactionDeltas.remove(Long.valueOf(messageId));
+		else pendingPaidReactionDeltas.put(Long.valueOf(messageId), Long.valueOf(next));
+		if (messageRows != null) messageRows.notifyDataSetChanged();
+	}
+
+	private long safeAdd(long left, long right) {
+		if (right > 0 && left > Long.MAX_VALUE - right) return Long.MAX_VALUE;
+		if (right < 0 && left < Long.MIN_VALUE - right) return Long.MIN_VALUE;
+		return left + right;
+	}
+
+	private boolean isInsufficientDastarsError(Exception error) {
+		String value = errorText(error).toLowerCase(Locale.US);
+		return value.contains("insufficient dsr") || value.contains("insufficient dastars");
+	}
+
+	private void showDastarsTopUpDialog() {
+		showConfirmDialog(
+				getString(R.string.paid_reaction_no_dastars_title),
+				getString(R.string.paid_reaction_no_dastars_message),
+				getString(R.string.wallet_buy_dastars),
+				new Runnable() {
+					@Override public void run() {
+						openChatIfExists("dastarsbot", null, true);
+					}
+				}
+		);
+	}
+
+	private void animateReactionView(View view) {
+		if (view == null) return;
+		ScaleAnimation animation = new ScaleAnimation(
+				1f, 1.18f, 1f, 1.18f,
+				Animation.RELATIVE_TO_SELF, 0.5f,
+				Animation.RELATIVE_TO_SELF, 0.5f
+		);
+		animation.setDuration(160);
+		animation.setRepeatCount(1);
+		animation.setRepeatMode(Animation.REVERSE);
+		view.startAnimation(animation);
+	}
+
+	private boolean canEditMessage(MiniTaLib.Message message) {
+		if (message == null || message.file != null || message.system || message.text == null || message.text.length() == 0) return false;
+		if (System.currentTimeMillis() / 1000L - message.date > 48L * 60L * 60L) return false;
+		return currentPeerIsChannel() ? currentPeerCanManageRoom() : isOwnUser(message.from);
+	}
+
+	private void editMessage(final MiniTaLib.Message message) {
+		final EditText input = input(getString(R.string.action_edit), false);
+		input.setText(message.text);
+		input.setSelection(input.length());
+		showContentDialog(getString(R.string.action_edit), input, getString(R.string.action_save), new Runnable() {
+			@Override public void run() {
+				final String value = input.getText().toString().trim();
+				if (value.length() == 0 || value.equals(message.text) || ta == null) return;
+				final MiniTaLib c = ta;
+				MainActivity.this.run("edit_message", new Task() {
+					@Override public void run() throws Exception {
+						applyMessageUpdate(c.editMessage(message.id, currentPeer, value, currentPeerIsRoom()));
+					}
+				});
+			}
+		}, getString(R.string.action_cancel));
+	}
+
+	private void retryOutboxMessage(MiniTaLib.Message message) {
+		OutboxStore.retry(this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this), message.clientMessageId);
+		for (OutboxStore.Entry entry : OutboxStore.load(this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this))) {
+			if (entry.id.equals(message.clientMessageId) && messageRows != null) messageRows.updateMessage(outboxMessage(entry));
+		}
+		dispatchOutbox(ta);
+	}
+
+	private void removeOutboxMessage(MiniTaLib.Message message) {
+		OutboxStore.complete(this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this), message.clientMessageId);
+		if (messageRows != null) messageRows.removeMessage(message.id);
+		seenMessages.remove(Long.valueOf(message.id));
 	}
 
 	private void copyMessage(MiniTaLib.Message message) {
@@ -5614,6 +6267,15 @@ public final class MainActivity extends Activity {
 		b.setOnClickListener(l);
 	}
 
+	private void setDastarsButtonIcon(Button button, int color, int iconSize) {
+		if (button == null) return;
+		Drawable icon = getResources().getDrawable(R.drawable.ic_dastars).mutate();
+		icon.setColorFilter(color, android.graphics.PorterDuff.Mode.SRC_IN);
+		icon.setBounds(0, 0, iconSize, iconSize);
+		button.setCompoundDrawables(icon, null, null, null);
+		button.setCompoundDrawablePadding(gap / 2);
+	}
+
 	private TextView title(String s) {
 		TextView v = label(s);
 		v.setTextSize(18);
@@ -5686,16 +6348,20 @@ public final class MainActivity extends Activity {
 			notifyDataSetChanged();
 		}
 
-			void updateMessage(MiniTaLib.Message message) {
-				if (message == null) return;
+			boolean updateMessage(MiniTaLib.Message message) {
+				if (message == null) return false;
 				for (int i = 0; i < rows.size(); i++) {
 					MessageRow row = rows.get(i);
-					if (row.message != null && row.message.id == message.id) {
+					if (row.message != null && (row.message.id == message.id
+							|| (message.clientMessageId.length() > 0
+							&& message.clientMessageId.equals(row.message.clientMessageId)))) {
+						if (message.reactionVersion < row.message.reactionVersion) return false;
 						rows.set(i, toMessageRow(message));
 						notifyDataSetChanged();
-						return;
+						return true;
 					}
 				}
+				return false;
 			}
 
 			void removeMessage(long messageID) {
@@ -5763,7 +6429,11 @@ public final class MainActivity extends Activity {
 					title.setTypeface(Typeface.DEFAULT_BOLD);
 					title.setSingleLine(true);
 					title.setEllipsize(TextUtils.TruncateAt.END);
-					box.addView(title, new LinearLayout.LayoutParams(-1, -2));
+					title.setMaxWidth(Math.max(
+							dp(120),
+							getResources().getDisplayMetrics().widthPixels - pad * 4
+					));
+					box.addView(title, new LinearLayout.LayoutParams(-2, -2));
 
 					preview = new TextView(MainActivity.this);
 					preview.setTextColor(muted);
@@ -5777,6 +6447,19 @@ public final class MainActivity extends Activity {
 					box.setTag(new ChatPreviewHolder(title, preview));
 				}
 				title.setText(safeDisplayText(row.chatTitle));
+				if (row.chatVerified) {
+					Drawable badge = verifiedDrawable(dp(18));
+					badge.setBounds(0, 0, dp(18), dp(18));
+					title.setCompoundDrawables(null, null, badge, null);
+					title.setCompoundDrawablePadding(gap / 2);
+					title.setContentDescription(
+							safeDisplayText(row.chatTitle) + ", " + getString(R.string.verified)
+					);
+				} else {
+					title.setCompoundDrawables(null, null, null, null);
+					title.setCompoundDrawablePadding(0);
+					title.setContentDescription(safeDisplayText(row.chatTitle));
+				}
 				preview.setText(safeDisplayText(row.chatPreview));
 				preview.setVisibility(row.chatPreview == null || row.chatPreview.length() == 0 ? View.GONE : View.VISIBLE);
 				return listItemFrame(box);
@@ -5805,10 +6488,12 @@ public final class MainActivity extends Activity {
 					LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(-1, -2);
 					labelLp.setMargins(0, gap / 3, 0, 0);
 					box.addView(fileLabel(row.text), labelLp);
-					if (isImageFile(row.file)) {
-						addImagePreview(box, row);
+					if (row.message != null && row.message.localFilePath.length() > 0) {
+						if (isImageFile(row.file)) addLocalImagePreview(box, row.message.localFilePath);
+					} else {
+						if (isImageFile(row.file)) addImagePreview(box, row);
+						addDownloadButton(box, row);
 					}
-					addDownloadButton(box, row);
 				} else {
 					TextView body = messageTextLabel(row.text);
 					LinearLayout.LayoutParams bodyLp = new LinearLayout.LayoutParams(-1, -2);
@@ -5817,6 +6502,7 @@ public final class MainActivity extends Activity {
 				}
 				addMessageFooter(box, row.message);
 				outer.addView(box, new LinearLayout.LayoutParams(-1, -2));
+				addMessageReactions(outer, row.message);
 				addMessageButtons(outer, row.message);
 				return listItemFrame(outer);
 			}
@@ -5846,7 +6532,14 @@ public final class MainActivity extends Activity {
 						showSystemMessageDetails(row.message);
 					}
 				});
+				pill.setOnLongClickListener(new View.OnLongClickListener() {
+					@Override public boolean onLongClick(View v) {
+						showMessageMenu(row.message);
+						return true;
+					}
+				});
 				outer.addView(pill, new LinearLayout.LayoutParams(-2, -2));
+				addMessageReactions(outer, row.message);
 				return listItemFrame(outer);
 			}
 
@@ -5903,6 +6596,19 @@ public final class MainActivity extends Activity {
 				}
 				iv.setBackgroundDrawable(shape(surfaceHi, 0, elementRadius()));
 				return iv;
+			}
+
+			private void addLocalImagePreview(LinearLayout box, String path) {
+				Bitmap bmp = BitmapFactory.decodeFile(path);
+				if (bmp == null) return;
+				ImageView preview = new ImageView(MainActivity.this);
+				preview.setAdjustViewBounds(true);
+				preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
+				preview.setMaxHeight(dp(360));
+				preview.setImageBitmap(bmp);
+				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+				lp.setMargins(0, gap, 0, 0);
+				box.addView(preview, lp);
 			}
 
 			private View imageFileView(final MessageRow row) {
@@ -6024,6 +6730,70 @@ public final class MainActivity extends Activity {
 				}
 			}
 
+			private void addMessageReactions(LinearLayout box, final MiniTaLib.Message message) {
+				if (message == null) return;
+				final long pendingPaid = pendingPaidReactionDelta(message.id);
+				final long serverPaid = message.paidReaction == null ? 0 : message.paidReaction.amount;
+				final long displayedPaid = safeAdd(serverPaid, pendingPaid);
+				boolean hasPaid = displayedPaid > 0;
+				boolean hasFree = message.reactions != null && !message.reactions.isEmpty();
+				if (!hasPaid && !hasFree) return;
+				android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(MainActivity.this);
+				scroll.setHorizontalScrollBarEnabled(false);
+				LinearLayout reactions = new LinearLayout(MainActivity.this);
+				reactions.setOrientation(LinearLayout.HORIZONTAL);
+				if (hasPaid) {
+					boolean mine = pendingPaid > 0
+							|| (message.paidReaction != null && message.paidReaction.mineAmount > 0);
+					final Button paid = reactionChip(String.valueOf(displayedPaid), mine);
+					setDastarsButtonIcon(paid, mine ? onPrimary : textColor, dp(19));
+					paid.setOnClickListener(new View.OnClickListener() {
+						@Override public void onClick(View v) {
+							handlePaidReaction(message, paid);
+						}
+					});
+					reactions.addView(paid, reactionChipLayout());
+				}
+				if (hasFree) {
+					for (final MiniTaLib.Reaction item : message.reactions) {
+						final Button chip = reactionChip(item.emoji + " " + item.count, item.mine);
+						chip.setOnClickListener(new View.OnClickListener() {
+							@Override public void onClick(View v) {
+								animateReactionView(chip);
+								sendFreeReaction(message, item.mine ? "" : item.emoji);
+							}
+						});
+						reactions.addView(chip, reactionChipLayout());
+					}
+				}
+				scroll.addView(reactions, new android.widget.HorizontalScrollView.LayoutParams(-2, -2));
+				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+				lp.setMargins(0, gap / 2, 0, 0);
+				box.addView(scroll, lp);
+			}
+
+			private LinearLayout.LayoutParams reactionChipLayout() {
+				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(38));
+				lp.setMargins(0, 0, gap / 2, 0);
+				return lp;
+			}
+
+			private Button reactionChip(String text, boolean selected) {
+				Button chip = new Button(MainActivity.this);
+				chip.setText(text);
+				chip.setTextSize(14);
+				chip.setTextColor(selected ? onPrimary : textColor);
+				chip.setMinWidth(0);
+				chip.setMinimumWidth(0);
+				chip.setMinHeight(0);
+				chip.setMinimumHeight(0);
+				chip.setPadding(gap, 0, gap, 0);
+				int normal = selected ? primary : surfaceHi;
+				int pressed = selected ? blend(primary, Color.WHITE, 0.18f) : blend(surfaceHi, primary, 0.18f);
+				chip.setBackgroundDrawable(pressable(normal, pressed, 0, dp(19)));
+				return chip;
+			}
+
 			private void addMessageFooter(LinearLayout box, MiniTaLib.Message message) {
 				LinearLayout footer = new LinearLayout(MainActivity.this);
 				footer.setOrientation(LinearLayout.HORIZONTAL);
@@ -6033,10 +6803,28 @@ public final class MainActivity extends Activity {
 				time.setTextSize(12);
 				time.setText(formatMessageTime(message == null ? 0 : message.date));
 				footer.addView(time, new LinearLayout.LayoutParams(-2, -2));
-				if (message != null && message.from != null && message.from.login.equals(myLogin)) {
+				if (message != null && message.editedAt > 0) {
+					TextView edited = new TextView(MainActivity.this);
+					edited.setTextColor(muted);
+					edited.setTextSize(12);
+					edited.setText(getString(R.string.message_edited));
+					LinearLayout.LayoutParams editedLp = new LinearLayout.LayoutParams(-2, -2);
+					editedLp.setMargins(gap / 2, 0, 0, 0);
+					footer.addView(edited, editedLp);
+				}
+				if (message != null && message.from != null
+						&& (message.from.login.equals(myLogin) || !"sent".equals(message.deliveryState))) {
 					ImageView statusIcon = new ImageView(MainActivity.this);
-					statusIcon.setImageResource(message.readAt > 0 ? R.drawable.ic_status_read : R.drawable.ic_status_sent);
-					statusIcon.setContentDescription(message.readAt > 0 ? getString(R.string.read_status) : getString(R.string.sent_status));
+					if (OutboxStore.FAILED.equals(message.deliveryState)) {
+						statusIcon.setImageResource(R.drawable.ic_status_failed);
+						statusIcon.setContentDescription(getString(R.string.failed_status));
+					} else if (!"sent".equals(message.deliveryState) && !"sent-own".equals(message.deliveryState)) {
+						statusIcon.setImageResource(R.drawable.ic_status_pending);
+						statusIcon.setContentDescription(getString(R.string.pending_status));
+					} else {
+						statusIcon.setImageResource(message.readAt > 0 ? R.drawable.ic_status_read : R.drawable.ic_status_sent);
+						statusIcon.setContentDescription(message.readAt > 0 ? getString(R.string.read_status) : getString(R.string.sent_status));
+					}
 					LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(18), dp(18));
 					iconLp.setMargins(gap / 2, 0, 0, 0);
 					footer.addView(statusIcon, iconLp);
@@ -6852,7 +7640,7 @@ public final class MainActivity extends Activity {
 			});
 			box.addView(spaced(action));
 		}
-		dialog.setContentView(box);
+		setScrollableDialogContent(dialog, box);
 		showStyledDialog(dialog);
 	}
 

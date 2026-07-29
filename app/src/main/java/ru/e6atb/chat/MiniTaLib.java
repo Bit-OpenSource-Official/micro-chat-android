@@ -25,6 +25,7 @@ final class MiniTaLib {
 	private final HashMap<String, String> peerE2EKeys = new HashMap<String, String>();
 	private final HashMap<String, E2ECipher.Session> peerE2ESessions = new HashMap<String, E2ECipher.Session>();
 	private String token;
+	private String userId;
 	private String login;
 	private E2ECipher.Identity e2eIdentity;
 
@@ -47,12 +48,17 @@ final class MiniTaLib {
 	}
 
 	MiniTaLib(Context context, String baseUrl, String token, String login) {
+		this(context, baseUrl, token, "", login);
+	}
+
+	MiniTaLib(Context context, String baseUrl, String token, String userId, String login) {
 		this.context = context == null ? null : context.getApplicationContext();
 		this.baseUrl = trimSlash(baseUrl);
 		this.token = token;
+		this.userId = userId == null ? "" : userId;
 		this.login = login == null ? "" : login;
-		if (this.context != null && this.login.length() > 0) {
-			this.e2eIdentity = SessionStore.e2eIdentity(this.context, this.login);
+		if (this.context != null && accountKey().length() > 0) {
+			this.e2eIdentity = localE2EIdentity();
 		}
 	}
 
@@ -79,14 +85,51 @@ final class MiniTaLib {
 		JSONObject out = post("/auth/email/verify", body, 10000);
 		token = out.getString("token");
 		User result = user(out.getJSONObject("user"));
-		tryActivateE2E(result.login, cloudPassword);
+		tryActivateE2E(result, cloudPassword);
 		return result;
 	}
 
 	User me() throws Exception {
 		User result = user(get("/me", 10000).getJSONObject("user"));
-		tryActivateE2E(result.login, null);
+		tryActivateE2E(result, null);
 		return result;
+	}
+
+	OAuthDeviceRequest oauthDeviceRequest(String userCode) throws Exception {
+		JSONObject out = get("/oauth/device/request?user_code=" + enc(userCode == null ? "" : userCode.trim()), 10000);
+		return new OAuthDeviceRequest(
+			out.optString("user_code"),
+			out.optString("client_id"),
+			out.optString("client_name"),
+			out.optString("audience"),
+			out.optLong("expires_at"),
+			out.optString("status")
+		);
+	}
+
+	void oauthDeviceDecision(String userCode, boolean approve) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("user_code", userCode == null ? "" : userCode.trim());
+		body.put("decision", approve ? "approve" : "reject");
+		post("/oauth/device/decision", body, 10000);
+	}
+
+	static final class OAuthDeviceRequest {
+		final String userCode;
+		final String clientID;
+		final String clientName;
+		final String audience;
+		final long expiresAt;
+		final String status;
+
+		OAuthDeviceRequest(String userCode, String clientID, String clientName, String audience, long expiresAt, String status) {
+			this.userCode = userCode;
+			this.clientID = clientID;
+			this.clientName = clientName;
+			this.audience = audience;
+			this.expiresAt = expiresAt;
+			this.status = status;
+		}
 	}
 
 	void setCloudPassword(String password) throws Exception {
@@ -112,12 +155,12 @@ final class MiniTaLib {
 		JSONObject body = new JSONObject();
 		body.put("confirm", "reset_e2e");
 		post("/e2e/reset", body, 10000);
-		if (context != null && login != null && login.length() > 0) {
-			SessionStore.clearE2EIdentity(context, login);
+		if (context != null && accountKey().length() > 0) {
+			SessionStore.clearE2EIdentity(context, accountKey());
 		}
 		e2eIdentity = null;
 		peerE2ESessions.clear();
-		activateE2E(login, null);
+		activateE2E(new User(userId, "", login, "", false, false), null);
 	}
 
 	User resetCloudPassword(String email, String code) throws Exception {
@@ -127,7 +170,7 @@ final class MiniTaLib {
 		JSONObject out = post("/cloud-password/reset", body, 10000);
 		token = out.getString("token");
 		User result = user(out.getJSONObject("user"));
-		tryActivateE2E(result.login, null);
+		tryActivateE2E(result, null);
 		return result;
 	}
 
@@ -143,7 +186,7 @@ final class MiniTaLib {
 		body.put("username", username == null ? "" : username.trim());
 		JSONObject out = post("/username", body, 10000);
 		User result = user(out.getJSONObject("user"));
-		tryActivateE2E(result.login, null);
+		tryActivateE2E(result, null);
 		return result;
 	}
 
@@ -253,12 +296,29 @@ final class MiniTaLib {
 	}
 
 	Message sendMessage(String to, String text) throws Exception {
+		return sendPreparedMessage(prepareMessage(to, text, null, false));
+	}
+
+	JSONObject prepareMessage(String to, String text, String clientMessageId, boolean plain) throws Exception {
+		if (plain) {
+			JSONObject body = new JSONObject();
+			body.put("to", to);
+			body.put("text", text);
+			if (clientMessageId != null && clientMessageId.length() > 0) body.put("client_message_id", clientMessageId);
+			return body;
+		}
 		if (e2eIdentity == null) {
 			throw new SecurityException("E2E private key is unavailable on this device");
 		}
 		E2ECipher.Envelope envelope;
 		try {
-			envelope = E2ECipher.seal(e2eSession(to), login, to, text);
+			PeerE2EKey peer = peerE2EKey(to);
+			envelope = E2ECipher.sealV2(
+					e2eSession(peer, accountAddress(), peer.user.id),
+					accountAddress(),
+					peer.user.id,
+					text
+			);
 		} catch (RuntimeException e) {
 			String message = e.getMessage();
 			if (message == null
@@ -266,24 +326,26 @@ final class MiniTaLib {
 					&& !message.contains("user not found"))) {
 				throw e;
 			}
-			return sendPlainMessage(to, text);
+			return prepareMessage(to, text, clientMessageId, true);
 		}
 		JSONObject body = new JSONObject();
 		body.put("to", to);
+		if (clientMessageId != null && clientMessageId.length() > 0) body.put("client_message_id", clientMessageId);
 		JSONObject e2e = new JSONObject();
 		e2e.put("version", envelope.version);
 		e2e.put("nonce", envelope.nonce);
 		e2e.put("ciphertext", envelope.ciphertext);
 		e2e.put("tag", envelope.tag);
 		body.put("e2e", e2e);
+		return body;
+	}
+
+	Message sendPreparedMessage(JSONObject body) throws Exception {
 		return message(post("/send", body, 10000).getJSONObject("message"));
 	}
 
 	Message sendPlainMessage(String to, String text) throws Exception {
-		JSONObject body = new JSONObject();
-		body.put("to", to);
-		body.put("text", text);
-		return message(post("/send", body, 10000).getJSONObject("message"));
+		return sendPreparedMessage(prepareMessage(to, text, null, true));
 	}
 
 	BotCreation createBot(String login) throws Exception {
@@ -307,12 +369,24 @@ final class MiniTaLib {
 	}
 
 	Message uploadFile(String to, String name, String mime, byte[] data) throws Exception {
+		return uploadFile(to, name, mime, data, null);
+	}
+
+	Message uploadFile(String to, String name, String mime, byte[] data, String clientMessageId) throws Exception {
 		JSONObject body = new JSONObject();
 		body.put("to", to);
+		if (clientMessageId != null && clientMessageId.length() > 0) body.put("client_message_id", clientMessageId);
 		body.put("name", name == null || name.length() == 0 ? "file" : name);
 		body.put("mime", mime == null || mime.length() == 0 ? "application/octet-stream" : mime);
 		body.put("data", Base64.encodeToString(data, Base64.NO_WRAP));
 		return message(post("/upload", body, 120000).getJSONObject("message"));
+	}
+
+	Message editMessage(long id, String peer, String text, boolean plain) throws Exception {
+		JSONObject body = prepareMessage(peer, text, null, plain);
+		body.remove("to");
+		body.put("id", id);
+		return message(post("/edit", body, 10000).getJSONObject("message"));
 	}
 
 	void markRead(String peer) throws Exception {
@@ -440,6 +514,21 @@ final class MiniTaLib {
 		return walletInfo(post("/wallet/send", body, 10000).getJSONObject("wallet"));
 	}
 
+	Message reactMessage(long messageId, String emoji) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("message_id", messageId);
+		body.put("emoji", emoji == null ? "" : emoji);
+		return message(post("/reactions", body, 10000).getJSONObject("message"));
+	}
+
+	Message sendPaidReaction(long messageId, long amount, String idempotencyKey) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("message_id", messageId);
+		body.put("amount", amount);
+		body.put("idempotency_key", idempotencyKey);
+		return message(post("/reactions/paid", body, 10000).getJSONObject("message"));
+	}
+
 	List<WalletTransaction> getWalletHistory(int limit) throws Exception {
 		JSONArray arr = get("/wallet/history?limit=" + limit, 10000).getJSONArray("transactions");
 		ArrayList<WalletTransaction> out = new ArrayList<WalletTransaction>(arr.length());
@@ -515,14 +604,14 @@ final class MiniTaLib {
 	}
 
 	String e2eFingerprint(String peer) throws Exception {
-		return E2ECipher.fingerprint(peerE2EKey(peer));
+		return E2ECipher.fingerprint(peerE2EKey(peer).publicKey);
 	}
 
 	String ownE2EPublicKey() throws Exception {
-		if (login == null || login.length() == 0) {
+		if (accountAddress().length() == 0) {
 			return "";
 		}
-		return fetchE2EPublicKey(login);
+		return fetchE2EKey(accountAddress()).publicKey;
 	}
 
 	private JSONObject get(String path, int readTimeoutMs) throws Exception {
@@ -549,6 +638,19 @@ final class MiniTaLib {
 				|| (error != null && isExplicitInvalidTokenMessage(error.getMessage()));
 	}
 
+	static boolean isTransientError(Throwable error) {
+		if (error instanceof ApiException) {
+			int code = ((ApiException) error).code;
+			return code == 408 || code == 429 || code >= 500;
+		}
+		Throwable value = error;
+		while (value != null) {
+			if (value instanceof IOException) return true;
+			value = value.getCause();
+		}
+		return false;
+	}
+
 	private RuntimeException apiException(int code, String message) {
 		String text = message == null || message.length() == 0 ? "TCP " + code : message;
 		if (code == 401 && isCloudPasswordRequiredMessage(text)) {
@@ -557,7 +659,7 @@ final class MiniTaLib {
 		if (token().length() > 0 && (code == 401 || isInvalidTokenMessage(text))) {
 			return new InvalidTokenException(text);
 		}
-		return new RuntimeException(text);
+		return new ApiException(code, text);
 	}
 
 	static boolean isCloudPasswordRequiredError(Throwable error) {
@@ -719,10 +821,10 @@ final class MiniTaLib {
 				&& !roomMessage
 				&& o.optJSONObject("file") == null
 				&& e2eIdentity != null
-				&& from.login.length() > 0
-				&& to.login.length() > 0) {
+				&& from.id.length() > 0
+				&& to.id.length() > 0) {
 			try {
-				String peer = from.login.equals(login) ? to.login : from.login;
+				String peer = from.id.equals(userId) ? to.id : from.id;
 				peerE2EKey(peer);
 				text = "[unencrypted message blocked]";
 			} catch (Exception ignored) {
@@ -740,8 +842,35 @@ final class MiniTaLib {
 					buttons(o.optJSONArray("buttons")),
 					encrypted,
 					system,
-					jsonObjectString(o.optJSONObject("data"))
+					jsonObjectString(o.optJSONObject("data")),
+					o.optString("client_message_id"),
+					o.optLong("edited_at"),
+					"sent",
+					"",
+					reactions(o.optJSONArray("reactions")),
+					paidReaction(o.optJSONObject("paid_reaction")),
+					o.optLong("reaction_version")
 			);
+	}
+
+	private static ArrayList<Reaction> reactions(JSONArray raw) {
+		ArrayList<Reaction> out = new ArrayList<Reaction>();
+		if (raw == null) return out;
+		for (int i = 0; i < raw.length(); i++) {
+			JSONObject item = raw.optJSONObject(i);
+			if (item == null) continue;
+			String emoji = item.optString("emoji");
+			long count = item.optLong("count");
+			if (emoji.length() > 0 && count > 0) {
+				out.add(new Reaction(emoji, count, item.optBoolean("mine")));
+			}
+		}
+		return out;
+	}
+
+	private static PaidReaction paidReaction(JSONObject raw) {
+		if (raw == null || raw.optLong("amount") <= 0) return null;
+		return new PaidReaction(raw.optLong("amount"), raw.optLong("mine_amount"));
 	}
 
 	private static String jsonObjectString(JSONObject o) {
@@ -848,16 +977,21 @@ final class MiniTaLib {
 		return 0;
 	}
 
-	private void activateE2E(String userLogin, String password) throws Exception {
-		login = userLogin == null ? "" : userLogin;
+	private void activateE2E(User user, String password) throws Exception {
+		if (user != null) {
+			userId = user.id;
+			login = user.login;
+		}
 		peerE2ESessions.clear();
-		if (context == null || login.length() == 0) {
+		String key = accountKey();
+		String address = accountAddress();
+		if (context == null || key.length() == 0 || address.length() == 0) {
 			return;
 		}
-		E2ECipher.Identity local = SessionStore.e2eIdentity(context, login);
+		E2ECipher.Identity local = localE2EIdentity();
 		String registered = "";
 		try {
-			registered = fetchE2EPublicKey(login);
+			registered = fetchE2EKey(address).publicKey;
 		} catch (RuntimeException ignored) {
 		}
 		if (registered.length() > 0) {
@@ -870,7 +1004,7 @@ final class MiniTaLib {
 				try {
 					E2ECipher.Identity restored = downloadE2EBackup(password);
 					if (restored != null && restored.publicKeyB64.equals(registered)) {
-						SessionStore.saveE2EIdentity(context, login, restored);
+						SessionStore.saveE2EIdentity(context, key, restored);
 						e2eIdentity = restored;
 						return;
 					}
@@ -881,7 +1015,7 @@ final class MiniTaLib {
 			return;
 		}
 		if (local == null) {
-			local = SessionStore.createE2EIdentity(context, login);
+			local = SessionStore.createE2EIdentity(context, key);
 		}
 		JSONObject body = new JSONObject();
 		body.put("public_key", local.publicKeyB64);
@@ -890,12 +1024,33 @@ final class MiniTaLib {
 		e2eIdentity = local;
 	}
 
-	private void tryActivateE2E(String userLogin, String password) {
+	private void tryActivateE2E(User user, String password) {
 		try {
-			activateE2E(userLogin, password);
+			activateE2E(user, password);
 		} catch (Exception ignored) {
 			e2eIdentity = null;
 		}
+	}
+
+	private String accountKey() {
+		return userId == null || userId.length() == 0 ? (login == null ? "" : login) : userId;
+	}
+
+	private String accountAddress() {
+		return accountKey();
+	}
+
+	private E2ECipher.Identity localE2EIdentity() {
+		if (context == null || accountKey().length() == 0) return null;
+		E2ECipher.Identity identity = SessionStore.e2eIdentity(context, accountKey());
+		if (identity == null && userId != null && userId.length() > 0
+				&& login != null && login.length() > 0 && !userId.equals(login)) {
+			identity = SessionStore.e2eIdentity(context, login);
+			if (identity != null) {
+				SessionStore.saveE2EIdentity(context, userId, identity);
+			}
+		}
+		return identity;
 	}
 
 	private void uploadE2EBackup(E2ECipher.Identity identity, String password) throws Exception {
@@ -919,13 +1074,15 @@ final class MiniTaLib {
 	}
 
 	private E2ECipher.Identity e2eIdentityForBackup() throws Exception {
-		if (context == null || login == null || login.length() == 0) {
+		String key = accountKey();
+		String address = accountAddress();
+		if (context == null || key.length() == 0 || address.length() == 0) {
 			return null;
 		}
-		E2ECipher.Identity local = SessionStore.e2eIdentity(context, login);
+		E2ECipher.Identity local = localE2EIdentity();
 		String registered = "";
 		try {
-			registered = fetchE2EPublicKey(login);
+			registered = fetchE2EKey(address).publicKey;
 		} catch (RuntimeException ex) {
 			if (ex.getMessage() == null || !ex.getMessage().contains("not registered")) {
 				throw ex;
@@ -933,7 +1090,7 @@ final class MiniTaLib {
 		}
 		if (registered.length() == 0) {
 			if (local == null) {
-				local = SessionStore.createE2EIdentity(context, login);
+				local = SessionStore.createE2EIdentity(context, key);
 			}
 			JSONObject body = new JSONObject();
 			body.put("public_key", local.publicKeyB64);
@@ -978,44 +1135,50 @@ final class MiniTaLib {
 		}
 	}
 
-	private String fetchE2EPublicKey(String userLogin) throws Exception {
-		return get("/e2e/key?username=" + enc(userLogin), 10000).getString("public_key");
+	private PeerE2EKey fetchE2EKey(String address) throws Exception {
+		JSONObject response = get("/e2e/key?user=" + enc(address), 10000);
+		User user = user(response.getJSONObject("user"));
+		if (user.id.length() == 0) {
+			throw new IOException("e2e user id is unavailable");
+		}
+		return new PeerE2EKey(user, response.getString("public_key"));
 	}
 
-	private String peerE2EKey(String peer) throws Exception {
+	private PeerE2EKey peerE2EKey(String peer) throws Exception {
 		String normalized = peer == null ? "" : peer.trim().toLowerCase(Locale.US);
-		String cached = peerE2EKeys.get(normalized);
-		String publicKey = fetchE2EPublicKey(normalized);
+		PeerE2EKey result = fetchE2EKey(normalized);
+		String stablePeer = result.user.id.toLowerCase(Locale.US);
+		String cached = peerE2EKeys.get(stablePeer);
+		String publicKey = result.publicKey;
 		if (cached != null && !cached.equals(publicKey)) {
 			synchronized (peerE2ESessions) {
-				peerE2ESessions.remove(normalized);
+				peerE2ESessions.clear();
 			}
 		}
 		if (context != null) {
-			if (SessionStore.pinPeerE2EKey(context, baseUrl, login, normalized, publicKey)) {
+			if (SessionStore.pinPeerE2EKey(context, baseUrl, accountKey(), stablePeer, publicKey)) {
 				synchronized (peerE2ESessions) {
-					peerE2ESessions.remove(normalized);
+					peerE2ESessions.clear();
 				}
 			}
 		}
-		peerE2EKeys.put(normalized, publicKey);
-		return publicKey;
+		peerE2EKeys.put(stablePeer, publicKey);
+		return result;
 	}
 
-	private E2ECipher.Session e2eSession(String peer) throws Exception {
-		String normalized = peer == null ? "" : peer.trim().toLowerCase(Locale.US);
-		String publicKey = peerE2EKey(normalized);
+	private E2ECipher.Session e2eSession(PeerE2EKey peer, String from, String to) throws Exception {
+		String cacheKey = peer.user.id + "\n" + from + "\n" + to;
 		synchronized (peerE2ESessions) {
-			E2ECipher.Session cached = peerE2ESessions.get(normalized);
+			E2ECipher.Session cached = peerE2ESessions.get(cacheKey);
 			if (cached != null) {
 				return cached;
 			}
 		}
 		E2ECipher.Session created = E2ECipher.session(
-				e2eIdentity, publicKey, login, normalized
+				e2eIdentity, peer.publicKey, from, to
 		);
 		synchronized (peerE2ESessions) {
-			peerE2ESessions.put(normalized, created);
+			peerE2ESessions.put(cacheKey, created);
 		}
 		return created;
 	}
@@ -1024,7 +1187,6 @@ final class MiniTaLib {
 		if (e2eIdentity == null) {
 			return "[encrypted: private key unavailable]";
 		}
-		String peer = from.login.equals(login) ? to.login : from.login;
 		try {
 			E2ECipher.Envelope envelope = new E2ECipher.Envelope(
 					raw.optInt("version"),
@@ -1032,9 +1194,32 @@ final class MiniTaLib {
 					raw.optString("ciphertext"),
 					raw.optString("tag")
 			);
-			return E2ECipher.open(e2eSession(peer), from.login, to.login, envelope);
+			boolean sentByMe = userId.length() > 0
+					? userId.equals(from.id)
+					: login.equals(from.login);
+			User peerUser = sentByMe ? to : from;
+			String peerAddress = peerUser.id.length() > 0 ? peerUser.id : peerUser.login;
+			PeerE2EKey peer = peerE2EKey(peerAddress);
+			String fromContext = envelope.version == 2 ? from.id : from.login;
+			String toContext = envelope.version == 2 ? to.id : to.login;
+			return E2ECipher.open(
+					e2eSession(peer, fromContext, toContext),
+					fromContext,
+					toContext,
+					envelope
+			);
 		} catch (Exception ex) {
 			return "[encrypted: verification failed]";
+		}
+	}
+
+	private static final class PeerE2EKey {
+		final User user;
+		final String publicKey;
+
+		PeerE2EKey(User user, String publicKey) {
+			this.user = user;
+			this.publicKey = publicKey;
 		}
 	}
 
@@ -1113,8 +1298,25 @@ final class MiniTaLib {
 			final boolean encrypted;
 			final boolean system;
 			final String data;
+			final String clientMessageId;
+			final long editedAt;
+			final String deliveryState;
+			final String localFilePath;
+			final ArrayList<Reaction> reactions;
+			final PaidReaction paidReaction;
+			final long reactionVersion;
 
 			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data) {
+				this(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system, data, "", 0, "sent", "");
+			}
+
+			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data, String clientMessageId, long editedAt, String deliveryState, String localFilePath) {
+				this(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system,
+						data, clientMessageId, editedAt, deliveryState, localFilePath,
+						new ArrayList<Reaction>(), null, 0);
+			}
+
+			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data, String clientMessageId, long editedAt, String deliveryState, String localFilePath, ArrayList<Reaction> reactions, PaidReaction paidReaction, long reactionVersion) {
 				this.id = id;
 				this.chatId = chatId;
 				this.from = from;
@@ -1127,7 +1329,49 @@ final class MiniTaLib {
 				this.encrypted = encrypted;
 				this.system = system;
 				this.data = data == null ? "" : data;
+				this.clientMessageId = clientMessageId == null ? "" : clientMessageId;
+				this.editedAt = editedAt;
+				this.deliveryState = deliveryState == null ? "sent" : deliveryState;
+				this.localFilePath = localFilePath == null ? "" : localFilePath;
+				this.reactions = reactions == null ? new ArrayList<Reaction>() : reactions;
+				this.paidReaction = paidReaction;
+				this.reactionVersion = reactionVersion;
 			}
+
+			Message asOutgoing() {
+				return new Message(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system,
+						data, clientMessageId, editedAt, "sent-own", localFilePath, reactions, paidReaction, reactionVersion);
+			}
+		}
+
+	static final class Reaction {
+		final String emoji;
+		final long count;
+		final boolean mine;
+
+		Reaction(String emoji, long count, boolean mine) {
+			this.emoji = emoji == null ? "" : emoji;
+			this.count = count;
+			this.mine = mine;
+		}
+	}
+
+	static final class PaidReaction {
+		final long amount;
+		final long mineAmount;
+
+		PaidReaction(long amount, long mineAmount) {
+			this.amount = amount;
+			this.mineAmount = mineAmount;
+		}
+	}
+
+	static final class ApiException extends RuntimeException {
+		final int code;
+		ApiException(int code, String message) {
+			super(message);
+			this.code = code;
+		}
 	}
 
 	static final class Button {

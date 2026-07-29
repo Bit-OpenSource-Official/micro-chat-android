@@ -59,6 +59,25 @@ public final class E2ECipher {
 			String to,
 			String text
 	) throws GeneralSecurityException, IOException {
+		return seal(session, from, to, text, 1);
+	}
+
+	public static Envelope sealV2(
+			Session session,
+			String fromUserId,
+			String toUserId,
+			String text
+	) throws GeneralSecurityException, IOException {
+		return seal(session, fromUserId, toUserId, text, 2);
+	}
+
+	private static Envelope seal(
+			Session session,
+			String from,
+			String to,
+			String text,
+			int version
+	) throws GeneralSecurityException, IOException {
 		if (session == null) {
 			throw new IOException("E2E session is required");
 		}
@@ -68,7 +87,7 @@ public final class E2ECipher {
 		byte[] aad = aad(from, to);
 		byte[] tag = session.hmac(aad, iv, ciphertext);
 		return new Envelope(
-				1,
+				version,
 				Base64Codec.encode(iv),
 				Base64Codec.encode(ciphertext),
 				Base64Codec.encode(Arrays.copyOf(tag, 16))
@@ -91,7 +110,7 @@ public final class E2ECipher {
 			String to,
 			Envelope envelope
 	) throws GeneralSecurityException, IOException {
-		if (envelope == null || envelope.version != 1) {
+		if (envelope == null || (envelope.version != 1 && envelope.version != 2)) {
 			throw new IOException("unsupported e2e message version");
 		}
 		if (session == null) {

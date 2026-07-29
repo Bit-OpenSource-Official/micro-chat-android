@@ -5,18 +5,21 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.List;
+import org.json.JSONObject;
 
 public final class MessageSyncService extends Service {
 	private static final String ACTION_REJECT_CALL = "ru.e6atb.chat.REJECT_CALL";
 	private static final String SYNC_CHANNEL = "sync";
 	private static final String MESSAGE_CHANNEL = "messages";
 	private static final String CALL_CHANNEL = "calls_visual";
+	private static final String AUTH_CHANNEL = "authorization";
 	private static final int MAX_INCOMING_CALL_AGE_SEC = 120;
 	private static final int FOREGROUND_ID = 1;
 	public static final int MESSAGE_BASE_ID = 1000;
@@ -81,8 +84,10 @@ public final class MessageSyncService extends Service {
 			}
 			String server = SessionStore.server(this, MainActivity.DEFAULT_SERVER);
 			String token = SessionStore.token(this);
+			String userId = SessionStore.userId(this);
 			String login = SessionStore.login(this);
-			MiniTaLib ta = new MiniTaLib(this, server, token, login);
+			MiniTaLib ta = new MiniTaLib(this, server, token, userId, login);
+			OutboxDispatcher.dispatch(this, ta, null);
 			long after = SessionStore.backgroundLastUpdate(this);
 			try {
 				startForeground(FOREGROUND_ID, notification(
@@ -96,14 +101,26 @@ public final class MessageSyncService extends Service {
 				for (MiniTaLib.Update u : updates) {
 					if (u.id > newestUpdate) newestUpdate = u.id;
 					MiniTaLib.Message m = u.message;
-					if ("message".equals(u.type) && m != null) {
-						String other = m.from.login.equals(login) ? m.to.login : m.from.login;
-						if (!m.from.login.equals(login)) {
-							showMessage(MESSAGE_BASE_ID + (int) (m.id % 100000), other, m.text);
+					if (("message".equals(u.type) || "message_edit".equals(u.type) || "message_read".equals(u.type) || "message_reaction".equals(u.type)) && m != null) {
+						boolean sentByMe = isOwnUser(m.from, userId, login);
+						MiniTaLib.User otherUser = m.to != null && m.to.roomKind != null && m.to.roomKind.length() > 0
+								? m.to : (sentByMe ? m.to : m.from);
+						String other = userAddress(otherUser);
+						ChatCache.appendMessage(this, server, login, other, m);
+						if (m.clientMessageId.length() > 0) {
+							OutboxStore.complete(this, server, OutboxDispatcher.accountKey(this), m.clientMessageId);
+						}
+						if ("message".equals(u.type) && !sentByMe) {
+							String oauthCode = oauthRequestCode(m);
+							if (oauthCode.length() > 0) {
+								showOAuthRequest(oauthCode, m);
+							} else {
+								showMessage(MESSAGE_BASE_ID + (int) (m.id % 100000), other, m.text);
+							}
 						}
 					} else if ("call_invite".equals(u.type) && u.call != null && u.call.from != null
-							&& !u.call.from.login.equals(login) && !isStaleIncomingCall(u.call)) {
-						showIncomingCall(u.call.from.login);
+							&& !isOwnUser(u.call.from, userId, login) && !isStaleIncomingCall(u.call)) {
+						showIncomingCall(userAddress(u.call.from));
 					} else if (u.type != null && u.type.startsWith("call_")) {
 						NotificationManager nm = notificationManager();
 						if (nm != null) {
@@ -153,6 +170,7 @@ public final class MessageSyncService extends Service {
 							MessageSyncService.this,
 							SessionStore.server(MessageSyncService.this, MainActivity.DEFAULT_SERVER),
 							SessionStore.token(MessageSyncService.this),
+							SessionStore.userId(MessageSyncService.this),
 							SessionStore.login(MessageSyncService.this)
 					);
 					ta.sendCall(peer.trim(), "reject");
@@ -164,6 +182,18 @@ public final class MessageSyncService extends Service {
 				}
 			}
 		}, "e6atb-call-reject").start();
+	}
+
+	private static boolean isOwnUser(MiniTaLib.User user, String userId, String login) {
+		if (user == null) return false;
+		return userId != null && userId.length() > 0
+				? userId.equals(user.id)
+				: login != null && login.length() > 0 && login.equals(user.login);
+	}
+
+	private static String userAddress(MiniTaLib.User user) {
+		if (user == null) return "";
+		return user.login.length() > 0 ? user.login : user.id;
 	}
 
 	private void showMessage(int idPlaceholder, String from, String text) {
@@ -180,6 +210,42 @@ public final class MessageSyncService extends Service {
 		n.contentIntent = pending;
 		n.flags |= Notification.FLAG_AUTO_CANCEL;
 		nm.notify(notifId, n);
+	}
+
+	private String oauthRequestCode(MiniTaLib.Message message) {
+		if (message == null || message.data == null || message.data.length() == 0) return "";
+		try {
+			JSONObject data = new JSONObject(message.data);
+			if (!"oauth_request".equals(data.optString("kind"))) return "";
+			return OAuthCodeParser.parse(data.optString("user_code"));
+		} catch (Exception ignored) {
+			return "";
+		}
+	}
+
+	private void showOAuthRequest(String code, MiniTaLib.Message message) {
+		NotificationManager nm = notificationManager();
+		if (nm == null) return;
+		String service = "Crypto Gateway";
+		try {
+			JSONObject data = new JSONObject(message.data);
+			service = data.optString("client_name", service);
+		} catch (Exception ignored) {
+		}
+		Intent open = new Intent(Intent.ACTION_VIEW, Uri.parse("ovechat://authorize?user_code=" + code), this, MainActivity.class);
+		open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+		int notificationId = MESSAGE_BASE_ID + 900000 + Math.abs(code.hashCode()) % 90000;
+		PendingIntent pending = PendingIntent.getActivity(this, notificationId, open, pendingIntentFlags());
+		Notification n = notification(
+				AUTH_CHANNEL,
+				getString(R.string.oauth_authorize_title),
+				service + " · " + code,
+				false
+		);
+		n.contentIntent = pending;
+		n.defaults |= Notification.DEFAULT_SOUND | Notification.DEFAULT_VIBRATE;
+		setPriorityCompat(n);
+		nm.notify(notificationId, n);
 	}
 
 	private void showIncomingCall(String from) {
@@ -313,6 +379,7 @@ public final class MessageSyncService extends Service {
 			int high = NotificationManager.class.getField("IMPORTANCE_HIGH").getInt(null);
 			method.invoke(nm, constructor.newInstance(SYNC_CHANNEL, getString(R.string.notification_channel_sync), low));
 			method.invoke(nm, constructor.newInstance(MESSAGE_CHANNEL, getString(R.string.notification_channel_messages), def));
+			method.invoke(nm, constructor.newInstance(AUTH_CHANNEL, getString(R.string.settings_authorization), high));
 			Object callChannel = constructor.newInstance(CALL_CHANNEL, getString(R.string.notification_channel_calls), high);
 			makeNotificationChannelSilent(channelClass, callChannel);
 			method.invoke(nm, callChannel);

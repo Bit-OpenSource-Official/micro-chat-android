@@ -60,6 +60,7 @@ final class ChatCache {
 		boolean replaced = false;
 		for (int i = 0; i < history.size(); i++) {
 			if (history.get(i).id == message.id) {
+				if (message.reactionVersion < history.get(i).reactionVersion) return;
 				history.set(i, message);
 				replaced = true;
 				break;
@@ -166,6 +167,27 @@ final class ChatCache {
 			out.put("read_at", message.readAt);
 			out.put("encrypted", message.encrypted);
 			out.put("system", message.system);
+			out.put("client_message_id", message.clientMessageId);
+			out.put("edited_at", message.editedAt);
+			out.put("delivery_state", message.deliveryState);
+			if (message.reactions != null && !message.reactions.isEmpty()) {
+				JSONArray reactions = new JSONArray();
+				for (MiniTaLib.Reaction reaction : message.reactions) {
+					JSONObject raw = new JSONObject();
+					raw.put("emoji", reaction.emoji);
+					raw.put("count", reaction.count);
+					raw.put("mine", reaction.mine);
+					reactions.put(raw);
+				}
+				out.put("reactions", reactions);
+			}
+			if (message.paidReaction != null && message.paidReaction.amount > 0) {
+				JSONObject paid = new JSONObject();
+				paid.put("amount", message.paidReaction.amount);
+				paid.put("mine_amount", message.paidReaction.mineAmount);
+				out.put("paid_reaction", paid);
+			}
+			if (message.reactionVersion > 0) out.put("reaction_version", message.reactionVersion);
 			if (message.data != null && message.data.length() > 0) out.put("data", new JSONObject(message.data));
 		if (message.file != null) {
 			JSONObject file = new JSONObject();
@@ -238,8 +260,35 @@ final class ChatCache {
 				buttons(raw.optJSONArray("buttons")),
 				raw.optBoolean("encrypted"),
 				raw.optBoolean("system"),
-				raw.optJSONObject("data") == null ? "" : raw.optJSONObject("data").toString()
+				raw.optJSONObject("data") == null ? "" : raw.optJSONObject("data").toString(),
+				raw.optString("client_message_id"),
+				raw.optLong("edited_at"),
+				raw.optString("delivery_state", "sent"),
+				"",
+				reactions(raw.optJSONArray("reactions")),
+				paidReaction(raw.optJSONObject("paid_reaction")),
+				raw.optLong("reaction_version")
 		);
+	}
+
+	private static ArrayList<MiniTaLib.Reaction> reactions(JSONArray raw) {
+		ArrayList<MiniTaLib.Reaction> out = new ArrayList<MiniTaLib.Reaction>();
+		if (raw == null) return out;
+		for (int i = 0; i < raw.length(); i++) {
+			JSONObject item = raw.optJSONObject(i);
+			if (item == null) continue;
+			String emoji = item.optString("emoji");
+			long count = item.optLong("count");
+			if (emoji.length() > 0 && count > 0) {
+				out.add(new MiniTaLib.Reaction(emoji, count, item.optBoolean("mine")));
+			}
+		}
+		return out;
+	}
+
+	private static MiniTaLib.PaidReaction paidReaction(JSONObject raw) {
+		if (raw == null || raw.optLong("amount") <= 0) return null;
+		return new MiniTaLib.PaidReaction(raw.optLong("amount"), raw.optLong("mine_amount"));
 	}
 
 	private static ArrayList<MiniTaLib.Button> buttons(JSONArray raw) {

@@ -7,9 +7,9 @@ def dotenvPath = System.getenv("ENV_FILE")
 def dotenvFile
 if (dotenvPath) {
     def candidate = new File(dotenvPath)
-    dotenvFile = candidate.isAbsolute() ? candidate : rootProject.file("../${dotenvPath}")
+    dotenvFile = candidate.isAbsolute() ? candidate : rootProject.file(dotenvPath)
 } else {
-    dotenvFile = rootProject.file("../.env")
+    dotenvFile = rootProject.file(".env")
 }
 if (dotenvFile.isFile()) {
     dotenvFile.eachLine("UTF-8") { raw ->
@@ -36,10 +36,10 @@ def cryptServerPublicKey = providers.gradleProperty("cryptServerPublicKeyB64").o
     ""
 def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
     System.getenv("APP_VERSION_NAME") ?:
-    "0.2"
+    "0.7.17"
 def appVersionCode = (providers.gradleProperty("appVersionCode").orNull ?:
     System.getenv("APP_VERSION_CODE") ?:
-    "2").toInteger()
+    "100036").toInteger()
 def githubRepository = providers.gradleProperty("githubRepository").orNull ?:
     System.getenv("GITHUB_REPOSITORY") ?:
     dotenv["GITHUB_REPOSITORY"] ?:
@@ -52,12 +52,6 @@ def configuredReleaseStoreFile = providers.gradleProperty("releaseStoreFile").or
 def releaseStoreFile = configuredReleaseStoreFile ?
     rootProject.file(configuredReleaseStoreFile) :
     rootProject.file("micromsg.keystore")
-if (!releaseStoreFile.isFile()) {
-    def legacyReleaseStoreFile = rootProject.file("../micromsg.keystore")
-    if (legacyReleaseStoreFile.isFile()) {
-        releaseStoreFile = legacyReleaseStoreFile
-    }
-}
 def releaseStorePassword = providers.gradleProperty("releaseStorePassword").orNull ?:
     System.getenv("RELEASE_STORE_PASSWORD") ?:
     "password"
@@ -70,6 +64,7 @@ def releaseKeyPassword = providers.gradleProperty("releaseKeyPassword").orNull ?
 
 dependencies {
     implementation "org.bouncycastle:bcprov-jdk15to18:1.84"
+    implementation "com.google.zxing:core:3.5.4"
     testImplementation "junit:junit:4.13.2"
 }
 
@@ -99,8 +94,7 @@ android {
 
     // ---------------------------------------------------------------------
     // Signing configuration for release builds.
-    // CI writes `micromsg.keystore` into the repository root. The legacy
-    // parent-directory location is still accepted for local builds from micro-chat.
+    // CI and local release builds use `micromsg.keystore` in this repository root.
     // ---------------------------------------------------------------------
     signingConfigs {
         release {

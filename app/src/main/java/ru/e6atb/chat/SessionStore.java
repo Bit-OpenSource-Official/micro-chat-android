@@ -14,6 +14,7 @@ final class SessionStore {
 	private static final String FILE_NAME = "e6atb.session.properties";
 	private static final String SERVER = "server";
 	private static final String TOKEN = "token";
+	private static final String USER_ID = "user_id";
 	private static final String USERNAME = "username";
 	private static final String LEGACY_LOGIN = "login";
 	private static final String LAST_UPDATE = "last_update";
@@ -29,9 +30,14 @@ final class SessionStore {
 	}
 
 	static void save(Context context, String server, String token, String username) {
+		save(context, server, token, userId(context), username);
+	}
+
+	static void save(Context context, String server, String token, String userId, String username) {
 		Properties p = load(context);
 		p.setProperty(SERVER, normalizeServer(server));
 		p.setProperty(TOKEN, safe(token));
+		p.setProperty(USER_ID, safe(userId));
 		p.setProperty(USERNAME, safe(username));
 		p.remove(LEGACY_LOGIN);
 		store(context, p);
@@ -46,6 +52,7 @@ final class SessionStore {
 	static void clear(Context context) {
 		Properties p = load(context);
 		p.remove(TOKEN);
+		p.remove(USER_ID);
 		p.remove(USERNAME);
 		p.remove(LEGACY_LOGIN);
 		p.remove(LAST_UPDATE);
@@ -58,7 +65,14 @@ final class SessionStore {
 	}
 
 	static String server(Context context, String fallback) {
-		String s = normalizeServer(get(context, SERVER, fallback));
+		Properties properties = load(context);
+		String s = normalizeServer(properties.getProperty(SERVER, fallback));
+		if ("danila.e6atb.ru:8080".equalsIgnoreCase(s)
+				|| "10.100.2.21:8080".equalsIgnoreCase(s)) {
+			s = normalizeServer(fallback);
+			properties.setProperty(SERVER, s);
+			store(context, properties);
+		}
 		return s == null || s.trim().length() == 0 ? normalizeServer(fallback) : s;
 	}
 
@@ -82,6 +96,10 @@ final class SessionStore {
 	static String login(Context context) {
 		String username = get(context, USERNAME, "");
 		return username.length() > 0 ? username : get(context, LEGACY_LOGIN, "");
+	}
+
+	static String userId(Context context) {
+		return get(context, USER_ID, "");
 	}
 
 	static long lastUpdate(Context context) {

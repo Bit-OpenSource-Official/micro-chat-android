@@ -13,44 +13,32 @@
 - История чата сначала открывается на последних сообщениях; старые догружаются при скролле вверх.
 - Голосовые звонки 1-на-1 без видео: входящий звонок показывает рингтон и кнопки Accept/Decline, PCM-аудио идёт через WebSocket `/voice`.
 - Cleartext HTTP включен для локальной разработки.
-- Release APK собирается с R8/minify и debug-подписью для быстрой установки.
-
-## Запуск backend
-
-Для хоста `10.100.2.21`:
-
-```bash
-ADDR=0.0.0.0:8080 cargo run --manifest-path micromsg/Cargo.toml --bin micromsg
-```
+- Release APK собирается с R8/minify и постоянным release-сертификатом.
 
 В готовом APK по умолчанию стоит адрес:
 
 ```text
-10.100.2.21:8080
+m.ove.rs:8080
 ```
 
-Если нужен Android Emulator на той же машине, вручную поменяй поле server на:
-
-```text
-10.0.2.2:8080
-```
+Это native MST4 (`RCP4/RSP4`) поверх TCP с закреплённым публичным ключом
+messenger. Адрес можно изменить в настройках приложения.
 
 ## Сборка клиента
 
-Открой `android-client/` в Android Studio или собери Gradle:
+Открой этот репозиторий в Android Studio или собери Gradle:
 
 ```bash
-cd android-client
 gradle :app:assembleRelease
 ```
 
 Для локальной сборки нужны Android SDK и Gradle. Если их нет, используй Docker-сборку ниже.
 Release-сборка требует ключ сервера и keystore для подписи. По умолчанию Gradle
-ищет `micromsg.keystore` в корне репозитория, а для локальной совместимости
-также принимает старый путь `../micromsg.keystore`.
+ищет `micromsg.keystore` в корне этого репозитория.
 
 ```bash
-CRYPT_SERVER_PUBLIC_KEY_B64=... gradle :app:assembleRelease
+cp .env.example .env
+./build-apk.sh
 ```
 
 Версию приложения можно задать Gradle-параметрами:
@@ -90,7 +78,6 @@ gradle :app:assembleRelease -PgithubRepository=OWNER/REPO
 ## Сборка в Docker
 
 ```bash
-cd android-client
 docker build -t micromsg-android .
 docker create --name micromsg-apk micromsg-android
 docker cp micromsg-apk:/src/app/build/outputs/apk/release/app-release.apk ./app-release.apk
@@ -100,5 +87,5 @@ docker rm micromsg-apk
 APK появится здесь:
 
 ```text
-android-client/app-release.apk
+app-release.apk
 ```
