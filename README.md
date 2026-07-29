@@ -61,7 +61,10 @@ gradle :app:assembleRelease -PappVersionName=1.2.3 -PappVersionCode=123
 Android-клиент читает GitHub Releases API из настроек приложения, сравнивает
 `versionCode`, скачивает APK и открывает системный установщик.
 
-Для сборки добавь в GitHub Secrets значение `CRYPT_SERVER_PUBLIC_KEY_B64`.
+Публичный transport pin production-сервера хранится в `app/build.gradle`, поэтому
+GitHub Release воспроизводимо собирается без отдельного секрета. Для тестового
+сервера ключ можно переопределить через `-PcryptServerPublicKeyB64=...`,
+переменную окружения `CRYPT_SERVER_PUBLIC_KEY_B64` или локальный `.env`.
 В GitHub Actions репозиторий для OTA берется из `GITHUB_REPOSITORY`
 автоматически. Для локальной сборки его можно задать вручную:
 

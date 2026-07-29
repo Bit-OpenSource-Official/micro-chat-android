@@ -85,13 +85,7 @@ jobs:
           echo "RELEASE_KEY_PASSWORD=${key_pass}" >> "${GITHUB_ENV}"
 
       - name: Build release APK
-        env:
-          CRYPT_SERVER_PUBLIC_KEY_B64: ${{ secrets.CRYPT_SERVER_PUBLIC_KEY_B64 }}
         run: |
-          test -n "${CRYPT_SERVER_PUBLIC_KEY_B64}" || {
-            echo "Missing GitHub secret CRYPT_SERVER_PUBLIC_KEY_B64" >&2
-            exit 1
-          }
           gradle --no-daemon :app:assembleRelease \
             -PappVersionName="${{ steps.version.outputs.name }}" \
             -PappVersionCode="${{ steps.version.outputs.code }}"

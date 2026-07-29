@@ -30,10 +30,14 @@ if (dotenvFile.isFile()) {
         }
     }
 }
+// The transport pin is public by definition (it is shipped in every APK).
+// Keep the production value in source control so release builds are reproducible
+// and cannot silently pick up a stale GitHub Actions secret.
+def productionCryptServerPublicKey = "iTUo5Se5Z960wwb0KiM/SqcV2LrvCskFGp3WxsVyOQk="
 def cryptServerPublicKey = providers.gradleProperty("cryptServerPublicKeyB64").orNull ?:
     System.getenv("CRYPT_SERVER_PUBLIC_KEY_B64") ?:
     dotenv["CRYPT_SERVER_PUBLIC_KEY_B64"] ?:
-    ""
+    productionCryptServerPublicKey
 def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
     System.getenv("APP_VERSION_NAME") ?:
     "0.8.1"
