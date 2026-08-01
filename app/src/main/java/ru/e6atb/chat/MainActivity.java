@@ -274,6 +274,12 @@ public final class MainActivity extends Activity {
 		}
 	};
 	private Page page = Page.NONE;
+	private MiniTaLib.Message currentCommentPost;
+	private final Runnable channelHistoryReload = new Runnable() {
+		@Override public void run() {
+			if (page == Page.CHAT && currentPeerIsChannel()) loadHistory();
+		}
+	};
 	private long oldestMessage;
 	private boolean historyLoaded;
 	private boolean hasOlderMessages;
@@ -325,6 +331,11 @@ public final class MainActivity extends Activity {
 	}
 
 	private boolean handleBackNavigation() {
+		if (page == Page.CHANNEL_COMMENTS || page == Page.CHANNEL_SETTINGS) {
+			showChat();
+			loadHistory();
+			return true;
+		}
 		if (page == Page.CHAT || page == Page.ADD_CHAT || page == Page.SETTINGS) {
 			showChats();
 			return true;
@@ -980,6 +991,187 @@ public final class MainActivity extends Activity {
 		refreshChatInput();
 	}
 
+	private void showChannelComments(final MiniTaLib.Message post) {
+		if (!currentPeerIsChannel() || currentPeerUser == null || !currentPeerUser.commentsEnabled || post == null) return;
+		currentCommentPost = post;
+		page = Page.CHANNEL_COMMENTS;
+		if (bottomNav != null) bottomNav.setVisibility(View.GONE);
+		content.removeAllViews();
+		text = input(getString(R.string.channel_comment_hint), false);
+		text.setSingleLine(false);
+		text.setMinLines(1);
+		text.setMaxLines(3);
+		text.setImeOptions(EditorInfo.IME_ACTION_SEND);
+		text.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+			@Override public boolean onEditorAction(TextView v, int action, KeyEvent e) {
+				if (action == EditorInfo.IME_ACTION_SEND) {
+					sendChannelComment();
+					return true;
+				}
+				return false;
+			}
+		});
+		LinearLayout header = new LinearLayout(this);
+		header.setOrientation(LinearLayout.HORIZONTAL);
+		header.setGravity(Gravity.CENTER_VERTICAL);
+		ImageButton back = headerIconButton(R.drawable.ic_back, getString(R.string.action_back), new View.OnClickListener() {
+			@Override public void onClick(View v) { showChat(); loadHistory(); }
+		});
+		header.addView(back, new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight));
+		TextView heading = title(getString(R.string.channel_comments));
+		LinearLayout.LayoutParams headingLp = new LinearLayout.LayoutParams(0, -2, 1);
+		headingLp.setMargins(gap, 0, 0, 0);
+		header.addView(heading, headingLp);
+		content.addView(spaced(header));
+
+		LinearLayout original = new LinearLayout(this);
+		original.setOrientation(LinearLayout.VERTICAL);
+		original.setPadding(pad, gap, pad, gap);
+		original.setBackgroundDrawable(shape(surfaceHi, 0, elementRadius()));
+		TextView author = label(currentPeerUser.nick);
+		author.setTextColor(muted);
+		author.setTextSize(13);
+		original.addView(author, new LinearLayout.LayoutParams(-1, -2));
+		TextView body = label(post.text == null ? "" : post.text);
+		body.setText(renderMarkdown(post.text == null ? "" : post.text));
+		body.setMovementMethod(LinkMovementMethod.getInstance());
+		body.setTextColor(textColor);
+		original.addView(body, new LinearLayout.LayoutParams(-1, -2));
+		content.addView(spaced(original));
+
+		messageRows = adapter();
+		messageList = new ListView(this);
+		messageList.setBackgroundColor(bg);
+		messageList.setCacheColorHint(bg);
+		styleList(messageList, true);
+		messageList.setAdapter(messageRows);
+		messageList.setTranscriptMode(ListView.TRANSCRIPT_MODE_NORMAL);
+		messageList.setOnScrollListener(new AbsListView.OnScrollListener() {
+			@Override public void onScrollStateChanged(AbsListView view, int scrollState) {}
+			@Override public void onScroll(AbsListView view, int firstVisibleItem, int visibleItemCount, int totalItemCount) {
+				if (historyLoaded && hasOlderMessages && firstVisibleItem == 0 && visibleItemCount > 0) loadOlderChannelComments();
+			}
+		});
+		content.addView(messageList, fill());
+		content.addView(spaced(commentMessageBar()));
+		loadCachedChannelComments(post.id);
+		loadChannelComments(post.id);
+	}
+
+	private LinearLayout commentMessageBar() {
+		LinearLayout bar = new LinearLayout(this);
+		bar.setOrientation(LinearLayout.HORIZONTAL);
+		bar.setGravity(Gravity.BOTTOM);
+		LinearLayout.LayoutParams inputLp = new LinearLayout.LayoutParams(0, -2, 1);
+		inputLp.setMargins(0, 0, gap, 0);
+		bar.addView(text, inputLp);
+		ImageButton send = inputIconButton(R.drawable.ic_send, getString(R.string.action_send), new View.OnClickListener() {
+			@Override public void onClick(View v) { sendChannelComment(); }
+		});
+		bar.addView(send, new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight));
+		return bar;
+	}
+
+	private void sendChannelComment() {
+		final String value = text == null ? "" : text.getText().toString().trim();
+		if (value.length() == 0 || currentCommentPost == null || ta == null) return;
+		try {
+			OutboxStore.Entry entry = OutboxStore.enqueueComment(
+					this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this),
+					currentPeer, currentCommentPost.id, value);
+			addMessageRow(outboxMessage(entry), false);
+			text.setText("");
+			if (messageList != null) messageList.setSelection(messageRows.getCount() - 1);
+			dispatchOutbox(ta);
+		} catch (Exception error) {
+			status.setText(errorText(error));
+		}
+	}
+
+	private void loadChannelComments(final long postId) {
+		final MiniTaLib c = ta;
+		final String channel = currentPeer;
+		if (c == null || channel == null || channel.length() == 0) return;
+		historyLoaded = false;
+		hasOlderMessages = false;
+		loadingOlderMessages = false;
+		run("channel_comments_history", new Task() {
+			@Override public void run() throws Exception {
+				final MiniTaLib.CommentPage comments = c.getChannelComments(channel, postId, 0, HISTORY_PAGE);
+				final String cachePeer = OutboxStore.cachePeer(channel, postId);
+				cacheSaveHistory(cachePeer, comments.messages);
+				ui(new Runnable() {
+					@Override public void run() {
+						if (page != Page.CHANNEL_COMMENTS || currentCommentPost == null || currentCommentPost.id != postId) return;
+						if (comments.peer != null) currentPeerUser = comments.peer;
+						if (comments.post != null) currentCommentPost = comments.post;
+						renderChannelComments(comments.messages, postId, false);
+					}
+				});
+			}
+		});
+	}
+
+	private void loadCachedChannelComments(final long postId) {
+		final String channel = currentPeer;
+		final String cachePeer = OutboxStore.cachePeer(channel, postId);
+		enqueueCache(new Runnable() {
+			@Override public void run() {
+				final List<MiniTaLib.Message> cached = ChatCache.loadHistory(MainActivity.this, SessionStore.server(MainActivity.this, DEFAULT_SERVER), myLogin, cachePeer);
+				ui(new Runnable() { @Override public void run() {
+					if (page == Page.CHANNEL_COMMENTS && currentCommentPost != null && currentCommentPost.id == postId) renderChannelComments(cached, postId, true);
+				} });
+			}
+		});
+	}
+
+	private void renderChannelComments(List<MiniTaLib.Message> comments, long postId, boolean cached) {
+		if (messageRows == null || comments == null) return;
+		seenMessages.clear();
+		oldestMessage = 0;
+		ArrayList<MessageRow> rows = new ArrayList<MessageRow>();
+		for (MiniTaLib.Message comment : comments) {
+			if (comment != null && comment.commentPostId == postId && seenMessages.add(comment.id)) {
+				if (oldestMessage == 0 || comment.id < oldestMessage) oldestMessage = comment.id;
+				rows.add(toMessageRow(comment));
+			}
+		}
+		for (OutboxStore.Entry entry : OutboxStore.load(this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this))) {
+			if (!currentPeer.equals(entry.peer) || entry.commentPostId != postId) continue;
+			MiniTaLib.Message pending = outboxMessage(entry);
+			if (seenMessages.add(pending.id)) rows.add(toMessageRow(pending));
+		}
+		messageRows.replaceRows(rows);
+		historyLoaded = !cached;
+		hasOlderMessages = !cached && comments.size() == HISTORY_PAGE;
+		if (messageList != null && messageRows.getCount() > 0) messageList.setSelection(messageRows.getCount() - 1);
+	}
+
+	private void loadOlderChannelComments() {
+		final MiniTaLib c = ta;
+		if (c == null || currentCommentPost == null || loadingOlderMessages || oldestMessage <= 0) return;
+		final long postId = currentCommentPost.id;
+		final long before = oldestMessage;
+		final String channel = currentPeer;
+		loadingOlderMessages = true;
+		run("older_channel_comments", new Task() {
+			@Override public void run() throws Exception {
+				final MiniTaLib.CommentPage pageData = c.getChannelComments(channel, postId, before, HISTORY_PAGE);
+				ui(new Runnable() { @Override public void run() {
+					loadingOlderMessages = false;
+					if (page != Page.CHANNEL_COMMENTS || currentCommentPost == null || currentCommentPost.id != postId) return;
+					ArrayList<MessageRow> rows = new ArrayList<MessageRow>();
+					for (MiniTaLib.Message comment : pageData.messages) if (seenMessages.add(comment.id)) {
+						oldestMessage = Math.min(oldestMessage, comment.id);
+						rows.add(toMessageRow(comment));
+					}
+					hasOlderMessages = pageData.messages.size() == HISTORY_PAGE && !rows.isEmpty();
+					messageRows.insertRows(rows, 0);
+				} });
+			}
+		});
+	}
+
 	private void showE2EFingerprint() {
 		if (currentPeerIsRoom()) {
 			status.setText(getString(R.string.status_e2e_not_available_for_rooms));
@@ -1193,14 +1385,13 @@ public final class MainActivity extends Activity {
 	private boolean currentPeerCanWrite() {
 		if (!currentPeerIsRoom()) return true;
 		if (!currentPeerIsChannel()) return true;
-		return myID != null && myID.length() > 0 && myID.equals(currentPeerUser.ownerId);
+		return currentPeerCanManageRoom();
 	}
 
 	private boolean currentPeerCanManageRoom() {
 		return currentPeerIsRoom()
-			&& myID != null
-			&& myID.length() > 0
-			&& myID.equals(currentPeerUser.ownerId);
+			&& (currentPeerUser.canManage
+				|| (myID != null && myID.length() > 0 && myID.equals(currentPeerUser.ownerId)));
 	}
 
 	private boolean isEmptyBotDialog() {
@@ -2053,6 +2244,17 @@ public final class MainActivity extends Activity {
 		LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
 		lp.setMargins(0, 0, 0, gap / 2);
 		row.setLayoutParams(lp);
+		return row;
+	}
+
+	private LinearLayout settingsToggleRow(String name, String detail, boolean checked, View.OnClickListener listener) {
+		LinearLayout row = settingsRow(name, detail, listener);
+		if (row.getChildCount() > 1) row.removeViewAt(row.getChildCount() - 1);
+		android.widget.Switch toggle = new android.widget.Switch(this);
+		toggle.setChecked(checked);
+		toggle.setClickable(false);
+		toggle.setFocusable(false);
+		row.addView(toggle, new LinearLayout.LayoutParams(-2, -2));
 		return row;
 	}
 
@@ -3348,7 +3550,7 @@ public final class MainActivity extends Activity {
 		}
 		for (OutboxStore.Entry entry : OutboxStore.load(
 				this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this))) {
-			if (!peerName.equals(entry.peer)) continue;
+			if (!peerName.equals(entry.peer) || entry.commentPostId > 0) continue;
 			MiniTaLib.Message pending = outboxMessage(entry);
 			if (seenMessages.add(pending.id)) rows.add(toMessageRow(pending));
 		}
@@ -4368,6 +4570,10 @@ public final class MainActivity extends Activity {
 			append(u.message);
 			return;
 		}
+		if ("channel_comment".equals(u.type)) {
+			appendChannelComment(u.message);
+			return;
+		}
 		if ("message_read".equals(u.type) || "message_edit".equals(u.type) || "message_reaction".equals(u.type)) {
 			applyMessageUpdate(u.message);
 			return;
@@ -4553,8 +4759,20 @@ public final class MainActivity extends Activity {
 					currentPeerUser = room;
 					currentPeer = resolvedPeerName(room, currentPeer);
 					refreshCurrentPeerNameView();
-					refreshChatInput();
-					loadHistory();
+					if (!room.commentsEnabled) {
+						ChatCache.deleteCommentThreads(MainActivity.this, SessionStore.server(MainActivity.this, DEFAULT_SERVER), myLogin, currentPeer);
+						OutboxStore.removeChannelComments(MainActivity.this, SessionStore.server(MainActivity.this, DEFAULT_SERVER), OutboxDispatcher.accountKey(MainActivity.this), currentPeer);
+					}
+					if (page == Page.CHANNEL_COMMENTS && !room.commentsEnabled) {
+						status.setText(getString(R.string.channel_comments_deleted));
+						showChat();
+						loadHistory();
+					} else if (page == Page.CHANNEL_SETTINGS) {
+						showChannelSettings();
+					} else if (page == Page.CHAT) {
+						refreshChatInput();
+						loadHistory();
+					}
 				}
 				if (page == Page.CHATS || currentRoom) {
 					loadChats();
@@ -5123,8 +5341,12 @@ public final class MainActivity extends Activity {
 					@Override
 					public void run() {
 						if (sent != null) {
-							append(sent);
+							if (entry.commentPostId > 0) appendChannelComment(sent);
+							else append(sent);
 						} else if (page == Page.CHAT && entry.peer.equals(currentPeer) && messageRows != null) {
+							messageRows.updateMessage(outboxMessage(entry));
+						} else if (page == Page.CHANNEL_COMMENTS && entry.peer.equals(currentPeer)
+								&& currentCommentPost != null && entry.commentPostId == currentCommentPost.id && messageRows != null) {
 							messageRows.updateMessage(outboxMessage(entry));
 						}
 					}
@@ -5177,14 +5399,38 @@ public final class MainActivity extends Activity {
 			});
 	}
 
+	private void appendChannelComment(final MiniTaLib.Message message) {
+		if (message == null || message.commentPostId <= 0) return;
+		if (message.clientMessageId != null && message.clientMessageId.length() > 0) {
+			OutboxStore.complete(this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this), message.clientMessageId);
+		}
+		final String channel = messagePeer(message);
+		cacheAppendMessage(OutboxStore.cachePeer(channel, message.commentPostId), message);
+		ui(new Runnable() {
+			@Override public void run() {
+				if (page == Page.CHANNEL_COMMENTS && channel.equals(currentPeer)
+						&& currentCommentPost != null && currentCommentPost.id == message.commentPostId && messageRows != null) {
+					if (!messageRows.updateMessage(message)) addMessageRow(message, false);
+					if (messageList != null && messageRows.getCount() > 0) messageList.setSelection(messageRows.getCount() - 1);
+				} else if (page == Page.CHAT && channel.equals(currentPeer)) {
+					scheduleChannelHistoryReload();
+				}
+			}
+		});
+	}
+
 	private void applyMessageUpdate(final MiniTaLib.Message m) {
 		if (m == null) return;
 		final String cachedPeer = messagePeer(m);
-		cacheAppendMessage(cachedPeer, m);
+		final String historyPeer = m.commentPostId > 0 ? OutboxStore.cachePeer(cachedPeer, m.commentPostId) : cachedPeer;
+		cacheAppendMessage(historyPeer, m);
 		ui(new Runnable() {
 			@Override
 			public void run() {
-				if (page == Page.CHAT && cachedPeer.equals(currentPeer) && messageRows != null) {
+				if (m.commentPostId > 0 && page == Page.CHANNEL_COMMENTS && cachedPeer.equals(currentPeer)
+						&& currentCommentPost != null && currentCommentPost.id == m.commentPostId && messageRows != null) {
+					messageRows.updateMessage(m);
+				} else if (m.commentPostId == 0 && page == Page.CHAT && cachedPeer.equals(currentPeer) && messageRows != null) {
 					messageRows.updateMessage(m);
 				}
 				if (page == Page.CHATS) loadChats();
@@ -5195,25 +5441,46 @@ public final class MainActivity extends Activity {
 	private void applyMessageDelete(final MiniTaLib.Message m) {
 		if (m == null) return;
 		final String cachedPeer = messagePeer(m);
-		cacheDeleteMessage(cachedPeer, m.id);
+		cacheDeleteMessage(m.commentPostId > 0 ? OutboxStore.cachePeer(cachedPeer, m.commentPostId) : cachedPeer, m.id);
 		ui(new Runnable() {
 			@Override
 			public void run() {
-				if (messageRows != null) messageRows.removeMessage(m.id);
+				if (m.commentPostId == 0 && page == Page.CHANNEL_COMMENTS
+						&& currentCommentPost != null && currentCommentPost.id == m.id) {
+					status.setText(getString(R.string.channel_post_deleted));
+					showChat();
+					loadHistory();
+					return;
+				}
+				if (m.commentPostId > 0) {
+					if (page == Page.CHANNEL_COMMENTS && cachedPeer.equals(currentPeer)
+							&& currentCommentPost != null && currentCommentPost.id == m.commentPostId && messageRows != null) {
+						messageRows.removeMessage(m.id);
+					} else if (page == Page.CHAT && cachedPeer.equals(currentPeer)) {
+						scheduleChannelHistoryReload();
+					}
+				} else if (messageRows != null) messageRows.removeMessage(m.id);
 				if (seenMessages != null) seenMessages.remove(Long.valueOf(m.id));
 				if (page == Page.CHATS) loadChats();
 			}
 		});
 	}
 
+	private void scheduleChannelHistoryReload() {
+		main.removeCallbacks(channelHistoryReload);
+		main.postDelayed(channelHistoryReload, 150L);
+	}
+
 	private String messagePeer(MiniTaLib.Message m) {
 		if (m == null || m.from == null || m.to == null) return "";
+		if (m.commentPostId > 0) return resolvedPeerName(m.to, m.to.id);
 		if (m.to.roomKind != null && m.to.roomKind.length() > 0) return resolvedPeerName(m.to, m.to.id);
 		return m.from.login.equals(myLogin) ? m.to.login : m.from.login;
 	}
 
 	private MiniTaLib.User messagePeerUser(MiniTaLib.Message m) {
 		if (m == null || m.from == null || m.to == null) return null;
+		if (m.commentPostId > 0) return m.to;
 		if (m.to.roomKind != null && m.to.roomKind.length() > 0) return m.to;
 		return m.from.login.equals(myLogin) ? m.to : m.from;
 	}
@@ -5258,6 +5525,16 @@ public final class MainActivity extends Activity {
 
 	private String formatMessage(MiniTaLib.Message m) {
 		return m.text == null ? "" : m.text;
+	}
+
+	private MiniTaLib.Message withCommentsCount(MiniTaLib.Message message, int commentsCount) {
+		return new MiniTaLib.Message(
+				message.id, message.chatId, message.from, message.to, message.text, message.date,
+				message.readAt, message.file, message.buttons, message.encrypted, message.system,
+				message.data, message.clientMessageId, message.editedAt, message.deliveryState,
+				message.localFilePath, message.reactions, message.paidReaction, message.reactionVersion,
+				message.commentPostId, commentsCount
+		);
 	}
 
 	private String formatMessageTime(long seconds) {
@@ -5360,21 +5637,19 @@ public final class MainActivity extends Activity {
 			return;
 		}
 		final boolean editable = canEditMessage(message);
-		String[] actions = editable
-				? new String[] { getString(R.string.action_copy), getString(R.string.action_edit), getString(R.string.action_delete), getString(R.string.action_save_favorite) }
-				: new String[] { getString(R.string.action_copy), getString(R.string.action_delete), getString(R.string.action_save_favorite) };
-		showMessageActionDialog(message, actions, new ChoiceHandler() {
+		final ArrayList<String> actionList = new ArrayList<String>();
+		actionList.add(getString(R.string.action_copy));
+		if (editable) actionList.add(getString(R.string.action_edit));
+		if (canDeleteMessage(message)) actionList.add(getString(R.string.action_delete));
+		if (message.commentPostId == 0) actionList.add(getString(R.string.action_save_favorite));
+		showMessageActionDialog(message, actionList.toArray(new String[actionList.size()]), new ChoiceHandler() {
 			@Override
 			public void onChoice(int which) {
-				if (which == 0) {
-					copyMessage(message);
-				} else if (editable && which == 1) {
-					editMessage(message);
-				} else if (which == (editable ? 2 : 1)) {
-					deleteMessage(message);
-				} else {
-					saveToFavorites(message);
-				}
+				String action = actionList.get(which);
+				if (action.equals(getString(R.string.action_copy))) copyMessage(message);
+				else if (action.equals(getString(R.string.action_edit))) editMessage(message);
+				else if (action.equals(getString(R.string.action_delete))) deleteMessage(message);
+				else if (action.equals(getString(R.string.action_save_favorite))) saveToFavorites(message);
 			}
 		});
 	}
@@ -5711,7 +5986,15 @@ public final class MainActivity extends Activity {
 	private boolean canEditMessage(MiniTaLib.Message message) {
 		if (message == null || message.file != null || message.system || message.text == null || message.text.length() == 0) return false;
 		if (System.currentTimeMillis() / 1000L - message.date > 48L * 60L * 60L) return false;
+		if (message.commentPostId > 0) return isOwnUser(message.from);
 		return currentPeerIsChannel() ? currentPeerCanManageRoom() : isOwnUser(message.from);
+	}
+
+	private boolean canDeleteMessage(MiniTaLib.Message message) {
+		if (message == null || message.id <= 0) return false;
+		if (message.commentPostId > 0) return isOwnUser(message.from) || currentPeerCanManageRoom();
+		if (currentPeerIsChannel()) return currentPeerCanManageRoom();
+		return isOwnUser(message.from);
 	}
 
 	private void editMessage(final MiniTaLib.Message message) {
@@ -6407,6 +6690,9 @@ public final class MainActivity extends Activity {
 							|| (message.clientMessageId.length() > 0
 							&& message.clientMessageId.equals(row.message.clientMessageId)))) {
 						if (message.reactionVersion < row.message.reactionVersion) return false;
+						if (message.commentPostId == 0 && message.commentsCount == 0 && row.message.commentsCount > 0) {
+							message = withCommentsCount(message, row.message.commentsCount);
+						}
 						rows.set(i, toMessageRow(message));
 						notifyDataSetChanged();
 						return true;
@@ -6555,7 +6841,22 @@ public final class MainActivity extends Activity {
 				outer.addView(box, new LinearLayout.LayoutParams(-1, -2));
 				addMessageReactions(outer, row.message);
 				addMessageButtons(outer, row.message);
+				addChannelCommentsLink(outer, row.message);
 				return listItemFrame(outer);
+			}
+
+			private void addChannelCommentsLink(LinearLayout box, final MiniTaLib.Message message) {
+				if (page != Page.CHAT || !currentPeerIsChannel() || currentPeerUser == null
+						|| !currentPeerUser.commentsEnabled || message == null || message.commentPostId > 0) return;
+				String value = message.commentsCount > 0
+						? getString(R.string.channel_comments_count, message.commentsCount)
+						: getString(R.string.channel_comments);
+				Button comments = button(value, new View.OnClickListener() {
+					@Override public void onClick(View v) { showChannelComments(message); }
+				});
+				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+				lp.setMargins(0, gap / 2, 0, 0);
+				box.addView(comments, lp);
 			}
 
 			private View systemMessageView(final MessageRow row) {
@@ -7042,10 +7343,11 @@ public final class MainActivity extends Activity {
 				if (!currentPeerIsChannel() || currentPeerCanManageRoom()) {
 					actions.add(getString(R.string.action_members));
 				}
-				actions.add(getString(R.string.action_invite));
-				if (currentPeerCanManageRoom()) {
+				if (currentPeerCanManageRoom()) actions.add(getString(R.string.action_invite));
+				if (currentPeerCanManageRoom() && currentPeerIsChannel()) {
+					actions.add(getString(R.string.channel_settings));
+				} else if (currentPeerCanManageRoom()) {
 					actions.add(getString(R.string.action_edit_title));
-					if (currentPeerIsChannel()) actions.add(getString(R.string.action_edit_username));
 					actions.add(getString(R.string.action_remove_member));
 				}
 			} else {
@@ -7074,6 +7376,8 @@ public final class MainActivity extends Activity {
 					showCurrentRoomMembersDialog();
 				} else if (action.equals(getString(R.string.action_invite))) {
 					showInviteMemberDialog();
+				} else if (action.equals(getString(R.string.channel_settings))) {
+					showChannelSettings();
 				} else if (action.equals(getString(R.string.action_edit_title))) {
 					showEditRoomTitleDialog();
 				} else if (action.equals(getString(R.string.action_edit_username))) {
@@ -7113,34 +7417,28 @@ public final class MainActivity extends Activity {
 				String.valueOf(user.memberCount),
 				null
 			)));
-			box.addView(spaced(row(primaryButton(getString(R.string.action_invite), new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					showInviteMemberDialog();
-				}
-			}))));
+			if (!"channel".equals(user.roomKind) || currentPeerCanManageRoom()) {
+				box.addView(spaced(row(primaryButton(getString(R.string.action_invite), new View.OnClickListener() {
+					@Override public void onClick(View v) { showInviteMemberDialog(); }
+				}))));
+			}
 			if (currentPeerCanManageRoom()) {
-				box.addView(spaced(row(
-					button(getString(R.string.action_edit_title), new View.OnClickListener() {
-						@Override
-						public void onClick(View v) {
-							showEditRoomTitleDialog();
-						}
-					}),
-					button(getString(R.string.action_remove_member), new View.OnClickListener() {
-						@Override
-						public void onClick(View v) {
-							showRemoveMemberDialog();
-						}
-					})
-				)));
 				if ("channel".equals(user.roomKind)) {
-					box.addView(spaced(row(button(getString(R.string.action_edit_username), new View.OnClickListener() {
+					box.addView(spaced(row(primaryButton(getString(R.string.channel_settings), new View.OnClickListener() {
 						@Override
 						public void onClick(View v) {
-							showEditChannelUsernameDialog();
+							showChannelSettings();
 						}
 					}))));
+				} else {
+					box.addView(spaced(row(
+						button(getString(R.string.action_edit_title), new View.OnClickListener() {
+							@Override public void onClick(View v) { showEditRoomTitleDialog(); }
+						}),
+						button(getString(R.string.action_remove_member), new View.OnClickListener() {
+							@Override public void onClick(View v) { showRemoveMemberDialog(); }
+						})
+					)));
 				}
 			}
 		}
@@ -7164,6 +7462,96 @@ public final class MainActivity extends Activity {
 			}
 		}
 		showContentDialog(profileTitle(user), box, getString(R.string.action_close), null, null);
+	}
+
+	private void showChannelSettings() {
+		if (!currentPeerIsChannel() || !currentPeerCanManageRoom()) return;
+		page = Page.CHANNEL_SETTINGS;
+		if (bottomNav != null) bottomNav.setVisibility(View.GONE);
+		content.removeAllViews();
+		ScrollView scroll = pageScrollView();
+		LinearLayout box = new LinearLayout(this);
+		box.setOrientation(LinearLayout.VERTICAL);
+		box.setPadding(0, 0, 0, gap);
+		ImageButton back = headerIconButton(R.drawable.ic_back, getString(R.string.action_back), new View.OnClickListener() {
+			@Override public void onClick(View v) {
+				showChat();
+				loadHistory();
+			}
+		});
+		box.addView(spaced(row(back)));
+		box.addView(spaced(title(getString(R.string.channel_settings))));
+		box.addView(settingsSection(getString(R.string.channel_settings_general)));
+		box.addView(settingsRow(
+				getString(R.string.action_edit_title),
+				currentPeerUser == null ? "" : currentPeerUser.nick,
+				new View.OnClickListener() { @Override public void onClick(View v) { showEditRoomTitleDialog(); } }
+		));
+		box.addView(settingsRow(
+				getString(R.string.action_edit_username),
+				currentPeerUser == null || currentPeerUser.login.length() == 0 ? getString(R.string.channel_username_empty) : "@" + currentPeerUser.login,
+				new View.OnClickListener() { @Override public void onClick(View v) { showEditChannelUsernameDialog(); } }
+		));
+		box.addView(settingsSection(getString(R.string.channel_settings_discussion)));
+		final boolean commentsEnabled = currentPeerUser != null && currentPeerUser.commentsEnabled;
+		box.addView(settingsToggleRow(
+				getString(R.string.channel_comments),
+				commentsEnabled ? getString(R.string.channel_comments_enabled) : getString(R.string.channel_comments_disabled),
+				commentsEnabled,
+				new View.OnClickListener() {
+					@Override public void onClick(View v) {
+						if (commentsEnabled) confirmDisableChannelComments();
+						else updateChannelComments(true);
+					}
+				}
+		));
+		box.addView(settingsSection(getString(R.string.channel_settings_subscribers)));
+		box.addView(settingsRow(getString(R.string.action_members), String.valueOf(currentPeerUser.memberCount), new View.OnClickListener() {
+			@Override public void onClick(View v) { showCurrentRoomMembersDialog(); }
+		}));
+		box.addView(settingsRow(getString(R.string.action_invite), "", new View.OnClickListener() {
+			@Override public void onClick(View v) { showInviteMemberDialog(); }
+		}));
+		box.addView(settingsRow(getString(R.string.action_remove_member), "", new View.OnClickListener() {
+			@Override public void onClick(View v) { showRemoveMemberDialog(); }
+		}));
+		box.addView(settingsSection(getString(R.string.channel_settings_danger)));
+		box.addView(spaced(row(button(getString(R.string.confirm_delete_chat), new View.OnClickListener() {
+			@Override public void onClick(View v) { confirmDeleteCurrentChat(); }
+		}))));
+		scroll.addView(box, new ScrollView.LayoutParams(-1, -2));
+		content.addView(scroll, fill());
+	}
+
+	private void confirmDisableChannelComments() {
+		showConfirmDialog(
+				getString(R.string.channel_comments_disable_title),
+				getString(R.string.channel_comments_disable_message),
+				getString(R.string.channel_comments_disable_action),
+				new Runnable() { @Override public void run() { updateChannelComments(false); } }
+		);
+	}
+
+	private void updateChannelComments(final boolean enabled) {
+		final MiniTaLib c = ta;
+		final String channel = currentPeer;
+		if (c == null || channel == null || channel.length() == 0) return;
+		status.setText(getString(R.string.status_saving_room));
+		run("channel_comments", new Task() {
+			@Override public void run() throws Exception {
+				final MiniTaLib.Chat chat = c.setChannelComments(channel, enabled);
+				if (!enabled) {
+					ChatCache.deleteCommentThreads(MainActivity.this, SessionStore.server(MainActivity.this, DEFAULT_SERVER), myLogin, channel);
+					OutboxStore.removeChannelComments(MainActivity.this, SessionStore.server(MainActivity.this, DEFAULT_SERVER), OutboxDispatcher.accountKey(MainActivity.this), channel);
+				}
+				ui(new Runnable() {
+					@Override public void run() {
+						updateCurrentRoom(chat);
+						status.setText(enabled ? getString(R.string.channel_comments_enabled) : getString(R.string.channel_comments_deleted));
+					}
+				});
+			}
+		});
 	}
 
 	private static boolean isNegativePublicID(String value) {
@@ -7412,11 +7800,13 @@ public final class MainActivity extends Activity {
 
 	private void updateCurrentRoom(MiniTaLib.Chat chat) {
 		if (chat == null || chat.peer == null) return;
+		boolean reopenChannelSettings = page == Page.CHANNEL_SETTINGS;
 		currentPeerUser = chat.peer;
 		currentPeer = resolvedPeerName(chat.peer, chat.id);
 		refreshCurrentPeerNameView();
 		refreshChatInput();
 		loadChats();
+		if (reopenChannelSettings && currentPeerIsChannel() && currentPeerCanManageRoom()) showChannelSettings();
 	}
 
 	private LinearLayout userProfileRow(String titleText, final String value, final String copyLabel) {

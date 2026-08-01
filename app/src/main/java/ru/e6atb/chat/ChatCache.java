@@ -41,6 +41,7 @@ final class ChatCache {
 		try {
 			for (MiniTaLib.Message message : messages) array.put(messageToJSON(message));
 			write(context, key(server, login, "history\n" + peer), array.toString());
+			if (peer != null && peer.startsWith("comments:")) rememberCommentPeer(context, server, login, peer);
 		} catch (Exception ignored) {
 		}
 	}
@@ -71,7 +72,7 @@ final class ChatCache {
 			while (history.size() > 200) history.remove(0);
 		}
 		saveHistory(context, server, login, peer, history);
-		upsertChat(context, server, login, peer, message);
+		if (peer == null || !peer.startsWith("comments:")) upsertChat(context, server, login, peer, message);
 	}
 
 	static synchronized void deleteMessage(Context context, String server, String login, String peer, long messageID) {
@@ -113,6 +114,35 @@ final class ChatCache {
 			}
 		}
 		saveChats(context, server, login, chats);
+	}
+
+	static synchronized void deleteCommentThreads(Context context, String server, String login, String channel) {
+		try {
+			String indexKey = key(server, login, "comment_threads");
+			JSONArray raw = new JSONArray(read(context, indexKey));
+			JSONArray kept = new JSONArray();
+			String prefix = "comments:" + channel + ":";
+			for (int i = 0; i < raw.length(); i++) {
+				String peer = raw.optString(i);
+				if (peer.startsWith(prefix)) write(context, key(server, login, "history\n" + peer), "[]");
+				else if (peer.length() > 0) kept.put(peer);
+			}
+			write(context, indexKey, kept.toString());
+		} catch (Exception ignored) {
+		}
+	}
+
+	private static void rememberCommentPeer(Context context, String server, String login, String peer) throws Exception {
+		String indexKey = key(server, login, "comment_threads");
+		JSONArray raw;
+		try {
+			raw = new JSONArray(read(context, indexKey));
+		} catch (Exception ignored) {
+			raw = new JSONArray();
+		}
+		for (int i = 0; i < raw.length(); i++) if (peer.equals(raw.optString(i))) return;
+		raw.put(peer);
+		write(context, indexKey, raw.toString());
 	}
 
 	private static void upsertChat(Context context, String server, String login, String peer, MiniTaLib.Message message) {
@@ -188,6 +218,8 @@ final class ChatCache {
 				out.put("paid_reaction", paid);
 			}
 			if (message.reactionVersion > 0) out.put("reaction_version", message.reactionVersion);
+			if (message.commentPostId > 0) out.put("comment_post_id", message.commentPostId);
+			if (message.commentsCount > 0) out.put("comments_count", message.commentsCount);
 			if (message.data != null && message.data.length() > 0) out.put("data", new JSONObject(message.data));
 		if (message.file != null) {
 			JSONObject file = new JSONObject();
@@ -226,6 +258,8 @@ final class ChatCache {
 			out.put("owner_id", user.ownerId);
 			out.put("members", user.memberCount);
 			out.put("admins", user.adminCount);
+			out.put("can_manage", user.canManage);
+			out.put("comments_enabled", user.commentsEnabled);
 			JSONArray members = new JSONArray();
 			for (MiniTaLib.User member : user.memberUsers) {
 				members.put(userToJSON(member));
@@ -268,6 +302,8 @@ final class ChatCache {
 				reactions(raw.optJSONArray("reactions")),
 				paidReaction(raw.optJSONObject("paid_reaction")),
 				raw.optLong("reaction_version")
+				, raw.optLong("comment_post_id")
+				, raw.optInt("comments_count")
 		);
 	}
 
@@ -332,7 +368,9 @@ final class ChatCache {
 				raw.optString("owner_id"),
 				raw.optInt("members"),
 				raw.optInt("admins"),
-				members
+				members,
+				raw.optBoolean("can_manage"),
+				raw.optBoolean("comments_enabled")
 		);
 	}
 

@@ -274,6 +274,38 @@ final class MiniTaLib {
 		return new Chat(room.id, room, null, false);
 	}
 
+	Chat setChannelComments(String chat, boolean enabled) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("chat", chat == null ? "" : chat.trim());
+		body.put("enabled", enabled);
+		JSONObject out = post("/channels/comments/settings", body, 10000).getJSONObject("chat");
+		User room = roomUser(out);
+		return new Chat(room.id, room, null, false);
+	}
+
+	Message sendChannelComment(String chat, long postId, String text, String clientMessageId) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("chat", chat == null ? "" : chat.trim());
+		body.put("post_id", postId);
+		body.put("text", text == null ? "" : text.trim());
+		body.put("client_message_id", clientMessageId == null ? "" : clientMessageId);
+		return message(post("/channels/comments/send", body, 10000).getJSONObject("message"));
+	}
+
+	CommentPage getChannelComments(String chat, long postId, long before, int limit) throws Exception {
+		String path = "/channels/comments?chat=" + enc(chat) + "&post_id=" + postId
+				+ "&before=" + before + "&limit=" + limit;
+		JSONObject out = get(path, 10000);
+		JSONArray raw = out.getJSONArray("messages");
+		ArrayList<Message> messages = new ArrayList<Message>(raw.length());
+		for (int i = 0; i < raw.length(); i++) messages.add(message(raw.getJSONObject(i)));
+		return new CommentPage(
+				roomUser(out.optJSONObject("peer")),
+				message(out.optJSONObject("post")),
+				messages
+		);
+	}
+
 	Chat createGroup(String title, List<String> members) throws Exception {
 		return createRoom("/groups", title, "", members);
 	}
@@ -804,7 +836,9 @@ final class MiniTaLib {
 				o.optString("owner_id"),
 				o.optInt("members"),
 				o.optInt("admins"),
-				memberUsers
+				memberUsers,
+				o.optBoolean("can_manage"),
+				o.optBoolean("comments_enabled")
 		);
 	}
 
@@ -852,7 +886,9 @@ final class MiniTaLib {
 					"",
 					reactions(o.optJSONArray("reactions")),
 					paidReaction(o.optJSONObject("paid_reaction")),
-					o.optLong("reaction_version")
+					o.optLong("reaction_version"),
+					o.optLong("comment_post_id"),
+					o.optInt("comments_count")
 			);
 	}
 
@@ -1242,6 +1278,8 @@ final class MiniTaLib {
 		final int memberCount;
 		final int adminCount;
 		final List<User> memberUsers;
+		final boolean canManage;
+		final boolean commentsEnabled;
 
 		User(String id, String email, String login, String nick, boolean verified, boolean bot) {
 			this(id, email, login, nick, verified, bot, 0);
@@ -1256,10 +1294,14 @@ final class MiniTaLib {
 		}
 
 		User(String id, String email, String login, String nick, boolean verified, boolean bot, long createdAt, String messagePrivacy, String callPrivacy, String invitePrivacy) {
-			this(id, email, login, nick, verified, bot, createdAt, messagePrivacy, callPrivacy, invitePrivacy, "", "", 0, 0, new ArrayList<User>());
+			this(id, email, login, nick, verified, bot, createdAt, messagePrivacy, callPrivacy, invitePrivacy, "", "", 0, 0, new ArrayList<User>(), false, false);
 		}
 
 		User(String id, String email, String login, String nick, boolean verified, boolean bot, long createdAt, String messagePrivacy, String callPrivacy, String invitePrivacy, String roomKind, String ownerId, int memberCount, int adminCount, List<User> memberUsers) {
+			this(id, email, login, nick, verified, bot, createdAt, messagePrivacy, callPrivacy, invitePrivacy, roomKind, ownerId, memberCount, adminCount, memberUsers, false, false);
+		}
+
+		User(String id, String email, String login, String nick, boolean verified, boolean bot, long createdAt, String messagePrivacy, String callPrivacy, String invitePrivacy, String roomKind, String ownerId, int memberCount, int adminCount, List<User> memberUsers, boolean canManage, boolean commentsEnabled) {
 			this.id = id == null ? "" : id;
 			this.email = email == null ? "" : email;
 			this.login = login == null ? "" : login;
@@ -1275,6 +1317,8 @@ final class MiniTaLib {
 			this.memberCount = Math.max(0, memberCount);
 			this.adminCount = Math.max(0, adminCount);
 			this.memberUsers = memberUsers == null ? new ArrayList<User>() : memberUsers;
+			this.canManage = canManage;
+			this.commentsEnabled = commentsEnabled;
 		}
 	}
 
@@ -1308,6 +1352,8 @@ final class MiniTaLib {
 			final ArrayList<Reaction> reactions;
 			final PaidReaction paidReaction;
 			final long reactionVersion;
+			final long commentPostId;
+			final int commentsCount;
 
 			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data) {
 				this(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system, data, "", 0, "sent", "");
@@ -1320,6 +1366,12 @@ final class MiniTaLib {
 			}
 
 			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data, String clientMessageId, long editedAt, String deliveryState, String localFilePath, ArrayList<Reaction> reactions, PaidReaction paidReaction, long reactionVersion) {
+				this(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system, data,
+						clientMessageId, editedAt, deliveryState, localFilePath, reactions, paidReaction,
+						reactionVersion, 0, 0);
+			}
+
+			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data, String clientMessageId, long editedAt, String deliveryState, String localFilePath, ArrayList<Reaction> reactions, PaidReaction paidReaction, long reactionVersion, long commentPostId, int commentsCount) {
 				this.id = id;
 				this.chatId = chatId;
 				this.from = from;
@@ -1339,11 +1391,13 @@ final class MiniTaLib {
 				this.reactions = reactions == null ? new ArrayList<Reaction>() : reactions;
 				this.paidReaction = paidReaction;
 				this.reactionVersion = reactionVersion;
+				this.commentPostId = commentPostId;
+				this.commentsCount = Math.max(0, commentsCount);
 			}
 
 			Message asOutgoing() {
 				return new Message(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system,
-						data, clientMessageId, editedAt, "sent-own", localFilePath, reactions, paidReaction, reactionVersion);
+						data, clientMessageId, editedAt, "sent-own", localFilePath, reactions, paidReaction, reactionVersion, commentPostId, commentsCount);
 			}
 		}
 
@@ -1509,6 +1563,18 @@ final class MiniTaLib {
 
 		HistoryPage(User peer, List<Message> messages) {
 			this.peer = peer;
+			this.messages = messages;
+		}
+	}
+
+	static final class CommentPage {
+		final User peer;
+		final Message post;
+		final List<Message> messages;
+
+		CommentPage(User peer, Message post, List<Message> messages) {
+			this.peer = peer;
+			this.post = post;
 			this.messages = messages;
 		}
 	}

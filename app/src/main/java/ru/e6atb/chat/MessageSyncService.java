@@ -101,12 +101,13 @@ public final class MessageSyncService extends Service {
 				for (MiniTaLib.Update u : updates) {
 					if (u.id > newestUpdate) newestUpdate = u.id;
 					MiniTaLib.Message m = u.message;
-					if (("message".equals(u.type) || "message_edit".equals(u.type) || "message_read".equals(u.type) || "message_reaction".equals(u.type)) && m != null) {
+					if (("message".equals(u.type) || "channel_comment".equals(u.type) || "message_edit".equals(u.type) || "message_read".equals(u.type) || "message_reaction".equals(u.type)) && m != null) {
 						boolean sentByMe = isOwnUser(m.from, userId, login);
-						MiniTaLib.User otherUser = m.to != null && m.to.roomKind != null && m.to.roomKind.length() > 0
+						MiniTaLib.User otherUser = m.commentPostId > 0 ? m.to : m.to != null && m.to.roomKind != null && m.to.roomKind.length() > 0
 								? m.to : (sentByMe ? m.to : m.from);
 						String other = userAddress(otherUser);
-						ChatCache.appendMessage(this, server, login, other, m);
+						String historyPeer = m.commentPostId > 0 ? OutboxStore.cachePeer(other, m.commentPostId) : other;
+						ChatCache.appendMessage(this, server, login, historyPeer, m);
 						if (m.clientMessageId.length() > 0) {
 							OutboxStore.complete(this, server, OutboxDispatcher.accountKey(this), m.clientMessageId);
 						}
@@ -126,6 +127,13 @@ public final class MessageSyncService extends Service {
 						if (nm != null) {
 							nm.cancel(CALL_NOTIFICATION_ID);
 						}
+					} else if ("message_delete".equals(u.type) && m != null) {
+						String other = m.commentPostId > 0 ? userAddress(m.to) : userAddress(isOwnUser(m.from, userId, login) ? m.to : m.from);
+						ChatCache.deleteMessage(this, server, login,
+								m.commentPostId > 0 ? OutboxStore.cachePeer(other, m.commentPostId) : other, m.id);
+					} else if ("chat_update".equals(u.type) && u.room != null && !u.room.commentsEnabled) {
+						ChatCache.deleteCommentThreads(this, server, login, userAddress(u.room));
+						OutboxStore.removeChannelComments(this, server, OutboxDispatcher.accountKey(this), userAddress(u.room));
 					}
 				}
 				if (newestUpdate > after) {

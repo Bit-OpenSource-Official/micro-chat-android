@@ -57,6 +57,8 @@ final class OutboxDispatcher {
 				MiniTaLib.Message sent;
 				if ("file".equals(entry.kind)) {
 					sent = client.uploadFile(entry.peer, entry.name, entry.mime, OutboxStore.payload(entry), entry.id).asOutgoing();
+				} else if (entry.commentPostId > 0) {
+					sent = client.sendChannelComment(entry.peer, entry.commentPostId, entry.text, entry.id).asOutgoing();
 				} else {
 					if (entry.preparedBody == null || entry.preparedBody.length() == 0) {
 						JSONObject prepared = client.prepareMessage(entry.peer, entry.text, entry.id, entry.room);
@@ -65,7 +67,8 @@ final class OutboxDispatcher {
 					}
 					sent = client.sendPreparedMessage(new JSONObject(entry.preparedBody)).asOutgoing();
 				}
-				ChatCache.appendMessage(context, server, SessionStore.login(context), entry.peer, sent);
+				ChatCache.appendMessage(context, server, SessionStore.login(context),
+						OutboxStore.cachePeer(entry.peer, entry.commentPostId), sent);
 				OutboxStore.complete(context, server, user, entry.id);
 				notifyListener(listener, entry, sent);
 			} catch (Throwable error) {

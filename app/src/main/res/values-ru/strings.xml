@@ -421,4 +421,20 @@
 	<string name="notification_channel_sync">Фоновая синхронизация</string>
 	<string name="notification_channel_messages">Сообщения</string>
 	<string name="notification_channel_calls">Звонки</string>
+	<string name="channel_settings">Настройки канала</string>
+	<string name="channel_settings_general">Основные</string>
+	<string name="channel_settings_discussion">Обсуждение</string>
+	<string name="channel_settings_subscribers">Подписчики</string>
+	<string name="channel_settings_danger">Опасная зона</string>
+	<string name="channel_username_empty">Не задан</string>
+	<string name="channel_comments">Комментарии</string>
+	<string name="channel_comments_count">Комментарии %1$d</string>
+	<string name="channel_comments_enabled">Комментарии включены</string>
+	<string name="channel_comments_disabled">Комментарии выключены</string>
+	<string name="channel_comments_deleted">Комментарии выключены и удалены</string>
+	<string name="channel_comments_disable_title">Отключить комментарии?</string>
+	<string name="channel_comments_disable_message">Все комментарии и реакции под публикациями канала будут безвозвратно удалены.</string>
+	<string name="channel_comments_disable_action">Отключить и удалить</string>
+	<string name="channel_comment_hint">Написать комментарий</string>
+	<string name="channel_post_deleted">Публикация канала удалена</string>
 </resources>

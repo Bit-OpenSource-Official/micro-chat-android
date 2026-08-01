@@ -41,6 +41,7 @@ final class OutboxStore {
 		long retryAt;
 		String error;
 		String preparedBody;
+		long commentPostId;
 
 		MiniTaLib.Message localMessage(MiniTaLib.User me, MiniTaLib.User knownPeer) {
 			MiniTaLib.User target = knownPeer;
@@ -56,7 +57,8 @@ final class OutboxStore {
 			return new MiniTaLib.Message(
 					localId, room ? "chat:" + peer : "", me, target,
 					"text".equals(kind) ? text : "", createdAt, 0, file, null,
-					false, false, "", id, 0, state, localPath
+					false, false, "", id, 0, state, localPath,
+					new ArrayList<MiniTaLib.Reaction>(), null, 0, commentPostId, 0
 			);
 		}
 	}
@@ -69,6 +71,21 @@ final class OutboxStore {
 		entries.add(entry);
 		saveRequired(context, server, user, entries);
 		return entry;
+	}
+
+	static synchronized Entry enqueueComment(Context context, String server, String user, String peer, long postId, String text) throws Exception {
+		Entry entry = base(peer, true);
+		entry.kind = "text";
+		entry.text = text;
+		entry.commentPostId = postId;
+		List<Entry> entries = load(context, server, user);
+		entries.add(entry);
+		saveRequired(context, server, user, entries);
+		return entry;
+	}
+
+	static String cachePeer(String peer, long postId) {
+		return postId > 0 ? "comments:" + peer + ":" + postId : peer;
 	}
 
 	static synchronized Entry enqueueFile(Context context, String server, String user, String peer, boolean room,
@@ -190,6 +207,18 @@ final class OutboxStore {
 		save(context, server, user, new ArrayList<Entry>());
 	}
 
+	static synchronized void removeChannelComments(Context context, String server, String user, String peer) {
+		List<Entry> entries = load(context, server, user);
+		for (int i = entries.size() - 1; i >= 0; i--) {
+			Entry entry = entries.get(i);
+			if (entry.commentPostId > 0 && peer.equals(entry.peer)) {
+				deletePayload(entry);
+				entries.remove(i);
+			}
+		}
+		save(context, server, user, entries);
+	}
+
 	static byte[] payload(Entry entry) throws Exception {
 		FileInputStream input = new FileInputStream(entry.localPath);
 		try {
@@ -241,6 +270,7 @@ final class OutboxStore {
 		raw.put("retry_at", entry.retryAt);
 		raw.put("error", entry.error);
 		raw.put("prepared_body", entry.preparedBody);
+		raw.put("comment_post_id", entry.commentPostId);
 		return raw;
 	}
 
@@ -262,6 +292,7 @@ final class OutboxStore {
 		entry.retryAt = raw.optLong("retry_at");
 		entry.error = raw.optString("error");
 		entry.preparedBody = raw.optString("prepared_body");
+		entry.commentPostId = raw.optLong("comment_post_id");
 		return entry;
 	}
 

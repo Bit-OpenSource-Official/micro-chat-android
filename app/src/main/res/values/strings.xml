@@ -421,4 +421,20 @@
 	<string name="notification_channel_sync">Background sync</string>
 	<string name="notification_channel_messages">Messages</string>
 	<string name="notification_channel_calls">Calls</string>
+	<string name="channel_settings">Channel settings</string>
+	<string name="channel_settings_general">General</string>
+	<string name="channel_settings_discussion">Discussion</string>
+	<string name="channel_settings_subscribers">Subscribers</string>
+	<string name="channel_settings_danger">Danger zone</string>
+	<string name="channel_username_empty">Not set</string>
+	<string name="channel_comments">Comments</string>
+	<string name="channel_comments_count">Comments %1$d</string>
+	<string name="channel_comments_enabled">Comments enabled</string>
+	<string name="channel_comments_disabled">Comments disabled</string>
+	<string name="channel_comments_deleted">Comments disabled and deleted</string>
+	<string name="channel_comments_disable_title">Disable comments?</string>
+	<string name="channel_comments_disable_message">All comments and reactions under every channel post will be permanently deleted.</string>
+	<string name="channel_comments_disable_action">Disable and delete</string>
+	<string name="channel_comment_hint">Write a comment</string>
+	<string name="channel_post_deleted">The channel post was deleted</string>
 </resources>
