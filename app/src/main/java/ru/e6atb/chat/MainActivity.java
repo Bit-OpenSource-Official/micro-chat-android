@@ -6894,8 +6894,7 @@ public final class MainActivity extends Activity {
 					bodyLp.setMargins(0, gap / 3, 0, 0);
 					box.addView(body, bodyLp);
 				}
-				addMessageFooter(box, row.message);
-				addMessageReactions(box, row.message);
+				addMessageMeta(box, row.message);
 				addChannelCommentsLink(box, row.message);
 				outer.addView(box, new LinearLayout.LayoutParams(-1, -2));
 				addMessageButtons(outer, row.message);
@@ -7156,18 +7155,36 @@ public final class MainActivity extends Activity {
 			}
 
 			private void addMessageReactions(LinearLayout box, final MiniTaLib.Message message) {
-				if (message == null) return;
+				if (message == null || !messageHasReactions(message)) return;
+				MessageMetaLayout reactions = new MessageMetaLayout(MainActivity.this, gap / 2, gap / 2);
+				addReactionChips(reactions, message);
+				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+				lp.setMargins(0, gap / 2, 0, 0);
+				box.addView(reactions, lp);
+			}
+
+			private void addMessageMeta(LinearLayout box, MiniTaLib.Message message) {
+				MessageMetaLayout meta = new MessageMetaLayout(MainActivity.this, gap / 2, gap / 2);
+				if (message != null) addReactionChips(meta, message);
+				meta.setFooter(messageFooter(message));
+				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+				lp.setMargins(0, gap / 3, 0, 0);
+				box.addView(meta, lp);
+			}
+
+			private boolean messageHasReactions(MiniTaLib.Message message) {
+				if (message == null) return false;
 				final long pendingPaid = pendingPaidReactionDelta(message.id);
 				final long serverPaid = message.paidReaction == null ? 0 : message.paidReaction.amount;
 				final long displayedPaid = safeAdd(serverPaid, pendingPaid);
-				boolean hasPaid = displayedPaid > 0;
-				boolean hasFree = message.reactions != null && !message.reactions.isEmpty();
-				if (!hasPaid && !hasFree) return;
-				android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(MainActivity.this);
-				scroll.setHorizontalScrollBarEnabled(false);
-				LinearLayout reactions = new LinearLayout(MainActivity.this);
-				reactions.setOrientation(LinearLayout.HORIZONTAL);
-				if (hasPaid) {
+				return displayedPaid > 0 || (message.reactions != null && !message.reactions.isEmpty());
+			}
+
+			private void addReactionChips(MessageMetaLayout reactions, final MiniTaLib.Message message) {
+				final long pendingPaid = pendingPaidReactionDelta(message.id);
+				final long serverPaid = message.paidReaction == null ? 0 : message.paidReaction.amount;
+				final long displayedPaid = safeAdd(serverPaid, pendingPaid);
+				if (displayedPaid > 0) {
 					boolean mine = pendingPaid > 0
 							|| (message.paidReaction != null && message.paidReaction.mineAmount > 0);
 					final Button paid = reactionChip(String.valueOf(displayedPaid), mine);
@@ -7179,7 +7196,7 @@ public final class MainActivity extends Activity {
 					});
 					reactions.addView(paid, reactionChipLayout());
 				}
-				if (hasFree) {
+				if (message.reactions != null) {
 					for (final MiniTaLib.Reaction item : message.reactions) {
 						final Button chip = reactionChip(item.emoji + " " + item.count, item.mine);
 						chip.setOnClickListener(new View.OnClickListener() {
@@ -7191,16 +7208,10 @@ public final class MainActivity extends Activity {
 						reactions.addView(chip, reactionChipLayout());
 					}
 				}
-				scroll.addView(reactions, new android.widget.HorizontalScrollView.LayoutParams(-2, -2));
-				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-				lp.setMargins(0, gap / 2, 0, 0);
-				box.addView(scroll, lp);
 			}
 
-			private LinearLayout.LayoutParams reactionChipLayout() {
-				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, dp(38));
-				lp.setMargins(0, 0, gap / 2, 0);
-				return lp;
+			private ViewGroup.LayoutParams reactionChipLayout() {
+				return new ViewGroup.LayoutParams(-2, dp(38));
 			}
 
 			private Button reactionChip(String text, boolean selected) {
@@ -7219,10 +7230,10 @@ public final class MainActivity extends Activity {
 				return chip;
 			}
 
-			private void addMessageFooter(LinearLayout box, MiniTaLib.Message message) {
+			private View messageFooter(MiniTaLib.Message message) {
 				LinearLayout footer = new LinearLayout(MainActivity.this);
 				footer.setOrientation(LinearLayout.HORIZONTAL);
-				footer.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+				footer.setGravity(Gravity.RIGHT | Gravity.BOTTOM);
 				TextView time = new TextView(MainActivity.this);
 				time.setTextColor(muted);
 				time.setTextSize(12);
@@ -7254,9 +7265,7 @@ public final class MainActivity extends Activity {
 					iconLp.setMargins(gap / 2, 0, 0, 0);
 					footer.addView(statusIcon, iconLp);
 				}
-				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-				lp.setMargins(0, gap / 3, 0, 0);
-				box.addView(footer, lp);
+				return footer;
 			}
 		}
 
