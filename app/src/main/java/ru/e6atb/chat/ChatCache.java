@@ -234,9 +234,11 @@ final class ChatCache {
 			for (MiniTaLib.Button button : message.buttons) {
 				JSONObject raw = new JSONObject();
 				raw.put("text", button.text);
+				raw.put("row", button.row);
 				if (button.url != null && button.url.length() > 0) raw.put("url", button.url);
 				if (button.callback != null && button.callback.length() > 0) raw.put("callback", button.callback);
 				if (button.payDsr > 0) raw.put("pay_dsr", button.payDsr);
+				if (button.swipeConfirm) raw.put("confirm", "swipe");
 				buttons.put(raw);
 			}
 			out.put("buttons", buttons);
@@ -331,16 +333,27 @@ final class ChatCache {
 		ArrayList<MiniTaLib.Button> out = new ArrayList<MiniTaLib.Button>();
 		if (raw == null) return out;
 		for (int i = 0; i < raw.length(); i++) {
-			JSONObject item = raw.optJSONObject(i);
-			if (item == null) continue;
-			out.add(new MiniTaLib.Button(
-					item.optString("text"),
-					item.optString("url"),
-					item.optString("callback"),
-					item.optLong("pay_dsr")
-			));
+			JSONArray row = raw.optJSONArray(i);
+			if (row != null) {
+				for (int j = 0; j < row.length(); j++) addButton(out, row.optJSONObject(j), i);
+			} else {
+				JSONObject item = raw.optJSONObject(i);
+				addButton(out, item, item != null && item.has("row") ? item.optInt("row", i) : i);
+			}
 		}
 		return out;
+	}
+
+	private static void addButton(ArrayList<MiniTaLib.Button> out, JSONObject item, int row) {
+		if (item == null) return;
+		out.add(new MiniTaLib.Button(
+				item.optString("text"),
+				item.optString("url"),
+				item.optString("callback"),
+				item.optLong("pay_dsr"),
+				Math.max(0, row),
+				"swipe".equals(item.optString("confirm")) || item.optBoolean("swipe_confirm")
+		));
 	}
 
 	private static MiniTaLib.User user(JSONObject raw) {

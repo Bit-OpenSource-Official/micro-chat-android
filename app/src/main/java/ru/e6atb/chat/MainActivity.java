@@ -158,6 +158,7 @@ public final class MainActivity extends Activity {
 	private final Handler main = new Handler(Looper.getMainLooper());
 	private final ExecutorService io = Executors.newFixedThreadPool(2);
 	private final ExecutorService cacheIo = Executors.newSingleThreadExecutor();
+	private final ExecutorService historyCacheIo = Executors.newSingleThreadExecutor();
 	private final ExecutorService paidReactionIo = Executors.newSingleThreadExecutor();
 	private final Map < Long, Long > pendingPaidReactionDeltas = new HashMap < Long, Long > ();
 	private final Map < Long, PaidReactionBatch > paidReactionBatches = new HashMap < Long, PaidReactionBatch > ();
@@ -284,6 +285,8 @@ public final class MainActivity extends Activity {
 	private boolean historyLoaded;
 	private boolean hasOlderMessages;
 	private boolean loadingOlderMessages;
+	private volatile int chatOpenGeneration;
+	private volatile int historyRequestGeneration;
 	private boolean waitingEmailCode;
 	private boolean authNeedsCloudPassword;
 	private String pendingEmailCode = "";
@@ -347,9 +350,7 @@ public final class MainActivity extends Activity {
 		if (page == Page.CALL) {
 			String peerName = activeCallPeer.length() == 0 ? currentPeer : activeCallPeer;
 			if (peerName.length() > 0) {
-				currentPeer = peerName;
-				showChat();
-				loadHistory();
+				openChatImmediately(peerName, null, false, false, false, null);
 				return true;
 			}
 		}
@@ -635,27 +636,9 @@ public final class MainActivity extends Activity {
 	private void openBotDeepLink(final BotDeepLinkParser.Link link) {
 		final MiniTaLib c = ta;
 		if (c == null || link == null) return;
-		status.setText(getString(R.string.loading));
-		run("open_bot_link", new Task() {
-			@Override
-			public void run() throws Exception {
-				final MiniTaLib.HistoryPage pageData =
-						c.getHistoryPageBefore(link.login, 0, HISTORY_PAGE);
-				final String resolvedPeer = resolvedPeerName(pageData.peer, link.login);
-				cacheSaveHistory(resolvedPeer, pageData.messages);
-				ui(new Runnable() {
-					@Override
-					public void run() {
-						currentPeer = resolvedPeer;
-						currentPeerUser = pageData.peer;
-						currentPeerBanned = false;
-						currentPeerBannedByMe = false;
-						currentPeerBannedMe = false;
-						showChat();
-						renderHistory(pageData.messages, resolvedPeer, false);
-						sendChatMessage(resolvedPeer, link.startCommand(), false);
-					}
-				});
+		openChatImmediately(link.login, null, false, false, false, new Runnable() {
+			@Override public void run() {
+				sendChatMessage(currentPeer, link.startCommand(), false);
 			}
 		});
 	}
@@ -855,15 +838,8 @@ public final class MainActivity extends Activity {
 			@Override
 			public void onItemClick(AdapterView < ? > p, View v, int pos, long id) {
 				MiniTaLib.Chat chat = chatData.get(pos);
-				currentPeerUser = chat.peer;
-				currentPeerBanned = chat.banned;
-				currentPeerBannedByMe = chat.bannedByMe;
-				currentPeerBannedMe = chat.bannedMe;
-				currentPeer = currentPeerUser.login != null && currentPeerUser.login.length() > 0
-						? currentPeerUser.login
-						: currentPeerUser.id;
-				showChat();
-				loadHistory();
+				String chatPeer = resolvedPeerName(chat.peer, chat.id);
+				openChatImmediately(chatPeer, chat.peer, chat.banned, chat.bannedByMe, chat.bannedMe, null);
 			}
 		});
 		loadCachedChats();
@@ -1204,31 +1180,33 @@ public final class MainActivity extends Activity {
 			status.setText(getString(R.string.status_sign_in_first));
 			return;
 		}
-		status.setText(getString(R.string.loading));
-		runButtonTask("open_chat", actionButton, primaryStyle, new Task() {
-			@Override
-			public void run() throws Exception {
-				final MiniTaLib.HistoryPage pageData = c.getHistoryPageBefore(peerName, 0, HISTORY_PAGE);
-				try {
-					c.markRead(peerName);
-				} catch (Exception ignored) {
-				}
-				final String resolvedPeer = resolvedPeerName(pageData.peer, peerName);
-				cacheSaveHistory(resolvedPeer, pageData.messages);
-				ui(new Runnable() {
-					@Override
-					public void run() {
-						currentPeer = resolvedPeer;
-						currentPeerUser = pageData.peer;
-						currentPeerBanned = false;
-						currentPeerBannedByMe = false;
-						currentPeerBannedMe = false;
-						showChat();
-						renderHistory(pageData.messages, resolvedPeer, false);
-					}
-				});
-			}
-		});
+		openChatImmediately(peerName, null, false, false, false, null);
+	}
+
+	private void openChatImmediately(
+			String peerName,
+			MiniTaLib.User knownPeer,
+			boolean banned,
+			boolean bannedByMe,
+			boolean bannedMe,
+			Runnable afterServerLoad
+	) {
+		String normalized = peerName == null ? "" : peerName.trim();
+		if (normalized.length() == 0) return;
+		++chatOpenGeneration;
+		++historyRequestGeneration;
+		currentPeer = normalized;
+		currentPeerUser = knownPeer;
+		currentPeerBanned = banned;
+		currentPeerBannedByMe = bannedByMe;
+		currentPeerBannedMe = bannedMe;
+		currentCommentPost = null;
+		oldestMessage = 0;
+		historyLoaded = false;
+		hasOlderMessages = false;
+		loadingOlderMessages = false;
+		showChat();
+		loadHistory(afterServerLoad);
 	}
 
 	private String resolvedPeerName(MiniTaLib.User user, String fallback) {
@@ -1285,11 +1263,8 @@ public final class MainActivity extends Activity {
 				ui(new Runnable() {
 					@Override
 					public void run() {
-						currentPeerUser = chat.peer;
-						currentPeer = resolvedPeerName(chat.peer, chat.id);
 						status.setText(getString(channel ? R.string.status_channel_created : R.string.status_group_created));
-						showChat();
-						loadHistory();
+						openChatImmediately(resolvedPeerName(chat.peer, chat.id), chat.peer, false, false, false, null);
 					}
 				});
 			}
@@ -2534,10 +2509,7 @@ public final class MainActivity extends Activity {
 							contactsView.addView(settingsRow(displayUser(user), user.id, new View.OnClickListener() {
 								@Override
 								public void onClick(View v) {
-									currentPeerUser = user;
-									currentPeer = resolvedPeerName(user, user.id);
-									showChat();
-									loadHistory();
+									openChatImmediately(resolvedPeerName(user, user.id), user, false, false, false, null);
 								}
 							}));
 						}
@@ -3494,46 +3466,86 @@ public final class MainActivity extends Activity {
 	}
 
 	private void loadHistory() {
+		loadHistory(null);
+	}
+
+	private void loadHistory(final Runnable afterServerLoad) {
 		final MiniTaLib c = ta;
 		if (c == null) {
 			status.setText(getString(R.string.status_sign_in_first));
 			return;
 		}
-		currentPeer = peer == null ? currentPeer : peer.getText().toString().trim();
-		if (currentPeer.isEmpty()) return;
+		String requestedPeer = peer == null ? currentPeer : peer.getText().toString().trim();
+		if (requestedPeer.isEmpty()) return;
+		if (!requestedPeer.equals(currentPeer)) {
+			openChatImmediately(requestedPeer, null, false, false, false, afterServerLoad);
+			return;
+		}
 		final String peerName = currentPeer;
+		final int openGeneration = chatOpenGeneration;
+		final int requestGeneration = ++historyRequestGeneration;
 		loadingOlderMessages = false;
 		historyLoaded = false;
 		hasOlderMessages = false;
-		loadCachedHistory(peerName);
-		run("history", new Task() {
-			@Override
-			public void run() throws Exception {
-				final MiniTaLib.HistoryPage pageData =
-					c.getHistoryPageBefore(peerName, 0, HISTORY_PAGE);
-				try {
-					c.markRead(peerName);
-				} catch (Exception ignored) {
-				}
-				final String resolvedPeer = resolvedPeerName(pageData.peer, peerName);
-				cacheSaveHistory(resolvedPeer, pageData.messages);
-
+		final android.content.Context context = getApplicationContext();
+		final String server = SessionStore.server(this, DEFAULT_SERVER);
+		final String login = myLogin;
+		historyCacheIo.execute(new Runnable() {
+			@Override public void run() {
+				final List<MiniTaLib.Message> cached = ChatCache.loadHistory(context, server, login, peerName);
 				ui(new Runnable() {
-					@Override
-					public void run() {
-						if (pageData.peer != null
-								&& ((pageData.peer.login != null && pageData.peer.login.length() > 0)
-								|| (pageData.peer.id != null && pageData.peer.id.length() > 0))) {
-							currentPeer = resolvedPeer;
-							currentPeerUser = pageData.peer;
-							refreshCurrentPeerNameView();
-							updateCallButton();
+					@Override public void run() {
+						if (acceptsHistoryResult(openGeneration, requestGeneration)) {
+							renderHistory(cached, peerName, true);
 						}
-						renderHistory(pageData.messages, resolvedPeer, false);
+					}
+				});
+				if (openGeneration != chatOpenGeneration || requestGeneration != historyRequestGeneration) return;
+				MainActivity.this.run("history", new Task() {
+					@Override public void run() throws Exception {
+						final MiniTaLib.HistoryPage pageData;
+						try {
+							pageData = c.getHistoryPageBefore(peerName, 0, HISTORY_PAGE);
+						} catch (final Exception error) {
+							ui(new Runnable() {
+								@Override public void run() {
+									if (!acceptsHistoryResult(openGeneration, requestGeneration)) return;
+									if (MiniTaLib.isInvalidTokenError(error)) handleInvalidToken();
+									else status.setText(getString(R.string.status_operation_error, errorText(error)));
+								}
+							});
+							return;
+						}
+						try {
+							c.markRead(peerName);
+						} catch (Exception ignored) {
+						}
+						final String resolvedPeer = resolvedPeerName(pageData.peer, peerName);
+						cacheSaveHistory(resolvedPeer, pageData.messages);
+						if (!resolvedPeer.equals(peerName)) cacheSaveHistory(peerName, pageData.messages);
+						ui(new Runnable() {
+							@Override public void run() {
+								if (!acceptsHistoryResult(openGeneration, requestGeneration)) return;
+								currentPeer = resolvedPeer;
+								if (peer != null) peer.setText(resolvedPeer);
+								if (pageData.peer != null) currentPeerUser = pageData.peer;
+								refreshCurrentPeerNameView();
+								updateCallButton();
+								renderHistory(pageData.messages, resolvedPeer, false);
+								if (afterServerLoad != null) afterServerLoad.run();
+							}
+						});
 					}
 				});
 			}
 		});
+	}
+
+	private boolean acceptsHistoryResult(int openGeneration, int requestGeneration) {
+		return page == Page.CHAT
+				&& openGeneration == chatOpenGeneration
+				&& requestGeneration == historyRequestGeneration
+				&& messageRows != null;
 	}
 
 	private void renderHistory(List<MiniTaLib.Message> history, String peerName, boolean cached) {
@@ -3582,6 +3594,7 @@ public final class MainActivity extends Activity {
 		final MiniTaLib c = ta;
 		if (c == null || loadingOlderMessages || oldestMessage <= 0) return;
 		final String peerName = currentPeer;
+		final int openGeneration = chatOpenGeneration;
 		final long before = oldestMessage;
 		loadingOlderMessages = true;
 		run("older", new Task() {
@@ -3595,7 +3608,8 @@ public final class MainActivity extends Activity {
 					public void run() {
 						loadingOlderMessages = false;
 
-						if (messageRows == null ||
+						if (openGeneration != chatOpenGeneration ||
+							messageRows == null ||
 							messageList == null ||
 							!peerName.equals(currentPeer)) {
 							return;
@@ -3694,6 +3708,45 @@ public final class MainActivity extends Activity {
 			return;
 		}
 		if (button.callback == null || button.callback.length() == 0) return;
+		if (button.swipeConfirm) {
+			showCallbackSwipeConfirmation(message, button, clickedButton);
+			return;
+		}
+		sendMessageCallback(message, button, clickedButton);
+	}
+
+	private void showCallbackSwipeConfirmation(final MiniTaLib.Message message, final MiniTaLib.Button button, final Button clickedButton) {
+		final Dialog dialog = new Dialog(this);
+		LinearLayout box = new LinearLayout(this);
+		box.setOrientation(LinearLayout.VERTICAL);
+		box.setPadding(pad, pad, pad, pad);
+		box.setBackgroundDrawable(shape(surface, 0, buttonRadius()));
+		box.addView(title(getString(R.string.callback_confirm_title)), new LinearLayout.LayoutParams(-1, -2));
+		TextView details = label(getString(R.string.callback_confirm_body, button.text));
+		details.setTextColor(muted);
+		LinearLayout.LayoutParams detailsLp = new LinearLayout.LayoutParams(-1, -2);
+		detailsLp.setMargins(0, gap / 2, 0, gap);
+		box.addView(details, detailsLp);
+		final PaymentSliderView slider = paymentSlider(getString(R.string.callback_swipe_confirm));
+		slider.setContentDescription(getString(R.string.callback_swipe_confirm));
+		slider.setOnConfirmAction(new Runnable() {
+			@Override public void run() {
+				dialog.dismiss();
+				sendMessageCallback(message, button, clickedButton);
+			}
+		});
+		box.addView(slider, new LinearLayout.LayoutParams(-1, dp(56)));
+		Button cancel = button(getString(R.string.action_cancel), new View.OnClickListener() {
+			@Override public void onClick(View v) { dialog.dismiss(); }
+		});
+		LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(-1, -2);
+		cancelLp.setMargins(0, gap, 0, 0);
+		box.addView(cancel, cancelLp);
+		setScrollableDialogContent(dialog, box);
+		showStyledDialog(dialog);
+	}
+
+	private void sendMessageCallback(final MiniTaLib.Message message, final MiniTaLib.Button button, final Button clickedButton) {
 		final MiniTaLib c = ta;
 		if (c == null || message == null || message.from == null || message.from.login.length() == 0) {
 			status.setText(getString(R.string.status_sign_in_first));
@@ -4315,10 +4368,15 @@ public final class MainActivity extends Activity {
 
 	private void acceptIncomingCall(final String peerName) {
 		clearIncomingCallUi();
-		currentPeer = peerName;
 		if (page != Page.CALL) {
-			if (page != Page.CHAT) showChat();
-			if (peer != null) peer.setText(peerName);
+			if (page != Page.CHAT || !peerName.equals(currentPeer)) {
+				openChatImmediately(peerName, null, false, false, false, null);
+			} else {
+				currentPeer = peerName;
+				if (peer != null) peer.setText(peerName);
+			}
+		} else {
+			currentPeer = peerName;
 		}
 		final MiniTaLib c = ta;
 		if (c == null) {
@@ -4720,7 +4778,8 @@ public final class MainActivity extends Activity {
 
 	private void updateCallButton() {
 		if (callButton == null) return;
-		callButton.setVisibility(currentPeerIsBot() || currentPeerIsChannel() || currentPeerIsSelfChat() ? View.GONE : View.VISIBLE);
+		callButton.setVisibility(currentPeerUser == null || currentPeerIsBot() || currentPeerIsChannel() || currentPeerIsSelfChat()
+				? View.GONE : View.VISIBLE);
 		boolean busy = !"idle".equals(callState) && !"failed".equals(callState);
 		callButton.setEnabled(!currentPeerBanned || busy);
 		String description;
@@ -4949,9 +5008,7 @@ public final class MainActivity extends Activity {
 			public void onClick(View v) {
 				String peerName = activeCallPeer.length() == 0 ? currentPeer : activeCallPeer;
 				if (peerName.length() == 0) return;
-				currentPeer = peerName;
-				showChat();
-				loadHistory();
+				openChatImmediately(peerName, null, false, false, false, null);
 			}
 		});
 		LinearLayout.LayoutParams chatLp = new LinearLayout.LayoutParams(-1, -2);
@@ -6838,10 +6895,10 @@ public final class MainActivity extends Activity {
 					box.addView(body, bodyLp);
 				}
 				addMessageFooter(box, row.message);
+				addMessageReactions(box, row.message);
+				addChannelCommentsLink(box, row.message);
 				outer.addView(box, new LinearLayout.LayoutParams(-1, -2));
-				addMessageReactions(outer, row.message);
 				addMessageButtons(outer, row.message);
-				addChannelCommentsLink(outer, row.message);
 				return listItemFrame(outer);
 			}
 
@@ -6851,11 +6908,21 @@ public final class MainActivity extends Activity {
 				String value = message.commentsCount > 0
 						? getString(R.string.channel_comments_count, message.commentsCount)
 						: getString(R.string.channel_comments);
-				Button comments = button(value, new View.OnClickListener() {
+				View divider = new View(MainActivity.this);
+				divider.setBackgroundColor(blend(muted, surface, 0.72f));
+				LinearLayout.LayoutParams dividerLp = new LinearLayout.LayoutParams(-1, dp(1));
+				dividerLp.setMargins(0, gap / 2, 0, 0);
+				box.addView(divider, dividerLp);
+				TextView comments = label(value);
+				comments.setTextColor(primary);
+				comments.setGravity(Gravity.CENTER_VERTICAL);
+				comments.setMinHeight(buttonMinHeight);
+				comments.setPadding(0, gap / 2, 0, 0);
+				comments.setBackgroundDrawable(pressable(Color.TRANSPARENT, blend(surfaceHi, surface, 0.35f), 0, 0));
+				comments.setOnClickListener(new View.OnClickListener() {
 					@Override public void onClick(View v) { showChannelComments(message); }
 				});
 				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-				lp.setMargins(0, gap / 2, 0, 0);
 				box.addView(comments, lp);
 			}
 
@@ -7068,17 +7135,23 @@ public final class MainActivity extends Activity {
 
 			private void addMessageButtons(LinearLayout box, final MiniTaLib.Message message) {
 				if (message == null || message.buttons == null || message.buttons.isEmpty()) return;
-				for (final MiniTaLib.Button item : message.buttons) {
-					if (item == null || item.text == null || item.text.length() == 0) continue;
-					Button action = messageActionButton(item.text, new View.OnClickListener() {
-						@Override
-						public void onClick(View v) {
-							handleMessageButton(message, item, v instanceof Button ? (Button) v : null);
-						}
-					});
-					LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-					lp.setMargins(0, gap / 2, 0, 0);
-					box.addView(action, lp);
+				for (List<MiniTaLib.Button> row : MessageButtonRows.group(message.buttons)) {
+					if (row == null || row.isEmpty()) continue;
+					LinearLayout actions = new LinearLayout(MainActivity.this);
+					actions.setOrientation(LinearLayout.HORIZONTAL);
+					for (final MiniTaLib.Button item : row) {
+						Button action = messageActionButton(item.text, new View.OnClickListener() {
+							@Override public void onClick(View v) {
+								handleMessageButton(message, item, v instanceof Button ? (Button) v : null);
+							}
+						});
+						LinearLayout.LayoutParams actionLp = new LinearLayout.LayoutParams(0, -2, 1);
+						if (actions.getChildCount() > 0) actionLp.setMargins(gap / 2, 0, 0, 0);
+						actions.addView(action, actionLp);
+					}
+					LinearLayout.LayoutParams rowLp = new LinearLayout.LayoutParams(-1, -2);
+					rowLp.setMargins(0, gap / 2, 0, 0);
+					box.addView(actions, rowLp);
 				}
 			}
 

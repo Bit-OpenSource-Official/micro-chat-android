@@ -958,16 +958,27 @@ final class MiniTaLib {
 		ArrayList<Button> out = new ArrayList<Button>();
 		if (raw == null) return out;
 		for (int i = 0; i < raw.length(); i++) {
-			JSONObject item = raw.optJSONObject(i);
-			if (item == null) continue;
-			out.add(new Button(
-					item.optString("text"),
-					item.optString("url"),
-					item.optString("callback"),
-					item.optLong("pay_dsr")
-			));
+			JSONArray row = raw.optJSONArray(i);
+			if (row != null) {
+				for (int j = 0; j < row.length(); j++) addButton(out, row.optJSONObject(j), i);
+			} else {
+				JSONObject item = raw.optJSONObject(i);
+				addButton(out, item, item != null && item.has("row") ? item.optInt("row", i) : i);
+			}
 		}
 		return out;
+	}
+
+	private static void addButton(ArrayList<Button> out, JSONObject item, int row) {
+		if (item == null) return;
+		out.add(new Button(
+				item.optString("text"),
+				item.optString("url"),
+				item.optString("callback"),
+				item.optLong("pay_dsr"),
+				Math.max(0, row),
+				"swipe".equals(item.optString("confirm")) || item.optBoolean("swipe_confirm")
+		));
 	}
 
 	private static WalletInfo walletInfo(JSONObject o) {
@@ -1436,12 +1447,16 @@ final class MiniTaLib {
 		final String url;
 		final String callback;
 		final long payDsr;
+		final int row;
+		final boolean swipeConfirm;
 
-		Button(String text, String url, String callback, long payDsr) {
+		Button(String text, String url, String callback, long payDsr, int row, boolean swipeConfirm) {
 			this.text = text;
 			this.url = url;
 			this.callback = callback;
 			this.payDsr = payDsr;
+			this.row = Math.max(0, Math.min(11, row));
+			this.swipeConfirm = swipeConfirm;
 		}
 	}
 

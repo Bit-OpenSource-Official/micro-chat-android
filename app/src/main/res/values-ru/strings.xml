@@ -29,6 +29,9 @@
 	<string name="oauth_authorized">авторизация сервиса подтверждена</string>
 	<string name="oauth_rejected">авторизация сервиса отклонена</string>
 	<string name="oauth_swipe_approve">Свайп для подтверждения</string>
+	<string name="callback_confirm_title">Подтверждение действия</string>
+	<string name="callback_confirm_body">Бот запрашивает подтверждение действия «%1$s». Callback будет отправлен только после свайпа.</string>
+	<string name="callback_swipe_confirm">Свайп для подтверждения</string>
 	<string name="oauth_invalid_code">Неверный код авторизации</string>
 	<string name="oauth_already_decided">Этот запрос авторизации уже обработан</string>
 	<string name="oauth_camera_required">Для сканирования QR-кода нужен доступ к камере</string>

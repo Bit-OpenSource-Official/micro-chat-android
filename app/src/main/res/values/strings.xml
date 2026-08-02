@@ -29,6 +29,9 @@
 	<string name="oauth_authorized">service authorization approved</string>
 	<string name="oauth_rejected">service authorization rejected</string>
 	<string name="oauth_swipe_approve">Swipe to approve</string>
+	<string name="callback_confirm_title">Confirm action</string>
+	<string name="callback_confirm_body">The bot requests confirmation for “%1$s”. The callback is sent only after the swipe.</string>
+	<string name="callback_swipe_confirm">Swipe to confirm</string>
 	<string name="oauth_invalid_code">Invalid authorization code</string>
 	<string name="oauth_already_decided">This authorization request is no longer pending</string>
 	<string name="oauth_camera_required">Camera access is required to scan a QR code</string>
