@@ -5529,17 +5529,11 @@ public final class MainActivity extends Activity {
 	}
 
 	private String messagePeer(MiniTaLib.Message m) {
-		if (m == null || m.from == null || m.to == null) return "";
-		if (m.commentPostId > 0) return resolvedPeerName(m.to, m.to.id);
-		if (m.to.roomKind != null && m.to.roomKind.length() > 0) return resolvedPeerName(m.to, m.to.id);
-		return m.from.login.equals(myLogin) ? m.to.login : m.from.login;
+		return MessagePeerResolver.peer(m, myLogin, myID, currentPeer, currentPeerUser);
 	}
 
 	private MiniTaLib.User messagePeerUser(MiniTaLib.Message m) {
-		if (m == null || m.from == null || m.to == null) return null;
-		if (m.commentPostId > 0) return m.to;
-		if (m.to.roomKind != null && m.to.roomKind.length() > 0) return m.to;
-		return m.from.login.equals(myLogin) ? m.to : m.from;
+		return MessagePeerResolver.peerUser(m, myLogin, myID, currentPeerUser);
 	}
 
 	private void markReadIfIncoming(MiniTaLib.Message m, String peerName) {
