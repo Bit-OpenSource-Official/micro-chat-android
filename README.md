@@ -1,99 +1,125 @@
-# micromsg Android
+# OVE.rs for Android
 
-Легкий native Android клиент для Rust-сервера `micromsg`.
+Native Android client for [OVE.rs Messenger](https://ms.ove.rs). The default UI
+language is English; Russian is selected automatically from the device locale or
+can be chosen in Settings.
 
-Особенности:
-
-- Java, без Compose, AndroidX, Retrofit, Room и других runtime-зависимостей.
-- Страницы: Login, Chats, Chat, Settings.
-- Текст, файлы, кошелек DSR и голосовые звонки.
-- HTTP long polling через `MiniTaLib`.
-- Сохранение авторизации после перезапуска приложения.
-- Фоновые уведомления через foreground service.
-- История чата сначала открывается на последних сообщениях; старые догружаются при скролле вверх.
-- Голосовые звонки 1-на-1 без видео: входящий звонок показывает рингтон и кнопки Accept/Decline, PCM-аудио идёт через WebSocket `/voice`.
-- Cleartext HTTP включен для локальной разработки.
-- Release APK собирается с R8/minify и постоянным release-сертификатом.
-
-В готовом APK по умолчанию стоит адрес:
+The production APK connects to:
 
 ```text
 ms.ove.rs:8080
 ```
 
-Это native MST4 (`RCP4/RSP4`) поверх TCP с закреплённым публичным ключом
-messenger. Адрес можно изменить в настройках приложения.
+## Features
 
-Ссылки на ботов имеют вид
-`https://ms.ove.rs/bot/<bot_login>?start=<payload>`, fallback для браузеров —
-`ovechat://bot/<bot_login>?start=<payload>`. После авторизации приложение
-открывает диалог и один раз ставит `/start <payload>` в очередь отправки.
+- Private chats with end-to-end encryption, key verification, and encrypted
+  cloud key backup.
+- Groups, channels, channel administration, comments, replies, forwarding,
+  editing, emoji reactions, and paid DSR reactions.
+- Optimistic outgoing-message queue with pending, sent, read, retry, and failed
+  states.
+- Images, files, contacts, privacy controls, multiple sessions, and account
+  recovery.
+- DSR wallet, bot buttons, QR/code authorization for OVE.rs services, and GitHub
+  in-app updates.
+- One-to-one calls, voice channels, and background notifications.
+- Native Java UI supporting Android 2.3.6 (API 10) and newer; compile/target SDK
+  35.
 
-## Сборка клиента
+## Transport and links
 
-Открой этот репозиторий в Android Studio или собери Gradle:
+The client uses MicroMsg Secure Transport v5 (MST5, `RCP5`/`RSP5`) over TCP.
+MST5 uses Noise `NK_25519_ChaChaPoly_SHA256`, pins the production server X25519
+public key, carries canonical CBOR frames, multiplexes requests, and compresses
+eligible payloads. The production pin is committed in `app/build.gradle` so
+official builds are reproducible. A custom server can override it with
+`-PcryptServerPublicKeyB64=...`, `CRYPT_SERVER_PUBLIC_KEY_B64`, or `.env`.
+
+Bot links use:
+
+```text
+https://ms.ove.rs/bot/<bot_login>?start=<payload>
+ovechat://bot/<bot_login>?start=<payload>
+```
+
+Service authorization supports `https://ms.ove.rs/oauth/device` and
+`ovechat://authorize` links. The app opens the appropriate bot or authorization
+screen after sign-in.
+
+## Build
+
+Requirements:
+
+- JDK 17;
+- Android SDK platform 35 and build-tools 35.0.0;
+- Gradle 8.10.2 or a compatible Gradle 8 release.
+
+Build and test locally:
 
 ```bash
+gradle :app:testDebugUnitTest
 gradle :app:assembleRelease
 ```
 
-Для локальной сборки нужны Android SDK и Gradle. Если их нет, используй Docker-сборку ниже.
-Release-сборка требует ключ сервера и keystore для подписи. По умолчанию Gradle
-ищет `micromsg.keystore` в корне этого репозитория.
+The release build uses R8/resource shrinking and must be signed. By default it
+loads the existing `micromsg.keystore`; that legacy filename and its signing
+identity are intentionally retained so installed clients can update in place.
+The helper builds the production APK without requiring an `.env` file:
 
 ```bash
-cp .env.example .env
 ./build-apk.sh
 ```
 
-Версию приложения можно задать Gradle-параметрами:
+Override the application version when needed:
 
 ```bash
-gradle :app:assembleRelease -PappVersionName=1.2.3 -PappVersionCode=123
+APP_VERSION_NAME=0.9.2 APP_VERSION_CODE=100040 ./build-apk.sh
 ```
 
-## GitHub Actions
-
-При создании или обновлении ветки `release/VERSION` workflow собирает release APK.
-`VERSION` из имени ветки передается в `versionName`, поэтому в приложении будет
-показана та же версия. APK загружается в GitHub Actions artifacts и публикуется
-в GitHub Releases с тегом `vVERSION`. Рядом с APK публикуется `update.json`;
-Android-клиент читает GitHub Releases API из настроек приложения, сравнивает
-`versionCode`, скачивает APK и открывает системный установщик.
-
-Публичный transport pin production-сервера хранится в `app/build.gradle`, поэтому
-GitHub Release воспроизводимо собирается без отдельного секрета. Для тестового
-сервера ключ можно переопределить через `-PcryptServerPublicKeyB64=...`,
-переменную окружения `CRYPT_SERVER_PUBLIC_KEY_B64` или локальный `.env`.
-В GitHub Actions репозиторий для OTA берется из `GITHUB_REPOSITORY`
-автоматически. Для локальной сборки его можно задать вручную:
-
-```bash
-gradle :app:assembleRelease -PgithubRepository=OWNER/REPO
-```
-
-Для постоянной подписи APK добавь secrets:
-
-- `ANDROID_KEYSTORE_B64` - base64 от `micromsg.keystore`.
-- `RELEASE_STORE_PASSWORD`
-- `RELEASE_KEY_ALIAS`
-- `RELEASE_KEY_PASSWORD`
-
-Если `ANDROID_KEYSTORE_B64` не задан, workflow создаст временный keystore и
-соберет APK, пригодный для проверки, но не для обновления уже установленного
-приложения с постоянной подписью.
-
-## Сборка в Docker
-
-```bash
-docker build -t micromsg-android .
-docker create --name micromsg-apk micromsg-android
-docker cp micromsg-apk:/src/app/build/outputs/apk/release/app-release.apk ./app-release.apk
-docker rm micromsg-apk
-```
-
-APK появится здесь:
+The output is:
 
 ```text
-app-release.apk
+app/build/outputs/apk/release/app-release.apk
 ```
+
+Docker build:
+
+```bash
+docker build -t ove-rs-android .
+docker create --name ove-rs-apk ove-rs-android
+docker cp ove-rs-apk:/src/app/build/outputs/apk/release/app-release.apk ./ove-rs.apk
+docker rm ove-rs-apk
+```
+
+## GitHub releases and OTA updates
+
+Pushing a `release/VERSION` branch runs the `OVE.rs Android release` workflow.
+It uses the branch suffix as `versionName`, assigns a monotonically increasing
+`versionCode`, builds `ove-rs-VERSION.apk`, and publishes:
+
+- a GitHub Release tagged `vVERSION` and titled `OVE.rs VERSION`;
+- the signed APK;
+- `update.json` containing the package, version, size, and SHA-256 checksum.
+
+The client checks the repository's latest GitHub Release from Settings, verifies
+the package ID, file size, and checksum, then opens Android's package installer.
+Official releases are available at
+[GitHub Releases](https://github.com/Bit-OpenSource-Official/micro-chat-android/releases/latest).
+The official repository is embedded as the production default; fork builds can
+override it with `-PgithubRepository=OWNER/REPO` or `GITHUB_REPOSITORY`.
+
+Configure these repository secrets to preserve the production signing identity:
+
+- `ANDROID_KEYSTORE_B64` — base64-encoded `micromsg.keystore`;
+- `RELEASE_STORE_PASSWORD`;
+- `RELEASE_KEY_ALIAS`;
+- `RELEASE_KEY_PASSWORD`.
+
+If `ANDROID_KEYSTORE_B64` is absent, CI creates a temporary test keystore. Such
+an APK cannot update an installation signed with the production key.
+
+## Compatibility identifiers
+
+The application ID and Java package remain `ru.e6atb.chat`. They are legacy
+compatibility identifiers and must not be renamed: changing them would install a
+separate application and break existing sessions, deep links, and OTA upgrades.

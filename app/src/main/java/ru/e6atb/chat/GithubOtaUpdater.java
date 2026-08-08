@@ -84,7 +84,7 @@ final class GithubOtaUpdater {
 			throw new IOException("download folder cannot be created");
 		}
 		String version = update.versionName == null || update.versionName.length() == 0 ? "latest" : update.versionName;
-		File target = new File(dir, "micromsg-update-" + safeFilePart(version) + ".apk");
+		File target = new File(dir, "ove-rs-update-" + safeFilePart(version) + ".apk");
 		File tmp = new File(target.getPath() + ".tmp");
 		if (tmp.isFile() && !tmp.delete()) {
 			throw new IOException("old update temp file cannot be removed");
@@ -194,7 +194,7 @@ final class GithubOtaUpdater {
 		connection.setReadTimeout(READ_TIMEOUT_MS);
 		connection.setInstanceFollowRedirects(true);
 		connection.setRequestProperty("Accept", "application/vnd.github+json, application/octet-stream");
-		connection.setRequestProperty("User-Agent", "micromsg-android/" + BuildConfig.VERSION_NAME);
+		connection.setRequestProperty("User-Agent", "ove-rs-android/" + BuildConfig.VERSION_NAME);
 		return connection;
 	}
 

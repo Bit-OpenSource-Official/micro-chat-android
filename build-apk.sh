@@ -9,14 +9,12 @@ Usage: ./build-apk.sh [-h]
 
 Loads .env and builds the signed Android release APK.
 
-Required environment:
-  CRYPT_SERVER_PUBLIC_KEY_B64  Public transport key embedded as the server pin.
-
 Optional environment:
   ENV_FILE=./.env
+  CRYPT_SERVER_PUBLIC_KEY_B64=...  Override the production transport pin.
   GRADLE_USER_HOME=/tmp/ove-android-gradle
-  APP_VERSION_NAME=0.9.0
-  APP_VERSION_CODE=100038
+  APP_VERSION_NAME=0.9.1
+  APP_VERSION_CODE=100039
 
 Output:
   app/build/outputs/apk/release/app-release.apk
@@ -31,10 +29,15 @@ if [[ -z "${CRYPT_SERVER_PUBLIC_KEY_B64:-}" ]]; then
 		CRYPT_SERVER_PUBLIC_KEY_B64="$(sed -n 's/^CRYPT_SERVER_PUBLIC_KEY_B64=//p' "$ENV_FILE" | tail -n 1)"
 	fi
 fi
-: "${CRYPT_SERVER_PUBLIC_KEY_B64:?set CRYPT_SERVER_PUBLIC_KEY_B64 or provide it in .env}"
 cd "$ROOT"
+GRADLE_ARGS=(
+	clean
+	:app:assembleRelease
+	-PappVersionName="${APP_VERSION_NAME:-0.9.1}"
+	-PappVersionCode="${APP_VERSION_CODE:-100039}"
+)
+if [[ -n "${CRYPT_SERVER_PUBLIC_KEY_B64:-}" ]]; then
+	GRADLE_ARGS+=("-PcryptServerPublicKeyB64=$CRYPT_SERVER_PUBLIC_KEY_B64")
+fi
 env -u JDK_JAVA_OPTIONS GRADLE_USER_HOME="${GRADLE_USER_HOME:-/tmp/ove-android-gradle}" \
-	gradle clean :app:assembleRelease \
-	-PcryptServerPublicKeyB64="$CRYPT_SERVER_PUBLIC_KEY_B64" \
-	-PappVersionName="${APP_VERSION_NAME:-0.9.0}" \
-	-PappVersionCode="${APP_VERSION_CODE:-100038}"
+	gradle "${GRADLE_ARGS[@]}"

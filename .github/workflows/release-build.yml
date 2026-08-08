@@ -1,4 +1,4 @@
-name: Release build
+name: OVE.rs Android release
 
 on:
   create:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   build:
-    name: Build release APK
+    name: Build OVE.rs APK
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || (github.event_name == 'create' && github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/'))
 
@@ -76,7 +76,7 @@ jobs:
               -keyalg RSA \
               -keysize 2048 \
               -validity 10000 \
-              -dname "CN=E6atb Chat, OU=Android, O=E6atb, L=NA, ST=NA, C=US"
+              -dname "CN=OVE.rs, OU=Android, O=OVE.rs, L=NA, ST=NA, C=US"
           fi
 
           echo "RELEASE_STORE_FILE=micromsg.keystore" >> "${GITHUB_ENV}"
@@ -94,7 +94,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p release
-          apk="release/e6atb-chat-${{ steps.version.outputs.name }}.apk"
+          apk="release/ove-rs-${{ steps.version.outputs.name }}.apk"
           cp app/build/outputs/apk/release/app-release.apk "${apk}"
           apk_sha256="$(sha256sum "${apk}" | awk '{print $1}')"
           apk_size="$(wc -c < "${apk}")"
@@ -103,7 +103,7 @@ jobs:
             "packageName": "ru.e6atb.chat",
             "versionName": "${{ steps.version.outputs.name }}",
             "versionCode": ${{ steps.version.outputs.code }},
-            "apkName": "e6atb-chat-${{ steps.version.outputs.name }}.apk",
+            "apkName": "ove-rs-${{ steps.version.outputs.name }}.apk",
             "apkSize": ${apk_size},
             "apkSha256": "${apk_sha256}"
           }
@@ -112,9 +112,9 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: e6atb-chat-${{ steps.version.outputs.name }}-release
+          name: ove-rs-${{ steps.version.outputs.name }}-release
           path: |
-            release/e6atb-chat-${{ steps.version.outputs.name }}.apk
+            release/ove-rs-${{ steps.version.outputs.name }}.apk
             release/update.json
           if-no-files-found: error
 
@@ -122,8 +122,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
-          RELEASE_NAME: E6atb Chat ${{ steps.version.outputs.name }}
-          APK_PATH: release/e6atb-chat-${{ steps.version.outputs.name }}.apk
+          RELEASE_NAME: OVE.rs ${{ steps.version.outputs.name }}
+          APK_PATH: release/ove-rs-${{ steps.version.outputs.name }}.apk
           UPDATE_PATH: release/update.json
         run: |
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then

@@ -1,5 +1,5 @@
 <resources>
-	<string name="app_name">micromsg</string>
+	<string name="app_name">OVE.rs</string>
 	<string name="loading">Загрузка...</string>
 	<string name="loading_short">...</string>
 	<string name="action_back">Назад</string>

@@ -40,14 +40,15 @@ def cryptServerPublicKey = providers.gradleProperty("cryptServerPublicKeyB64").o
     productionCryptServerPublicKey
 def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
     System.getenv("APP_VERSION_NAME") ?:
-    "0.9.0"
+    "0.9.1"
 def appVersionCode = (providers.gradleProperty("appVersionCode").orNull ?:
     System.getenv("APP_VERSION_CODE") ?:
-    "100038").toInteger()
+    "100039").toInteger()
+def productionGithubRepository = "Bit-OpenSource-Official/micro-chat-android"
 def githubRepository = providers.gradleProperty("githubRepository").orNull ?:
     System.getenv("GITHUB_REPOSITORY") ?:
     dotenv["GITHUB_REPOSITORY"] ?:
-    ""
+    productionGithubRepository
 def javaString = { value ->
     (value == null ? "" : value).replace("\\", "\\\\").replace("\"", "\\\"")
 }
