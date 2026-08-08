@@ -29,18 +29,24 @@ public final class SecureSessionV4 {
 	private static final long MAX_PLAINTEXT_BYTES = 1L << 30;
 	private static final byte[] CLIENT_MAGIC = new byte[] {'R', 'C', 'P', '4'};
 	private static final byte[] SERVER_MAGIC = new byte[] {'R', 'S', 'P', '4'};
+	private static final byte[] CLIENT_MAGIC_V5 = new byte[] {'R', 'C', 'P', '5'};
+	private static final byte[] SERVER_MAGIC_V5 = new byte[] {'R', 'S', 'P', '5'};
 	private static final byte[] PROTOCOL_NAME = ascii("Noise_NK_25519_ChaChaPoly_SHA256");
 	private static final byte[] PROLOGUE = ascii("MicroMsg Secure Transport v4\0RCP4\0RSP4");
 	private static final byte[] RECORD_LABEL = ascii("MST4 record");
+	private static final byte[] PROLOGUE_V5 = ascii("MicroMsg Secure Transport v5\0RCP5\0RSP5");
+	private static final byte[] RECORD_LABEL_V5 = ascii("MST5 record");
 
 	private final CipherState seal;
 	private final CipherState open;
 	private final byte[] handshakeHash;
+	private final byte[] recordLabel;
 
-	private SecureSessionV4(CipherState seal, CipherState open, byte[] handshakeHash) {
+	private SecureSessionV4(CipherState seal, CipherState open, byte[] handshakeHash, byte[] recordLabel) {
 		this.seal = seal;
 		this.open = open;
 		this.handshakeHash = handshakeHash.clone();
+		this.recordLabel = recordLabel.clone();
 	}
 
 	public static SecureSessionV4 client(
@@ -54,6 +60,23 @@ public final class SecureSessionV4 {
 		);
 		writeHandshake(output, CLIENT_MAGIC, handshake.message);
 		byte[] serverMessage = readHandshake(input, SERVER_MAGIC);
+		return finishClientHandshake(handshake, serverMessage);
+	}
+
+	/** MST5 keeps the Noise suite and pin while binding the v5 application protocol. */
+	public static SecureSessionV4 clientV5(
+			InputStream input,
+			OutputStream output,
+			byte[] pinnedServerPublicKey
+	) throws IOException, GeneralSecurityException {
+		ClientHandshake handshake = createClientHandshake(
+				V4KeyPair.generate(),
+				pinnedServerPublicKey,
+				PROLOGUE_V5,
+				RECORD_LABEL_V5
+		);
+		writeHandshake(output, CLIENT_MAGIC_V5, handshake.message);
+		byte[] serverMessage = readHandshake(input, SERVER_MAGIC_V5);
 		return finishClientHandshake(handshake, serverMessage);
 	}
 
@@ -96,10 +119,19 @@ public final class SecureSessionV4 {
 			V4KeyPair local,
 			byte[] pinnedServerPublicKey
 	) throws IOException, GeneralSecurityException {
+		return createClientHandshake(local, pinnedServerPublicKey, PROLOGUE, RECORD_LABEL);
+	}
+
+	private static ClientHandshake createClientHandshake(
+			V4KeyPair local,
+			byte[] pinnedServerPublicKey,
+			byte[] prologue,
+			byte[] recordLabel
+	) throws IOException, GeneralSecurityException {
 		if (pinnedServerPublicKey == null || pinnedServerPublicKey.length != 32) {
 			throw new IOException("server public key pin is not configured");
 		}
-		SymmetricState state = new SymmetricState(pinnedServerPublicKey);
+		SymmetricState state = new SymmetricState(pinnedServerPublicKey, prologue);
 		byte[] clientPublic = local.publicKey;
 		state.mixHash(clientPublic);
 		byte[] es;
@@ -111,7 +143,7 @@ public final class SecureSessionV4 {
 		requireNonzeroDh(es);
 		state.mixKey(es);
 		byte[] tag = state.encryptAndHash(new byte[0]);
-		return new ClientHandshake(local, state, concat(clientPublic, tag));
+		return new ClientHandshake(local, state, concat(clientPublic, tag), recordLabel);
 	}
 
 	static SecureSessionV4 finishClientHandshake(
@@ -138,7 +170,7 @@ public final class SecureSessionV4 {
 			throw new IOException("v4 server handshake payload must be empty");
 		}
 		CipherState[] split = handshake.state.split();
-		return new SecureSessionV4(split[0], split[1], handshake.state.handshakeHash);
+		return new SecureSessionV4(split[0], split[1], handshake.state.handshakeHash, handshake.recordLabel);
 	}
 
 	public void writeEncryptedFrame(OutputStream output, byte[] payload)
@@ -188,7 +220,7 @@ public final class SecureSessionV4 {
 		seal.checkLimit(plaintext.length);
 		long sequence = seal.nonce;
 		int frameLength = 8 + plaintext.length + TAG_LENGTH;
-		byte[] aad = recordAad(handshakeHash, frameLength, sequence);
+		byte[] aad = recordAad(recordLabel, handshakeHash, frameLength, sequence);
 		byte[] ciphertext = aead(true, seal.key, sequence, aad, plaintext);
 		byte[] record = new byte[frameLength];
 		writeLong(record, 0, sequence);
@@ -208,7 +240,7 @@ public final class SecureSessionV4 {
 		}
 		int plaintextLength = record.length - 8 - TAG_LENGTH;
 		open.checkLimit(plaintextLength);
-		byte[] aad = recordAad(handshakeHash, record.length, sequence);
+		byte[] aad = recordAad(recordLabel, handshakeHash, record.length, sequence);
 		byte[] plaintext = aead(
 				false,
 				open.key,
@@ -262,11 +294,11 @@ public final class SecureSessionV4 {
 		return new DecodedRecord(0, Arrays.copyOfRange(plaintext, 5, 5 + payloadLength));
 	}
 
-	private static byte[] recordAad(byte[] handshakeHash, int frameLength, long sequence) {
-		byte[] aad = new byte[RECORD_LABEL.length + 32 + 4 + 8];
+	private static byte[] recordAad(byte[] recordLabel, byte[] handshakeHash, int frameLength, long sequence) {
+		byte[] aad = new byte[recordLabel.length + 32 + 4 + 8];
 		int offset = 0;
-		System.arraycopy(RECORD_LABEL, 0, aad, offset, RECORD_LABEL.length);
-		offset += RECORD_LABEL.length;
+		System.arraycopy(recordLabel, 0, aad, offset, recordLabel.length);
+		offset += recordLabel.length;
 		System.arraycopy(handshakeHash, 0, aad, offset, 32);
 		offset += 32;
 		writeInt(aad, offset, frameLength);
@@ -455,11 +487,13 @@ public final class SecureSessionV4 {
 		final V4KeyPair local;
 		final SymmetricState state;
 		final byte[] message;
+		final byte[] recordLabel;
 
-		private ClientHandshake(V4KeyPair local, SymmetricState state, byte[] message) {
+		private ClientHandshake(V4KeyPair local, SymmetricState state, byte[] message, byte[] recordLabel) {
 			this.local = local;
 			this.state = state;
 			this.message = message;
+			this.recordLabel = recordLabel.clone();
 		}
 	}
 
@@ -513,12 +547,12 @@ public final class SecureSessionV4 {
 		private byte[] cipherKey;
 		private long cipherNonce;
 
-		private SymmetricState(byte[] serverStaticPublic) throws GeneralSecurityException {
+		private SymmetricState(byte[] serverStaticPublic, byte[] prologue) throws GeneralSecurityException {
 			handshakeHash = PROTOCOL_NAME.length <= 32
 					? Arrays.copyOf(PROTOCOL_NAME, 32)
 					: sha256(PROTOCOL_NAME);
 			chainingKey = handshakeHash.clone();
-			mixHash(PROLOGUE);
+			mixHash(prologue);
 			mixHash(serverStaticPublic);
 		}
 

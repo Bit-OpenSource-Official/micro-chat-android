@@ -3,7 +3,6 @@ package ru.e6atb.chat;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import android.util.Base64;
 import android.content.Context;
 
 import rs.ove.crypt.proto.CryptTcpClient;
@@ -12,7 +11,12 @@ import rs.ove.crypt.proto.E2EKeyBackup;
 
 import java.net.URI;
 import java.net.URLEncoder;
+import java.net.URL;
+import java.net.HttpURLConnection;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -419,13 +423,41 @@ final class MiniTaLib {
 	}
 
 	Message uploadFile(String to, String name, String mime, byte[] data, String clientMessageId) throws Exception {
+		if (data == null || data.length == 0) throw new IOException("file is empty");
 		JSONObject body = new JSONObject();
 		body.put("to", to);
 		if (clientMessageId != null && clientMessageId.length() > 0) body.put("client_message_id", clientMessageId);
 		body.put("name", name == null || name.length() == 0 ? "file" : name);
 		body.put("mime", mime == null || mime.length() == 0 ? "application/octet-stream" : mime);
-		body.put("data", Base64.encodeToString(data, Base64.NO_WRAP));
-		return message(post("/upload", body, 120000).getJSONObject("message"));
+		body.put("size", data.length);
+		JSONObject initialized = post("/upload/init", body, 10000);
+		if (initialized.optBoolean("complete")) return message(initialized.getJSONObject("message"));
+		String fileId = initialized.getString("file_id");
+		directUpload(initialized.getString("upload_url"), initialized.getString("ticket"), data);
+		JSONObject complete = new JSONObject();
+		complete.put("file_id", fileId);
+		return message(post("/upload/complete", complete, 30000).getJSONObject("message"));
+	}
+
+	private static void directUpload(String uploadUrl, String ticket, byte[] data) throws Exception {
+		HttpURLConnection connection = (HttpURLConnection)new URL(uploadUrl).openConnection();
+		try {
+			connection.setConnectTimeout(10000);
+			connection.setReadTimeout(30000);
+			connection.setRequestMethod("PUT");
+			connection.setRequestProperty("Authorization", "Bearer " + ticket);
+			connection.setRequestProperty("Content-Type", "application/octet-stream");
+			connection.setFixedLengthStreamingMode(data.length);
+			connection.setDoOutput(true);
+			OutputStream output = connection.getOutputStream();
+			try { output.write(data); output.flush(); } finally { output.close(); }
+			int code = connection.getResponseCode();
+			InputStream input = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+			if (input != null) try { while (input.read() >= 0) {} } finally { input.close(); }
+			if (code < 200 || code >= 300) throw new IOException("file node returned " + code);
+		} finally {
+			connection.disconnect();
+		}
 	}
 
 	Message editMessage(long id, String peer, String text, boolean plain) throws Exception {
@@ -480,21 +512,31 @@ final class MiniTaLib {
 	}
 
 	String fileUrl(String fileID) throws Exception {
-		return wsHttpBaseUrl() + "/file/" + enc(fileID) + "?token=" + enc(token());
+		return get("/file/ticket?id=" + enc(fileID), 10000).getString("download_url");
 	}
 
 	byte[] downloadFileBytes(String fileID, int maxBytes) throws Exception {
-		String path = "/file/" + enc(fileID);
-		CryptTcpClient.Response response = transport.request(baseUrl, token(), "GET", path, null, 30000);
-		byte[] data = response.body();
-		if (response.code() < 200 || response.code() >= 300) {
-			String text = new String(data, "UTF-8");
-			throw apiException(response.code(), text.length() == 0 ? "TCP " + response.code() : text);
-		}
-		if (maxBytes > 0 && data.length > maxBytes) {
-			throw new RuntimeException("file is too large");
-		}
-		return data;
+		JSONObject ticket = get("/file/ticket?id=" + enc(fileID), 10000);
+		long announced = ticket.optLong("size", -1);
+		if (maxBytes > 0 && announced > maxBytes) throw new RuntimeException("file is too large");
+		HttpURLConnection connection = (HttpURLConnection)new URL(ticket.getString("download_url")).openConnection();
+		try {
+			connection.setConnectTimeout(10000);
+			connection.setReadTimeout(30000);
+			int code = connection.getResponseCode();
+			if (code < 200 || code >= 300) throw new IOException("file node returned " + code);
+			InputStream input = connection.getInputStream();
+			try {
+				ByteArrayOutputStream output = new ByteArrayOutputStream(announced > 0 && announced < Integer.MAX_VALUE ? (int)announced : 4096);
+				byte[] buffer = new byte[8192];
+				int count;
+				while ((count = input.read(buffer)) >= 0) {
+					if (maxBytes > 0 && output.size() + count > maxBytes) throw new IOException("file is too large");
+					output.write(buffer, 0, count);
+				}
+				return output.toByteArray();
+			} finally { input.close(); }
+		} finally { connection.disconnect(); }
 	}
 
 	void sendCall(String to, String action) throws Exception {
