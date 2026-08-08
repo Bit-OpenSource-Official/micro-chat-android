@@ -42,6 +42,7 @@ final class OutboxStore {
 		String error;
 		String preparedBody;
 		long commentPostId;
+		long replyToMessageId;
 
 		MiniTaLib.Message localMessage(MiniTaLib.User me, MiniTaLib.User knownPeer) {
 			MiniTaLib.User target = knownPeer;
@@ -58,15 +59,20 @@ final class OutboxStore {
 					localId, room ? "chat:" + peer : "", me, target,
 					"text".equals(kind) ? text : "", createdAt, 0, file, null,
 					false, false, "", id, 0, state, localPath,
-					new ArrayList<MiniTaLib.Reaction>(), null, 0, commentPostId, 0
+					new ArrayList<MiniTaLib.Reaction>(), null, 0, commentPostId, 0, replyToMessageId
 			);
 		}
 	}
 
 	static synchronized Entry enqueueText(Context context, String server, String user, String peer, boolean room, String text) throws Exception {
+		return enqueueText(context, server, user, peer, room, text, 0);
+	}
+
+	static synchronized Entry enqueueText(Context context, String server, String user, String peer, boolean room, String text, long replyToMessageId) throws Exception {
 		Entry entry = base(peer, room);
 		entry.kind = "text";
 		entry.text = text;
+		entry.replyToMessageId = Math.max(0, replyToMessageId);
 		List<Entry> entries = load(context, server, user);
 		entries.add(entry);
 		saveRequired(context, server, user, entries);
@@ -74,10 +80,15 @@ final class OutboxStore {
 	}
 
 	static synchronized Entry enqueueComment(Context context, String server, String user, String peer, long postId, String text) throws Exception {
+		return enqueueComment(context, server, user, peer, postId, text, 0);
+	}
+
+	static synchronized Entry enqueueComment(Context context, String server, String user, String peer, long postId, String text, long replyToMessageId) throws Exception {
 		Entry entry = base(peer, true);
 		entry.kind = "text";
 		entry.text = text;
 		entry.commentPostId = postId;
+		entry.replyToMessageId = Math.max(0, replyToMessageId);
 		List<Entry> entries = load(context, server, user);
 		entries.add(entry);
 		saveRequired(context, server, user, entries);
@@ -271,6 +282,7 @@ final class OutboxStore {
 		raw.put("error", entry.error);
 		raw.put("prepared_body", entry.preparedBody);
 		raw.put("comment_post_id", entry.commentPostId);
+		raw.put("reply_to_message_id", entry.replyToMessageId);
 		return raw;
 	}
 
@@ -293,6 +305,7 @@ final class OutboxStore {
 		entry.error = raw.optString("error");
 		entry.preparedBody = raw.optString("prepared_body");
 		entry.commentPostId = raw.optLong("comment_post_id");
+		entry.replyToMessageId = raw.optLong("reply_to_message_id");
 		return entry;
 	}
 

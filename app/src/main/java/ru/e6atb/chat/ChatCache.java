@@ -220,6 +220,7 @@ final class ChatCache {
 			if (message.reactionVersion > 0) out.put("reaction_version", message.reactionVersion);
 			if (message.commentPostId > 0) out.put("comment_post_id", message.commentPostId);
 			if (message.commentsCount > 0) out.put("comments_count", message.commentsCount);
+			if (message.replyToMessageId > 0) out.put("reply_to_message_id", message.replyToMessageId);
 			if (message.data != null && message.data.length() > 0) out.put("data", new JSONObject(message.data));
 		if (message.file != null) {
 			JSONObject file = new JSONObject();
@@ -306,6 +307,7 @@ final class ChatCache {
 				raw.optLong("reaction_version")
 				, raw.optLong("comment_post_id")
 				, raw.optInt("comments_count")
+				, raw.optLong("reply_to_message_id")
 		);
 	}
 

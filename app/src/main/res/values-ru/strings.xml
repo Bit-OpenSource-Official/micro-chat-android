@@ -43,7 +43,11 @@
 	<string name="action_paste">Вставить</string>
 	<string name="action_open_chat">Открыть чат</string>
 	<string name="action_copy">Копировать</string>
+	<string name="action_reply">Ответить</string>
 	<string name="action_edit">Редактировать сообщение</string>
+	<string name="replying_to">Ответ для %1$s</string>
+	<string name="reply_to_message">Ответ на сообщение</string>
+	<string name="reply_message_unavailable">Сообщение не загружено</string>
 	<string name="reaction_title">Реакция</string>
 	<string name="reaction_more">Больше emoji</string>
 	<string name="paid_reaction_title">Отправить DSR-реакцию</string>
@@ -282,6 +286,11 @@
 	<string name="action_add_contact">Добавить контакт</string>
 	<string name="action_delete_contact">Удалить контакт</string>
 	<string name="screen_new_room">Новая группа или канал</string>
+	<string name="add_chat_choose_title">Что вы хотите добавить?</string>
+	<string name="add_chat_private">Личный чат</string>
+	<string name="add_chat_group">Группа</string>
+	<string name="add_chat_channel">Канал</string>
+	<string name="field_required">Обязательное поле</string>
 	<string name="hint_room_title">название группы или канала</string>
 	<string name="hint_channel_username">@username канала, необязательно</string>
 	<string name="hint_room_members">участники через запятую</string>

@@ -284,11 +284,16 @@ final class MiniTaLib {
 	}
 
 	Message sendChannelComment(String chat, long postId, String text, String clientMessageId) throws Exception {
+		return sendChannelComment(chat, postId, text, clientMessageId, 0);
+	}
+
+	Message sendChannelComment(String chat, long postId, String text, String clientMessageId, long replyToMessageId) throws Exception {
 		JSONObject body = new JSONObject();
 		body.put("chat", chat == null ? "" : chat.trim());
 		body.put("post_id", postId);
 		body.put("text", text == null ? "" : text.trim());
 		body.put("client_message_id", clientMessageId == null ? "" : clientMessageId);
+		if (replyToMessageId > 0) body.put("reply_to_message_id", replyToMessageId);
 		return message(post("/channels/comments/send", body, 10000).getJSONObject("message"));
 	}
 
@@ -331,15 +336,20 @@ final class MiniTaLib {
 	}
 
 	Message sendMessage(String to, String text) throws Exception {
-		return sendPreparedMessage(prepareMessage(to, text, null, false));
+		return sendPreparedMessage(prepareMessage(to, text, null, false, 0));
 	}
 
 	JSONObject prepareMessage(String to, String text, String clientMessageId, boolean plain) throws Exception {
+		return prepareMessage(to, text, clientMessageId, plain, 0);
+	}
+
+	JSONObject prepareMessage(String to, String text, String clientMessageId, boolean plain, long replyToMessageId) throws Exception {
 		if (plain) {
 			JSONObject body = new JSONObject();
 			body.put("to", to);
 			body.put("text", text);
 			if (clientMessageId != null && clientMessageId.length() > 0) body.put("client_message_id", clientMessageId);
+			if (replyToMessageId > 0) body.put("reply_to_message_id", replyToMessageId);
 			return body;
 		}
 		if (e2eIdentity == null) {
@@ -361,11 +371,12 @@ final class MiniTaLib {
 					&& !message.contains("user not found"))) {
 				throw e;
 			}
-			return prepareMessage(to, text, clientMessageId, true);
+			return prepareMessage(to, text, clientMessageId, true, replyToMessageId);
 		}
 		JSONObject body = new JSONObject();
 		body.put("to", to);
 		if (clientMessageId != null && clientMessageId.length() > 0) body.put("client_message_id", clientMessageId);
+		if (replyToMessageId > 0) body.put("reply_to_message_id", replyToMessageId);
 		JSONObject e2e = new JSONObject();
 		e2e.put("version", envelope.version);
 		e2e.put("nonce", envelope.nonce);
@@ -380,7 +391,7 @@ final class MiniTaLib {
 	}
 
 	Message sendPlainMessage(String to, String text) throws Exception {
-		return sendPreparedMessage(prepareMessage(to, text, null, true));
+		return sendPreparedMessage(prepareMessage(to, text, null, true, 0));
 	}
 
 	BotCreation createBot(String login) throws Exception {
@@ -888,7 +899,8 @@ final class MiniTaLib {
 					paidReaction(o.optJSONObject("paid_reaction")),
 					o.optLong("reaction_version"),
 					o.optLong("comment_post_id"),
-					o.optInt("comments_count")
+					o.optInt("comments_count"),
+					o.optLong("reply_to_message_id")
 			);
 	}
 
@@ -1365,6 +1377,7 @@ final class MiniTaLib {
 			final long reactionVersion;
 			final long commentPostId;
 			final int commentsCount;
+			final long replyToMessageId;
 
 			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data) {
 				this(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system, data, "", 0, "sent", "");
@@ -1383,6 +1396,12 @@ final class MiniTaLib {
 			}
 
 			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data, String clientMessageId, long editedAt, String deliveryState, String localFilePath, ArrayList<Reaction> reactions, PaidReaction paidReaction, long reactionVersion, long commentPostId, int commentsCount) {
+				this(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system, data,
+						clientMessageId, editedAt, deliveryState, localFilePath, reactions, paidReaction,
+						reactionVersion, commentPostId, commentsCount, 0);
+			}
+
+			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data, String clientMessageId, long editedAt, String deliveryState, String localFilePath, ArrayList<Reaction> reactions, PaidReaction paidReaction, long reactionVersion, long commentPostId, int commentsCount, long replyToMessageId) {
 				this.id = id;
 				this.chatId = chatId;
 				this.from = from;
@@ -1404,11 +1423,13 @@ final class MiniTaLib {
 				this.reactionVersion = reactionVersion;
 				this.commentPostId = commentPostId;
 				this.commentsCount = Math.max(0, commentsCount);
+				this.replyToMessageId = Math.max(0, replyToMessageId);
 			}
 
 			Message asOutgoing() {
 				return new Message(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system,
-						data, clientMessageId, editedAt, "sent-own", localFilePath, reactions, paidReaction, reactionVersion, commentPostId, commentsCount);
+						data, clientMessageId, editedAt, "sent-own", localFilePath, reactions, paidReaction,
+						reactionVersion, commentPostId, commentsCount, replyToMessageId);
 			}
 		}
 

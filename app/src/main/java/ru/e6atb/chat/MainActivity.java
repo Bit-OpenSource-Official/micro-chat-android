@@ -183,9 +183,6 @@ public final class MainActivity extends Activity {
 	private EditText contactAddress;
 	private EditText peer;
 	private EditText text;
-	private EditText roomTitle;
-	private EditText roomUsername;
-	private EditText roomMembers;
 	private EditText walletTo;
 	private EditText walletAmount;
 	private EditText walletComment;
@@ -206,6 +203,7 @@ public final class MainActivity extends Activity {
 	private TextView callHintView;
 	private TextView callParticipantsView;
 	private LinearLayout chatInputContainer;
+	private LinearLayout commentInputContainer;
 	private TextView cloudPasswordState;
 	private LinearLayout currentPeerNameView;
 	private ImageButton callButton;
@@ -276,6 +274,7 @@ public final class MainActivity extends Activity {
 	};
 	private Page page = Page.NONE;
 	private MiniTaLib.Message currentCommentPost;
+	private MiniTaLib.Message replyToMessage;
 	private final Runnable channelHistoryReload = new Runnable() {
 		@Override public void run() {
 			if (page == Page.CHAT && currentPeerIsChannel()) loadHistory();
@@ -339,7 +338,7 @@ public final class MainActivity extends Activity {
 			loadHistory();
 			return true;
 		}
-		if (page == Page.CHAT || page == Page.ADD_CHAT || page == Page.SETTINGS) {
+		if (page == Page.CHAT || page == Page.SETTINGS) {
 			showChats();
 			return true;
 		}
@@ -826,6 +825,8 @@ public final class MainActivity extends Activity {
 
 	private void showChats() {
 		page = Page.CHATS;
+		replyToMessage = null;
+		commentInputContainer = null;
 		if (bottomNav != null) bottomNav.setVisibility(View.VISIBLE);
 		content.removeAllViews();
 		chatRows = adapter();
@@ -864,52 +865,77 @@ public final class MainActivity extends Activity {
 	}
 
 	private void showAddChat() {
-		page = Page.ADD_CHAT;
-		if (bottomNav != null) bottomNav.setVisibility(View.GONE);
-		content.removeAllViews();
+		showActionDialog(getString(R.string.add_chat_choose_title), new String[] {
+			getString(R.string.add_chat_private),
+			getString(R.string.add_chat_group),
+			getString(R.string.add_chat_channel)
+		}, new ChoiceHandler() {
+			@Override public void onChoice(int which) {
+				if (which == 0) showNewPrivateChatDialog();
+				else showNewRoomDialog(which == 2);
+			}
+		});
+	}
+
+	private void showNewPrivateChatDialog() {
+		final Dialog dialog = new Dialog(this);
+		LinearLayout box = dialogBox();
+		box.addView(title(getString(R.string.add_chat_private)), new LinearLayout.LayoutParams(-1, -2));
 		final EditText loginField = input(getString(R.string.hint_username_or_id), false);
-		roomTitle = input(getString(R.string.hint_room_title), false);
-		roomUsername = input(getString(R.string.hint_channel_username), false);
-		roomMembers = input(getString(R.string.hint_room_members), false);
-		content.addView(spaced(title(getString(R.string.screen_add_chat))));
-		content.addView(spaced(loginField));
+		box.addView(spaced(loginField));
 		Button add = primaryButton(getString(R.string.action_add), new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					String value = loginField.getText().toString().trim();
-					if (value.length() == 0) return;
-					openChatIfExists(value, v, true);
+			@Override public void onClick(View v) {
+				String value = loginField.getText().toString().trim();
+				if (value.length() == 0) {
+					loginField.setError(getString(R.string.field_required));
+					return;
 				}
-			});
-		ImageButton back = headerIconButton(R.drawable.ic_back, getString(R.string.action_back), new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					showChats();
+				dialog.dismiss();
+				openChatIfExists(value, null, true);
+			}
+		});
+		Button cancel = button(getString(R.string.action_cancel), new View.OnClickListener() {
+			@Override public void onClick(View v) { dialog.dismiss(); }
+		});
+		box.addView(row(cancel, add), new LinearLayout.LayoutParams(-1, -2));
+		setScrollableDialogContent(dialog, box);
+		showStyledDialog(dialog);
+	}
+
+	private void showNewRoomDialog(final boolean channel) {
+		final Dialog dialog = new Dialog(this);
+		LinearLayout box = dialogBox();
+		box.addView(title(getString(channel ? R.string.add_chat_channel : R.string.add_chat_group)), new LinearLayout.LayoutParams(-1, -2));
+		final EditText titleField = input(getString(R.string.hint_room_title), false);
+		final EditText usernameField = input(getString(R.string.hint_channel_username), false);
+		final EditText membersField = input(getString(R.string.hint_room_members), false);
+		box.addView(spaced(titleField));
+		if (channel) box.addView(spaced(usernameField));
+		box.addView(spaced(membersField));
+		Button create = primaryButton(getString(channel ? R.string.action_create_channel : R.string.action_create_group), new View.OnClickListener() {
+			@Override public void onClick(View v) {
+				String titleValue = titleField.getText().toString().trim();
+				if (titleValue.length() == 0) {
+					titleField.setError(getString(R.string.field_required));
+					return;
 				}
-			});
-		content.addView(spaced(mixedRow(add, back, false)));
-		content.addView(spaced(title(getString(R.string.screen_new_room))));
-		content.addView(spaced(roomTitle));
-		content.addView(spaced(roomUsername));
-		content.addView(spaced(roomMembers));
-		content.addView(spaced(row(
-			primaryButton(getString(R.string.action_create_group), new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					createRoom(false, v, true);
-				}
-			}),
-			button(getString(R.string.action_create_channel), new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					createRoom(true, v, false);
-				}
-			})
-		)));
+				dialog.dismiss();
+				createRoom(channel, titleValue, channel ? usernameField.getText().toString().trim() : "", splitMembers(membersField.getText().toString()));
+			}
+		});
+		Button cancel = button(getString(R.string.action_cancel), new View.OnClickListener() {
+			@Override public void onClick(View v) { dialog.dismiss(); }
+		});
+		box.addView(row(cancel, create), new LinearLayout.LayoutParams(-1, -2));
+		setScrollableDialogContent(dialog, box);
+		showStyledDialog(dialog);
 	}
 
 	private void showChat() {
+		boolean leavingCommentThread = page == Page.CHANNEL_COMMENTS;
 		page = Page.CHAT;
+		if (leavingCommentThread) replyToMessage = null;
+		commentInputContainer = null;
 		if (currentPeer != null && !currentPeer.isEmpty()) cancelMessageNotification(currentPeer);
 		if (bottomNav != null) bottomNav.setVisibility(View.GONE);
 		content.removeAllViews();
@@ -970,6 +996,7 @@ public final class MainActivity extends Activity {
 	private void showChannelComments(final MiniTaLib.Message post) {
 		if (!currentPeerIsChannel() || currentPeerUser == null || !currentPeerUser.commentsEnabled || post == null) return;
 		currentCommentPost = post;
+		replyToMessage = null;
 		page = Page.CHANNEL_COMMENTS;
 		if (bottomNav != null) bottomNav.setVisibility(View.GONE);
 		content.removeAllViews();
@@ -1029,7 +1056,10 @@ public final class MainActivity extends Activity {
 			}
 		});
 		content.addView(messageList, fill());
-		content.addView(spaced(commentMessageBar()));
+		commentInputContainer = new LinearLayout(this);
+		commentInputContainer.setOrientation(LinearLayout.VERTICAL);
+		refreshCommentInput();
+		content.addView(spaced(commentInputContainer));
 		loadCachedChannelComments(post.id);
 		loadChannelComments(post.id);
 	}
@@ -1048,15 +1078,103 @@ public final class MainActivity extends Activity {
 		return bar;
 	}
 
+	private void refreshCommentInput() {
+		if (commentInputContainer == null) return;
+		commentInputContainer.removeAllViews();
+		if (replyToMessage != null) commentInputContainer.addView(replyComposerView());
+		commentInputContainer.addView(commentMessageBar());
+	}
+
+	private View replyComposerView() {
+		LinearLayout box = new LinearLayout(this);
+		box.setOrientation(LinearLayout.HORIZONTAL);
+		box.setGravity(Gravity.CENTER_VERTICAL);
+		box.setPadding(gap, gap, gap, gap);
+		box.setBackgroundDrawable(shape(surfaceHi, 0, elementRadius()));
+		LinearLayout details = new LinearLayout(this);
+		details.setOrientation(LinearLayout.VERTICAL);
+		TextView heading = label(getString(R.string.replying_to, replyAuthor(replyToMessage)));
+		heading.setTextColor(primary);
+		heading.setTextSize(13);
+		details.addView(heading, new LinearLayout.LayoutParams(-1, -2));
+		TextView preview = label(replySummary(replyToMessage));
+		preview.setTextColor(muted);
+		preview.setTextSize(14);
+		preview.setSingleLine(true);
+		preview.setEllipsize(TextUtils.TruncateAt.END);
+		details.addView(preview, new LinearLayout.LayoutParams(-1, -2));
+		details.setOnClickListener(new View.OnClickListener() {
+			@Override public void onClick(View v) {
+				if (replyToMessage != null) focusMessage(replyToMessage.id);
+			}
+		});
+		box.addView(details, new LinearLayout.LayoutParams(0, -2, 1));
+		Button cancel = button("×", new View.OnClickListener() {
+			@Override public void onClick(View v) { clearReply(); }
+		});
+		cancel.setContentDescription(getString(R.string.action_cancel));
+		LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight);
+		cancelLp.setMargins(gap, 0, 0, 0);
+		box.addView(cancel, cancelLp);
+		LinearLayout.LayoutParams boxLp = new LinearLayout.LayoutParams(-1, -2);
+		boxLp.setMargins(0, 0, 0, gap / 2);
+		box.setLayoutParams(boxLp);
+		return box;
+	}
+
+	private void startReply(MiniTaLib.Message message) {
+		if (message == null || message.id <= 0) return;
+		replyToMessage = message;
+		if (page == Page.CHANNEL_COMMENTS) refreshCommentInput();
+		else refreshChatInput();
+		if (text != null) {
+			text.requestFocus();
+			text.setSelection(text.length());
+		}
+	}
+
+	private void clearReply() {
+		replyToMessage = null;
+		if (page == Page.CHANNEL_COMMENTS) refreshCommentInput();
+		else if (page == Page.CHAT) refreshChatInput();
+	}
+
+	private String replyAuthor(MiniTaLib.Message message) {
+		if (message == null || message.from == null) return getString(R.string.reply_to_message);
+		String value = displayUser(message.from);
+		return value.length() == 0 ? getString(R.string.reply_to_message) : value;
+	}
+
+	private String replySummary(MiniTaLib.Message message) {
+		if (message == null) return getString(R.string.reply_message_unavailable);
+		String value;
+		if (message.file != null) {
+			value = message.file.name == null || message.file.name.length() == 0
+					? getString(R.string.file_fallback_name) : message.file.name;
+		} else {
+			value = message.text == null ? "" : message.text.replace('\n', ' ').trim();
+		}
+		if (value.length() == 0) value = getString(R.string.reply_message_unavailable);
+		return value.length() > 120 ? value.substring(0, 117) + "…" : value;
+	}
+
+	private void focusMessage(long messageId) {
+		if (messageRows == null || messageList == null || messageId <= 0) return;
+		int position = messageRows.positionOfMessage(messageId);
+		if (position >= 0) messageList.smoothScrollToPosition(position);
+	}
+
 	private void sendChannelComment() {
 		final String value = text == null ? "" : text.getText().toString().trim();
 		if (value.length() == 0 || currentCommentPost == null || ta == null) return;
+		final long replyToMessageId = replyToMessage == null ? 0 : replyToMessage.id;
 		try {
 			OutboxStore.Entry entry = OutboxStore.enqueueComment(
 					this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this),
-					currentPeer, currentCommentPost.id, value);
+					currentPeer, currentCommentPost.id, value, replyToMessageId);
 			addMessageRow(outboxMessage(entry), false);
 			text.setText("");
+			if (replyToMessageId > 0) clearReply();
 			if (messageList != null) messageList.setSelection(messageRows.getCount() - 1);
 			dispatchOutbox(ta);
 		} catch (Exception error) {
@@ -1201,6 +1319,7 @@ public final class MainActivity extends Activity {
 		currentPeerBannedByMe = bannedByMe;
 		currentPeerBannedMe = bannedMe;
 		currentCommentPost = null;
+		replyToMessage = null;
 		oldestMessage = 0;
 		historyLoaded = false;
 		hasOlderMessages = false;
@@ -1215,19 +1334,12 @@ public final class MainActivity extends Activity {
 		return fallback == null ? "" : fallback;
 	}
 
-	private void createRoom(final boolean channel) {
-		createRoom(channel, null, false);
-	}
-
-	private void createRoom(final boolean channel, final View actionButton, final boolean primaryStyle) {
+	private void createRoom(final boolean channel, final String titleValue, final String usernameValue, final ArrayList<String> members) {
 		final MiniTaLib c = ta;
 		if (c == null) {
 			status.setText(getString(R.string.status_sign_in_first));
 			return;
 		}
-		final String titleValue = roomTitle == null ? "" : roomTitle.getText().toString().trim();
-		final String usernameValue = roomUsername == null ? "" : roomUsername.getText().toString().trim();
-		final ArrayList<String> members = splitMembers(roomMembers == null ? "" : roomMembers.getText().toString());
 		if (titleValue.length() == 0) return;
 		if (channel && usernameValue.length() > 0) {
 			showUsernameReservationPaymentSheet(
@@ -1242,7 +1354,7 @@ public final class MainActivity extends Activity {
 			);
 			return;
 		}
-		createRoomConfirmed(channel, titleValue, usernameValue, members, actionButton, primaryStyle);
+		createRoomConfirmed(channel, titleValue, usernameValue, members, null, false);
 	}
 
 	private void createRoomConfirmed(final boolean channel, final String titleValue, final String usernameValue, final ArrayList<String> members) {
@@ -1338,6 +1450,7 @@ public final class MainActivity extends Activity {
 			chatInputContainer.addView(readOnlyRoomBlock());
 			return;
 		}
+		if (replyToMessage != null) chatInputContainer.addView(replyComposerView());
 		chatInputContainer.addView(messageBar());
 	}
 
@@ -3680,13 +3793,15 @@ public final class MainActivity extends Activity {
 			return;
 		}
 		if (peerName == null || peerName.length() == 0 || msg == null || msg.length() == 0) return;
+		final long replyToMessageId = clearInput && replyToMessage != null ? replyToMessage.id : 0;
 		setActionButtonLoading(actionButton, true, primaryStyle);
 		try {
 			OutboxStore.Entry entry = OutboxStore.enqueueText(
 					this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this),
-					peerName, currentPeerIsRoom(), msg);
+					peerName, currentPeerIsRoom(), msg, replyToMessageId);
 			addMessageRow(outboxMessage(entry), false);
 			if (clearInput && text != null) text.setText("");
+			if (replyToMessageId > 0) clearReply();
 			if (messageList != null) messageList.setSelection(messageRows.getCount() - 1);
 			dispatchOutbox(c);
 		} catch (Exception e) {
@@ -5584,7 +5699,7 @@ public final class MainActivity extends Activity {
 				message.readAt, message.file, message.buttons, message.encrypted, message.system,
 				message.data, message.clientMessageId, message.editedAt, message.deliveryState,
 				message.localFilePath, message.reactions, message.paidReaction, message.reactionVersion,
-				message.commentPostId, commentsCount
+				message.commentPostId, commentsCount, message.replyToMessageId
 		);
 	}
 
@@ -5689,6 +5804,7 @@ public final class MainActivity extends Activity {
 		}
 		final boolean editable = canEditMessage(message);
 		final ArrayList<String> actionList = new ArrayList<String>();
+		if (canReplyToMessage(message)) actionList.add(getString(R.string.action_reply));
 		actionList.add(getString(R.string.action_copy));
 		if (editable) actionList.add(getString(R.string.action_edit));
 		if (canDeleteMessage(message)) actionList.add(getString(R.string.action_delete));
@@ -5697,12 +5813,18 @@ public final class MainActivity extends Activity {
 			@Override
 			public void onChoice(int which) {
 				String action = actionList.get(which);
-				if (action.equals(getString(R.string.action_copy))) copyMessage(message);
+				if (action.equals(getString(R.string.action_reply))) startReply(message);
+				else if (action.equals(getString(R.string.action_copy))) copyMessage(message);
 				else if (action.equals(getString(R.string.action_edit))) editMessage(message);
 				else if (action.equals(getString(R.string.action_delete))) deleteMessage(message);
 				else if (action.equals(getString(R.string.action_save_favorite))) saveToFavorites(message);
 			}
 		});
+	}
+
+	private boolean canReplyToMessage(MiniTaLib.Message message) {
+		if (message == null || message.id <= 0 || currentPeerBanned) return false;
+		return page == Page.CHANNEL_COMMENTS || (page == Page.CHAT && currentPeerCanWrite());
 	}
 
 	private void showMessageActionDialog(final MiniTaLib.Message message, final String[] actions, final ChoiceHandler handler) {
@@ -6775,6 +6897,21 @@ public final class MainActivity extends Activity {
 			return position;
 		}
 
+		MiniTaLib.Message messageById(long messageId) {
+			for (MessageRow row : rows) {
+				if (row.message != null && row.message.id == messageId) return row.message;
+			}
+			return null;
+		}
+
+		int positionOfMessage(long messageId) {
+			for (int i = 0; i < rows.size(); i++) {
+				MessageRow row = rows.get(i);
+				if (row.message != null && row.message.id == messageId) return i;
+			}
+			return -1;
+		}
+
 			@Override
 			public View getView(int pos, View convertView, ViewGroup parent) {
 				MessageRow row = rows.get(pos);
@@ -6868,6 +7005,7 @@ public final class MainActivity extends Activity {
 					}
 				});
 				box.addView(userNameRow(row.message == null ? null : row.message.from, 14), new LinearLayout.LayoutParams(-1, -2));
+				addReplyReference(box, row.message);
 				if (row.imageData != null) {
 					LinearLayout.LayoutParams contentLp = new LinearLayout.LayoutParams(-1, -2);
 					contentLp.setMargins(0, gap / 3, 0, 0);
@@ -6893,6 +7031,41 @@ public final class MainActivity extends Activity {
 				outer.addView(box, new LinearLayout.LayoutParams(-1, -2));
 				addMessageButtons(outer, row.message);
 				return listItemFrame(outer);
+			}
+
+			private void addReplyReference(LinearLayout box, final MiniTaLib.Message message) {
+				if (message == null || message.replyToMessageId <= 0) return;
+				MiniTaLib.Message target = messageById(message.replyToMessageId);
+				LinearLayout reference = new LinearLayout(MainActivity.this);
+				reference.setOrientation(LinearLayout.HORIZONTAL);
+				reference.setPadding(gap, gap / 2, gap, gap / 2);
+				reference.setBackgroundDrawable(pressable(
+						blend(surfaceHi, surface, 0.42f),
+						blend(surfaceHi, primary, 0.16f), 0, elementRadius()));
+				View stripe = new View(MainActivity.this);
+				stripe.setBackgroundColor(primary);
+				LinearLayout.LayoutParams stripeLp = new LinearLayout.LayoutParams(dp(3), -1);
+				stripeLp.setMargins(0, 0, gap, 0);
+				reference.addView(stripe, stripeLp);
+				LinearLayout details = new LinearLayout(MainActivity.this);
+				details.setOrientation(LinearLayout.VERTICAL);
+				TextView author = label(target == null ? getString(R.string.reply_to_message) : replyAuthor(target));
+				author.setTextColor(primary);
+				author.setTextSize(13);
+				details.addView(author, new LinearLayout.LayoutParams(-1, -2));
+				TextView preview = label(target == null ? getString(R.string.reply_message_unavailable) : replySummary(target));
+				preview.setTextColor(muted);
+				preview.setTextSize(14);
+				preview.setSingleLine(true);
+				preview.setEllipsize(TextUtils.TruncateAt.END);
+				details.addView(preview, new LinearLayout.LayoutParams(-1, -2));
+				reference.addView(details, new LinearLayout.LayoutParams(0, -2, 1));
+				reference.setOnClickListener(new View.OnClickListener() {
+					@Override public void onClick(View v) { focusMessage(message.replyToMessageId); }
+				});
+				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+				lp.setMargins(0, gap / 3, 0, gap / 3);
+				box.addView(reference, lp);
 			}
 
 			private void addChannelCommentsLink(LinearLayout box, final MiniTaLib.Message message) {
@@ -8143,9 +8316,16 @@ public final class MainActivity extends Activity {
 	}
 
 	private void showActionDialog(final String[] actions, final ChoiceHandler handler) {
+		showActionDialog(null, actions, handler);
+	}
+
+	private void showActionDialog(String titleText, final String[] actions, final ChoiceHandler handler) {
 		if (actions == null || actions.length == 0) return;
 		final Dialog dialog = new Dialog(this);
 		LinearLayout box = dialogBox();
+		if (titleText != null && titleText.length() > 0) {
+			box.addView(title(titleText), new LinearLayout.LayoutParams(-1, -2));
+		}
 		for (int i = 0; i < actions.length; i++) {
 			final int which = i;
 			Button action = button(actions[i], new View.OnClickListener() {
@@ -8220,7 +8400,25 @@ public final class MainActivity extends Activity {
 	private void showStyledDialog(Dialog dialog) {
 		configureDialogWindow(dialog);
 		dialog.show();
+		installSwipeDismiss(dialog);
 		configureDialogWindow(dialog);
+	}
+
+	private void installSwipeDismiss(final Dialog dialog) {
+		Window window = dialog.getWindow();
+		if (window == null) return;
+		View contentView = window.findViewById(android.R.id.content);
+		if (!(contentView instanceof ViewGroup)) return;
+		ViewGroup contentRoot = (ViewGroup) contentView;
+		if (contentRoot.getChildCount() != 1 || contentRoot.getChildAt(0) instanceof SwipeDismissLayout) return;
+		View sheet = contentRoot.getChildAt(0);
+		contentRoot.removeView(sheet);
+		SwipeDismissLayout swipe = new SwipeDismissLayout(this);
+		swipe.setDismissAction(new Runnable() {
+			@Override public void run() { dialog.dismiss(); }
+		});
+		swipe.addView(sheet, new android.widget.FrameLayout.LayoutParams(-1, -2));
+		contentRoot.addView(swipe, new ViewGroup.LayoutParams(-1, -2));
 	}
 
 	private void configureDialogWindow(Dialog dialog) {

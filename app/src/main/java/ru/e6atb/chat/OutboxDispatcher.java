@@ -58,10 +58,10 @@ final class OutboxDispatcher {
 				if ("file".equals(entry.kind)) {
 					sent = client.uploadFile(entry.peer, entry.name, entry.mime, OutboxStore.payload(entry), entry.id).asOutgoing();
 				} else if (entry.commentPostId > 0) {
-					sent = client.sendChannelComment(entry.peer, entry.commentPostId, entry.text, entry.id).asOutgoing();
+					sent = client.sendChannelComment(entry.peer, entry.commentPostId, entry.text, entry.id, entry.replyToMessageId).asOutgoing();
 				} else {
 					if (entry.preparedBody == null || entry.preparedBody.length() == 0) {
-						JSONObject prepared = client.prepareMessage(entry.peer, entry.text, entry.id, entry.room);
+						JSONObject prepared = client.prepareMessage(entry.peer, entry.text, entry.id, entry.room, entry.replyToMessageId);
 						entry.preparedBody = prepared.toString();
 						OutboxStore.update(context, server, user, entry);
 					}

@@ -43,7 +43,11 @@
 	<string name="action_paste">Paste</string>
 	<string name="action_open_chat">Open chat</string>
 	<string name="action_copy">Copy</string>
+	<string name="action_reply">Reply</string>
 	<string name="action_edit">Edit message</string>
+	<string name="replying_to">Replying to %1$s</string>
+	<string name="reply_to_message">Reply to message</string>
+	<string name="reply_message_unavailable">Message is not loaded</string>
 	<string name="reaction_title">Reaction</string>
 	<string name="reaction_more">More emoji</string>
 	<string name="paid_reaction_title">Send DSR reaction</string>
@@ -282,6 +286,11 @@
 	<string name="action_add_contact">Add contact</string>
 	<string name="action_delete_contact">Delete contact</string>
 	<string name="screen_new_room">New group or channel</string>
+	<string name="add_chat_choose_title">What would you like to add?</string>
+	<string name="add_chat_private">Private chat</string>
+	<string name="add_chat_group">Group</string>
+	<string name="add_chat_channel">Channel</string>
+	<string name="field_required">Required field</string>
 	<string name="hint_room_title">group or channel name</string>
 	<string name="hint_channel_username">channel @username, optional</string>
 	<string name="hint_room_members">members, comma separated</string>
