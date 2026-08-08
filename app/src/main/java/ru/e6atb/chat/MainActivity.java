@@ -1140,9 +1140,14 @@ public final class MainActivity extends Activity {
 	}
 
 	private String replyAuthor(MiniTaLib.Message message) {
-		if (message == null || message.from == null) return getString(R.string.reply_to_message);
-		String value = displayUser(message.from);
+		MiniTaLib.User author = messageAuthor(message);
+		if (author == null) return getString(R.string.reply_to_message);
+		String value = displayUser(author);
 		return value.length() == 0 ? getString(R.string.reply_to_message) : value;
+	}
+
+	private MiniTaLib.User messageAuthor(MiniTaLib.Message message) {
+		return MessageAuthorResolver.resolve(message, currentPeerUser);
 	}
 
 	private String replySummary(MiniTaLib.Message message) {
@@ -5805,6 +5810,7 @@ public final class MainActivity extends Activity {
 		final boolean editable = canEditMessage(message);
 		final ArrayList<String> actionList = new ArrayList<String>();
 		if (canReplyToMessage(message)) actionList.add(getString(R.string.action_reply));
+		if (canForwardMessage(message)) actionList.add(getString(R.string.action_forward));
 		actionList.add(getString(R.string.action_copy));
 		if (editable) actionList.add(getString(R.string.action_edit));
 		if (canDeleteMessage(message)) actionList.add(getString(R.string.action_delete));
@@ -5814,6 +5820,7 @@ public final class MainActivity extends Activity {
 			public void onChoice(int which) {
 				String action = actionList.get(which);
 				if (action.equals(getString(R.string.action_reply))) startReply(message);
+				else if (action.equals(getString(R.string.action_forward))) forwardMessage(message);
 				else if (action.equals(getString(R.string.action_copy))) copyMessage(message);
 				else if (action.equals(getString(R.string.action_edit))) editMessage(message);
 				else if (action.equals(getString(R.string.action_delete))) deleteMessage(message);
@@ -6279,6 +6286,114 @@ public final class MainActivity extends Activity {
 				});
 			}
 		});
+	}
+
+	private boolean canForwardMessage(MiniTaLib.Message message) {
+		return message != null
+				&& message.id > 0
+				&& !message.system
+				&& message.text != null
+				&& message.text.trim().length() > 0
+				&& ("sent".equals(message.deliveryState) || "sent-own".equals(message.deliveryState));
+	}
+
+	private void forwardMessage(final MiniTaLib.Message message) {
+		final MiniTaLib client = ta;
+		if (client == null || !canForwardMessage(message)) return;
+		String resolvedAuthor = displayUser(messageAuthor(message));
+		if (resolvedAuthor.length() == 0) resolvedAuthor = getString(R.string.reply_to_message);
+		final String originalAuthor = resolvedAuthor;
+		run("forward_targets", new Task() {
+			@Override public void run() throws Exception {
+				final List<MiniTaLib.Chat> chats = client.getChats();
+				cacheSaveChats(chats);
+				ui(new Runnable() {
+					@Override public void run() {
+						showForwardTargetDialog(message, originalAuthor, chats);
+					}
+				});
+			}
+		});
+	}
+
+	private void showForwardTargetDialog(
+			final MiniTaLib.Message message,
+			final String originalAuthor,
+			List<MiniTaLib.Chat> chats
+	) {
+		final Dialog dialog = new Dialog(this);
+		LinearLayout box = dialogBox();
+		box.addView(title(getString(R.string.forward_choose_chat)), new LinearLayout.LayoutParams(-1, -2));
+		int targetCount = 0;
+		if (chats != null) {
+			for (final MiniTaLib.Chat chat : chats) {
+				if (!canForwardToChat(chat)) continue;
+				final String target = resolvedPeerName(chat.peer, chat.id);
+				if (target.length() == 0) continue;
+				Button targetButton = button(chatPeerTitle(chat.peer), new View.OnClickListener() {
+					@Override public void onClick(View v) {
+						dialog.dismiss();
+						forwardMessageTo(message, originalAuthor, chat, target);
+					}
+				});
+				box.addView(spaced(targetButton));
+				targetCount++;
+			}
+		}
+		if (targetCount == 0) {
+			status.setText(getString(R.string.status_no_forward_targets));
+			return;
+		}
+		Button cancel = button(getString(R.string.action_cancel), new View.OnClickListener() {
+			@Override public void onClick(View v) { dialog.dismiss(); }
+		});
+		box.addView(cancel, new LinearLayout.LayoutParams(-1, -2));
+		setScrollableDialogContent(dialog, box);
+		showStyledDialog(dialog);
+	}
+
+	private boolean canForwardToChat(MiniTaLib.Chat chat) {
+		if (chat == null || chat.peer == null || chat.banned || chat.bannedByMe || chat.bannedMe) return false;
+		if (!"channel".equals(chat.peer.roomKind)) return true;
+		return chat.peer.canManage
+				|| (myID != null && myID.length() > 0 && myID.equals(chat.peer.ownerId));
+	}
+
+	private void forwardMessageTo(
+			MiniTaLib.Message source,
+			String originalAuthor,
+			MiniTaLib.Chat targetChat,
+			String target
+	) {
+		if (source == null || targetChat == null || targetChat.peer == null || ta == null) return;
+		String forwarded = ForwardMessageFormatter.compose(
+				getString(R.string.forwarded_from, originalAuthor),
+				source.text
+		);
+		if (!ForwardMessageFormatter.fitsServerLimit(forwarded)) {
+			status.setText(getString(R.string.status_forward_too_long));
+			return;
+		}
+		try {
+			boolean room = targetChat.peer.roomKind != null && targetChat.peer.roomKind.length() > 0;
+			OutboxStore.Entry entry = OutboxStore.enqueueText(
+					this,
+					SessionStore.server(this, DEFAULT_SERVER),
+					OutboxDispatcher.accountKey(this),
+					target,
+					room,
+					forwarded,
+					0
+			);
+			if (page == Page.CHAT && target.equals(currentPeer) && messageRows != null) {
+				addMessageRow(outboxMessage(entry), false);
+				if (messageList != null) messageList.setSelection(messageRows.getCount() - 1);
+			}
+			dispatchOutbox(ta);
+			status.setText(getString(R.string.status_forwarded_to, chatPeerTitle(targetChat.peer)));
+		} catch (Exception e) {
+			status.setText(errorText(e));
+		}
 	}
 
 	private String chatLastText(MiniTaLib.Message m) {
@@ -6997,14 +7112,8 @@ public final class MainActivity extends Activity {
 				LinearLayout outer = new LinearLayout(MainActivity.this);
 				outer.setOrientation(LinearLayout.VERTICAL);
 				LinearLayout box = fileBox();
-				box.setOnLongClickListener(new View.OnLongClickListener() {
-					@Override
-					public boolean onLongClick(View v) {
-						showMessageMenu(row.message);
-						return true;
-					}
-				});
-				box.addView(userNameRow(row.message == null ? null : row.message.from, 14), new LinearLayout.LayoutParams(-1, -2));
+				installMessageLongPress(box, row.message);
+				box.addView(userNameRow(messageAuthor(row.message), 14), new LinearLayout.LayoutParams(-1, -2));
 				addReplyReference(box, row.message);
 				if (row.imageData != null) {
 					LinearLayout.LayoutParams contentLp = new LinearLayout.LayoutParams(-1, -2);
@@ -7022,6 +7131,7 @@ public final class MainActivity extends Activity {
 					}
 				} else {
 					TextView body = messageTextLabel(row.text);
+					installMessageLongPress(body, row.message);
 					LinearLayout.LayoutParams bodyLp = new LinearLayout.LayoutParams(-1, -2);
 					bodyLp.setMargins(0, gap / 3, 0, 0);
 					box.addView(body, bodyLp);
@@ -7031,6 +7141,17 @@ public final class MainActivity extends Activity {
 				outer.addView(box, new LinearLayout.LayoutParams(-1, -2));
 				addMessageButtons(outer, row.message);
 				return listItemFrame(outer);
+			}
+
+			private void installMessageLongPress(View view, final MiniTaLib.Message message) {
+				if (view == null || message == null) return;
+				view.setLongClickable(true);
+				view.setOnLongClickListener(new View.OnLongClickListener() {
+					@Override public boolean onLongClick(View v) {
+						showMessageMenu(message);
+						return true;
+					}
+				});
 			}
 
 			private void addReplyReference(LinearLayout box, final MiniTaLib.Message message) {

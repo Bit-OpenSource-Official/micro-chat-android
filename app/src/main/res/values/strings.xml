@@ -44,10 +44,16 @@
 	<string name="action_open_chat">Open chat</string>
 	<string name="action_copy">Copy</string>
 	<string name="action_reply">Reply</string>
+	<string name="action_forward">Forward</string>
 	<string name="action_edit">Edit message</string>
 	<string name="replying_to">Replying to %1$s</string>
 	<string name="reply_to_message">Reply to message</string>
 	<string name="reply_message_unavailable">Message is not loaded</string>
+	<string name="forward_choose_chat">Forward to</string>
+	<string name="forwarded_from">Forwarded from %1$s</string>
+	<string name="status_forwarded_to">Forwarded to %1$s</string>
+	<string name="status_no_forward_targets">No chats available for forwarding</string>
+	<string name="status_forward_too_long">The message is too long to forward with the sender name</string>
 	<string name="reaction_title">Reaction</string>
 	<string name="reaction_more">More emoji</string>
 	<string name="paid_reaction_title">Send DSR reaction</string>

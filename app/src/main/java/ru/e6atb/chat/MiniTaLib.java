@@ -811,14 +811,21 @@ final class MiniTaLib {
 		return new User(
 				o.optString("id"),
 				o.optString("email"),
-				o.optString("username"),
-				o.optString("name", o.optString("nick")),
+				o.optString("username", o.optString("login")),
+				o.optString("name", o.optString("nick", o.optString("title"))),
 				o.optBoolean("verified"),
 				o.optBoolean("bot"),
 				o.optLong("created_at"),
 				o.optString("message_privacy", "everyone"),
 				o.optString("call_privacy", "everyone"),
-				o.optString("invite_privacy", "everyone")
+				o.optString("invite_privacy", "everyone"),
+				o.optString("kind", o.optString("room_kind")),
+				o.optString("owner_id"),
+				o.optInt("members"),
+				o.optInt("admins"),
+				null,
+				o.optBoolean("can_manage"),
+				o.optBoolean("comments_enabled")
 		);
 	}
 

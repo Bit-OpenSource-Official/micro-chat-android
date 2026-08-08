@@ -44,10 +44,16 @@
 	<string name="action_open_chat">Открыть чат</string>
 	<string name="action_copy">Копировать</string>
 	<string name="action_reply">Ответить</string>
+	<string name="action_forward">Переслать</string>
 	<string name="action_edit">Редактировать сообщение</string>
 	<string name="replying_to">Ответ для %1$s</string>
 	<string name="reply_to_message">Ответ на сообщение</string>
 	<string name="reply_message_unavailable">Сообщение не загружено</string>
+	<string name="forward_choose_chat">Переслать в</string>
+	<string name="forwarded_from">Переслано от %1$s</string>
+	<string name="status_forwarded_to">Переслано в %1$s</string>
+	<string name="status_no_forward_targets">Нет доступных чатов для пересылки</string>
+	<string name="status_forward_too_long">Сообщение слишком длинное для пересылки с именем отправителя</string>
 	<string name="reaction_title">Реакция</string>
 	<string name="reaction_more">Больше emoji</string>
 	<string name="paid_reaction_title">Отправить DSR-реакцию</string>

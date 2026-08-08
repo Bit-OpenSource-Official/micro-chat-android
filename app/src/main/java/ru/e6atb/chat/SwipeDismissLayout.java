@@ -13,8 +13,9 @@ final class SwipeDismissLayout extends FrameLayout {
 	private final float density;
 	private Runnable dismissAction;
 	private VelocityTracker velocityTracker;
-	private float downX;
-	private float downY;
+	private float downRawX;
+	private float downRawY;
+	private float startTranslationY;
 	private boolean dragging;
 	private boolean finishing;
 
@@ -38,8 +39,8 @@ final class SwipeDismissLayout extends FrameLayout {
 				return false;
 			case MotionEvent.ACTION_MOVE:
 				track(event);
-				float dx = event.getX() - downX;
-				float dy = event.getY() - downY;
+				float dx = event.getRawX() - downRawX;
+				float dy = event.getRawY() - downRawY;
 				if (!dragging && dy > touchSlop && dy > Math.abs(dx) * 1.15f && !descendantCanScrollUp(this)) {
 					dragging = true;
 					getParent().requestDisallowInterceptTouchEvent(true);
@@ -61,7 +62,7 @@ final class SwipeDismissLayout extends FrameLayout {
 		switch (event.getActionMasked()) {
 			case MotionEvent.ACTION_MOVE:
 				if (!dragging) return false;
-				setTranslationY(Math.max(0.0f, event.getY() - downY));
+				setTranslationY(SwipeDismissDecider.dragTranslation(startTranslationY, downRawY, event.getRawY()));
 				setAlpha(Math.max(0.72f, 1.0f - getTranslationY() / Math.max(1.0f, getHeight()) * 0.28f));
 				return true;
 			case MotionEvent.ACTION_UP:
@@ -86,8 +87,10 @@ final class SwipeDismissLayout extends FrameLayout {
 	}
 
 	private void beginGesture(MotionEvent event) {
-		downX = event.getX();
-		downY = event.getY();
+		animate().cancel();
+		downRawX = event.getRawX();
+		downRawY = event.getRawY();
+		startTranslationY = Math.max(0.0f, getTranslationY());
 		dragging = false;
 		finishing = false;
 		recycleTracker();
