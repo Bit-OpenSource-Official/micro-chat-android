@@ -87,6 +87,11 @@ public final class MessageSyncService extends Service {
 			String userId = SessionStore.userId(this);
 			String login = SessionStore.login(this);
 			MiniTaLib ta = new MiniTaLib(this, server, token, userId, login);
+			try {
+				CrashReportDispatcher.dispatch(this, ta);
+			} catch (Exception ignored) {
+				// Keep the report on disk. The next sync pass retries it with the same idempotency key.
+			}
 			OutboxDispatcher.dispatch(this, ta, null);
 			long after = SessionStore.backgroundLastUpdate(this);
 			try {
