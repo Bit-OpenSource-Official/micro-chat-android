@@ -58,11 +58,29 @@ public final class CryptTransportRuntimeTest {
 		}
 
 		byte[] directData = new byte[] {0, 1, 2, 3, (byte)255};
+		JSONObject quoteBody = new JSONObject();
+		quoteBody.put("size", directData.length);
+		CryptTcpClient.Response quoted = client.request(address, token, "POST", "/upload/quote",
+				quoteBody.toString().getBytes("UTF-8"), 10000);
+		assertEquals(new String(quoted.body(), "UTF-8"), 200, quoted.code());
+		long dsrRequired = new JSONObject(new String(quoted.body(), "UTF-8")).optLong("dsr_required");
+		String clientMessageId = "runtime-media-" + Long.toString(System.nanoTime(), 36);
+		JSONObject authorizeBody = new JSONObject();
+		authorizeBody.put("size", directData.length);
+		authorizeBody.put("client_message_id", clientMessageId);
+		authorizeBody.put("max_dsr_amount", dsrRequired);
+		CryptTcpClient.Response authorized = client.request(address, token, "POST", "/upload/authorize",
+				authorizeBody.toString().getBytes("UTF-8"), 10000);
+		Assume.assumeTrue("runtime account needs a funded DSR wallet", authorized.code() == 200);
+		String reservationId = new JSONObject(new String(authorized.body(), "UTF-8")).getString("reservation_id");
 		JSONObject initBody = new JSONObject();
 		initBody.put("to", login);
 		initBody.put("name", "runtime.bin");
 		initBody.put("mime", "application/octet-stream");
 		initBody.put("size", directData.length);
+		initBody.put("client_message_id", clientMessageId);
+		initBody.put("media_reservation_id", reservationId);
+		initBody.put("max_dsr_amount", dsrRequired);
 		CryptTcpClient.Response initialized = client.request(address, token, "POST", "/upload/init",
 				initBody.toString().getBytes("UTF-8"), 10000);
 		assertEquals(new String(initialized.body(), "UTF-8"), 200, initialized.code());

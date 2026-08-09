@@ -18,8 +18,9 @@ ms.ove.rs:8080
   editing, emoji reactions, and paid DSR reactions.
 - Optimistic outgoing-message queue with pending, sent, read, retry, and failed
   states.
-- Images, files, contacts, privacy controls, multiple sessions, and account
-  recovery.
+- Images and files with swipe-confirmed DSR capacity purchases (`1 DSR = 1 MiB`),
+  free zero-copy media forwarding, contacts, privacy controls, multiple sessions,
+  and account recovery.
 - DSR wallet, bot buttons, QR/code authorization for OVE.rs services, and GitHub
   in-app updates.
 - One-to-one calls, voice channels, and background notifications.

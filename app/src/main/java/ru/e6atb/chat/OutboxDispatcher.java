@@ -56,7 +56,9 @@ final class OutboxDispatcher {
 			try {
 				MiniTaLib.Message sent;
 				if ("file".equals(entry.kind)) {
-					sent = client.uploadFile(entry.peer, entry.name, entry.mime, OutboxStore.payload(entry), entry.id).asOutgoing();
+					sent = client.uploadFile(entry.peer, entry.name, entry.mime, OutboxStore.payload(entry), entry.id,
+							entry.mediaReservationId, entry.maxDsrAmount, entry.commentPostId,
+							entry.replyToMessageId).asOutgoing();
 				} else if (entry.commentPostId > 0) {
 					sent = client.sendChannelComment(entry.peer, entry.commentPostId, entry.text, entry.id, entry.replyToMessageId).asOutgoing();
 				} else {

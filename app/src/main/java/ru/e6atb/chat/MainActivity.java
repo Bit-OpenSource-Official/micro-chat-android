@@ -4184,6 +4184,9 @@ public final class MainActivity extends Activity {
 		if (currentPeer.isEmpty()) return;
 		final String peerName = currentPeer;
 		final Uri pickedUri = uri;
+		final boolean room = currentPeerIsRoom();
+		final long commentPostId = page == Page.CHANNEL_COMMENTS && currentCommentPost != null ? currentCommentPost.id : 0;
+		final long replyToMessageId = replyToMessage == null ? 0 : replyToMessage.id;
 		status.setText(imageOnly ? getString(R.string.status_preparing_image) : getString(R.string.status_preparing_file));
 		run(imageOnly ? "send_image" : "send_file", new Task() {
 			@Override
@@ -4203,19 +4206,18 @@ public final class MainActivity extends Activity {
 					if (bytes.length == 0) throw new IOException(getString(R.string.status_empty_file));
 					final String name = displayName;
 					final String mime = type;
-					final OutboxStore.Entry entry = OutboxStore.enqueueFile(
-							MainActivity.this, SessionStore.server(MainActivity.this, DEFAULT_SERVER),
-							OutboxDispatcher.accountKey(MainActivity.this), peerName, currentPeerIsRoom(),
-							name, mime, bytes);
-					ui(new Runnable() {
-						@Override
-						public void run() {
-							if (text != null) text.setText("");
-							addMessageRow(outboxMessage(entry), false);
-							if (messageList != null) messageList.setSelection(messageRows.getCount() - 1);
-							dispatchOutbox(c);
-						}
-					});
+					final MiniTaLib.MediaQuote quote = c.quoteMedia(bytes.length);
+					if (quote.dsrRequired <= 0) {
+						authorizeAndQueueMedia(c, peerName, room, name, mime, bytes, 0,
+								commentPostId, replyToMessageId);
+					} else {
+						ui(new Runnable() {
+							@Override public void run() {
+								showMediaPaymentConfirmation(c, peerName, room, name, mime, bytes,
+										quote.dsrRequired, commentPostId, replyToMessageId);
+							}
+						});
+					}
 				} finally {
 					if (is != null) {
 						try {
@@ -4224,6 +4226,79 @@ public final class MainActivity extends Activity {
 						}
 					}
 				}
+			}
+		});
+	}
+
+	private void showMediaPaymentConfirmation(final MiniTaLib client, final String peerName,
+	                                          final boolean room, final String name, final String mime,
+	                                          final byte[] bytes, final long dsrRequired,
+	                                          final long commentPostId, final long replyToMessageId) {
+		showSwipeConfirmDialog(
+				getString(R.string.media_payment_title),
+				getString(R.string.media_payment_detail, name, formatBytes(bytes.length), dsrRequired),
+				getString(R.string.media_payment_slide_hint, dsrRequired),
+				new Runnable() {
+					@Override public void run() {
+						authorizeAndQueueMedia(client, peerName, room, name, mime, bytes, dsrRequired,
+								commentPostId, replyToMessageId);
+					}
+				}
+		);
+	}
+
+	private void authorizeAndQueueMedia(final MiniTaLib client, final String peerName,
+	                                    final boolean room, final String name, final String mime,
+	                                    final byte[] bytes, final long maxDsrAmount,
+	                                    final long commentPostId, final long replyToMessageId) {
+		run("authorize_media", new Task() {
+			@Override public void run() throws Exception {
+				final String clientMessageId = UUID.randomUUID().toString();
+				final MiniTaLib.MediaAuthorization authorization;
+				try {
+					authorization = client.authorizeMedia(bytes.length, clientMessageId, maxDsrAmount);
+				} catch (Exception error) {
+					if (isInsufficientDastarsError(error)) {
+						ui(new Runnable() { @Override public void run() { showMediaTopUpDialog(); } });
+						return;
+					}
+					if (isMediaPriceChangedError(error)) {
+						final MiniTaLib.MediaQuote refreshed = client.quoteMedia(bytes.length);
+						ui(new Runnable() {
+							@Override public void run() {
+								if (refreshed.dsrRequired > 0) {
+									showMediaPaymentConfirmation(client, peerName, room, name, mime, bytes,
+											refreshed.dsrRequired, commentPostId, replyToMessageId);
+								} else {
+									authorizeAndQueueMedia(client, peerName, room, name, mime, bytes, 0,
+											commentPostId, replyToMessageId);
+								}
+							}
+						});
+						return;
+					}
+					throw error;
+				}
+				final OutboxStore.Entry entry;
+				try {
+					entry = OutboxStore.enqueueAuthorizedFile(
+							MainActivity.this, SessionStore.server(MainActivity.this, DEFAULT_SERVER),
+							OutboxDispatcher.accountKey(MainActivity.this), peerName, room, name, mime, bytes,
+							clientMessageId, authorization.reservationId, authorization.dsrAmount,
+							commentPostId, replyToMessageId);
+				} catch (Exception error) {
+					try { client.cancelMediaAuthorization(authorization.reservationId); } catch (Exception ignored) {}
+					throw error;
+				}
+				ui(new Runnable() {
+					@Override public void run() {
+						if (text != null) text.setText("");
+						if (replyToMessageId > 0) clearReply();
+						addMessageRow(outboxMessage(entry), false);
+						if (messageList != null) messageList.setSelection(messageRows.getCount() - 1);
+						dispatchOutbox(client);
+					}
+				});
 			}
 		});
 	}
@@ -6137,6 +6212,11 @@ public final class MainActivity extends Activity {
 		return value.contains("insufficient dsr") || value.contains("insufficient dastars");
 	}
 
+	private boolean isMediaPriceChangedError(Exception error) {
+		String value = errorText(error).toLowerCase(Locale.US);
+		return value.contains("media price changed") || value.contains("media purchase confirmation required");
+	}
+
 	private void showDastarsTopUpDialog() {
 		showConfirmDialog(
 				getString(R.string.paid_reaction_no_dastars_title),
@@ -6146,6 +6226,17 @@ public final class MainActivity extends Activity {
 					@Override public void run() {
 						openChatIfExists("dastarsbot", null, true);
 					}
+				}
+		);
+	}
+
+	private void showMediaTopUpDialog() {
+		showConfirmDialog(
+				getString(R.string.paid_reaction_no_dastars_title),
+				getString(R.string.media_payment_no_dastars_message),
+				getString(R.string.wallet_buy_dastars),
+				new Runnable() {
+					@Override public void run() { openChatIfExists("dastarsbot", null, true); }
 				}
 		);
 	}
@@ -6204,7 +6295,21 @@ public final class MainActivity extends Activity {
 	}
 
 	private void removeOutboxMessage(MiniTaLib.Message message) {
+		String reservationId = "";
+		for (OutboxStore.Entry entry : OutboxStore.load(this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this))) {
+			if (entry.id.equals(message.clientMessageId)) {
+				reservationId = entry.mediaReservationId;
+				break;
+			}
+		}
 		OutboxStore.complete(this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this), message.clientMessageId);
+		final MiniTaLib client = ta;
+		final String cancelReservationId = reservationId;
+		if (client != null && cancelReservationId.length() > 0) {
+			run("cancel_media", new Task() {
+				@Override public void run() throws Exception { client.cancelMediaAuthorization(cancelReservationId); }
+			});
+		}
 		if (messageRows != null) messageRows.removeMessage(message.id);
 		seenMessages.remove(Long.valueOf(message.id));
 	}
@@ -6366,6 +6471,24 @@ public final class MainActivity extends Activity {
 			String target
 	) {
 		if (source == null || targetChat == null || targetChat.peer == null || ta == null) return;
+		if (source.file != null && source.file.id != null && source.file.id.length() > 0) {
+			final MiniTaLib client = ta;
+			final long sourceMessageId = source.id;
+			final String targetPeer = target;
+			final String clientMessageId = UUID.randomUUID().toString();
+			run("forward_media", new Task() {
+				@Override public void run() throws Exception {
+					final MiniTaLib.Message sent = client.forwardMedia(sourceMessageId, targetPeer, clientMessageId).asOutgoing();
+					ui(new Runnable() {
+						@Override public void run() {
+							append(sent);
+							status.setText(getString(R.string.status_forwarded_to, chatPeerTitle(targetChat.peer)));
+						}
+					});
+				}
+			});
+			return;
+		}
 		String forwarded = ForwardMessageFormatter.compose(
 				getString(R.string.forwarded_from, originalAuthor),
 				source.text

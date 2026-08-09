@@ -423,6 +423,35 @@ final class MiniTaLib {
 	}
 
 	Message uploadFile(String to, String name, String mime, byte[] data, String clientMessageId) throws Exception {
+		return uploadFile(to, name, mime, data, clientMessageId, "", 0, 0, 0);
+	}
+
+	MediaQuote quoteMedia(long sizeBytes) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("size", sizeBytes);
+		JSONObject out = post("/upload/quote", body, 10000);
+		return new MediaQuote(out.optLong("size_bytes", sizeBytes), out.optLong("dsr_required"), out.optBoolean("free"));
+	}
+
+	MediaAuthorization authorizeMedia(long sizeBytes, String clientMessageId, long maxDsrAmount) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("size", sizeBytes);
+		body.put("client_message_id", clientMessageId);
+		body.put("max_dsr_amount", maxDsrAmount);
+		JSONObject out = post("/upload/authorize", body, 10000);
+		return new MediaAuthorization(out.optString("reservation_id"), out.optLong("dsr_amount"), out.optBoolean("free"));
+	}
+
+	void cancelMediaAuthorization(String reservationId) throws Exception {
+		if (reservationId == null || reservationId.length() == 0 || reservationId.startsWith("free:")) return;
+		JSONObject body = new JSONObject();
+		body.put("reservation_id", reservationId);
+		post("/upload/cancel", body, 10000);
+	}
+
+	Message uploadFile(String to, String name, String mime, byte[] data, String clientMessageId,
+	                   String mediaReservationId, long maxDsrAmount, long commentPostId,
+	                   long replyToMessageId) throws Exception {
 		if (data == null || data.length == 0) throw new IOException("file is empty");
 		JSONObject body = new JSONObject();
 		body.put("to", to);
@@ -430,6 +459,10 @@ final class MiniTaLib {
 		body.put("name", name == null || name.length() == 0 ? "file" : name);
 		body.put("mime", mime == null || mime.length() == 0 ? "application/octet-stream" : mime);
 		body.put("size", data.length);
+		if (mediaReservationId != null && mediaReservationId.length() > 0) body.put("media_reservation_id", mediaReservationId);
+		body.put("max_dsr_amount", Math.max(0, maxDsrAmount));
+		if (commentPostId > 0) body.put("comment_post_id", commentPostId);
+		if (replyToMessageId > 0) body.put("reply_to_message_id", replyToMessageId);
 		JSONObject initialized = post("/upload/init", body, 10000);
 		if (initialized.optBoolean("complete")) return message(initialized.getJSONObject("message"));
 		String fileId = initialized.getString("file_id");
@@ -437,6 +470,14 @@ final class MiniTaLib {
 		JSONObject complete = new JSONObject();
 		complete.put("file_id", fileId);
 		return message(post("/upload/complete", complete, 30000).getJSONObject("message"));
+	}
+
+	Message forwardMedia(long messageId, String to, String clientMessageId) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("message_id", messageId);
+		body.put("to", to);
+		if (clientMessageId != null && clientMessageId.length() > 0) body.put("client_message_id", clientMessageId);
+		return message(post("/forward", body, 10000).getJSONObject("message"));
 	}
 
 	private static void directUpload(String uploadUrl, String ticket, byte[] data) throws Exception {
@@ -1501,6 +1542,30 @@ final class MiniTaLib {
 		PaidReaction(long amount, long mineAmount) {
 			this.amount = amount;
 			this.mineAmount = mineAmount;
+		}
+	}
+
+	static final class MediaQuote {
+		final long sizeBytes;
+		final long dsrRequired;
+		final boolean free;
+
+		MediaQuote(long sizeBytes, long dsrRequired, boolean free) {
+			this.sizeBytes = sizeBytes;
+			this.dsrRequired = dsrRequired;
+			this.free = free;
+		}
+	}
+
+	static final class MediaAuthorization {
+		final String reservationId;
+		final long dsrAmount;
+		final boolean free;
+
+		MediaAuthorization(String reservationId, long dsrAmount, boolean free) {
+			this.reservationId = reservationId;
+			this.dsrAmount = dsrAmount;
+			this.free = free;
 		}
 	}
 

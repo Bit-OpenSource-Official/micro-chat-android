@@ -75,6 +75,10 @@
 	<string name="attachment_attach">Attach</string>
 	<string name="chooser_select_picture">Select picture</string>
 	<string name="chooser_select_file">Select file</string>
+	<string name="media_payment_title">Send paid media</string>
+	<string name="media_payment_detail">%1$s · %2$s\nBuy missing capacity for %3$d DSR</string>
+	<string name="media_payment_slide_hint">Swipe to pay %1$d DSR and send</string>
+	<string name="media_payment_no_dastars_message">Top up your DSR balance to buy media capacity.</string>
 	<string name="nav_chats">Chats</string>
 	<string name="nav_wallet">Wallet</string>
 	<string name="nav_nodes">Nodes</string>

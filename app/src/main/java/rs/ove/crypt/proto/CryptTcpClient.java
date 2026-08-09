@@ -75,6 +75,10 @@ public final class CryptTcpClient {
 	private static final int OP_OAUTH_DEVICE_DECISION = 61;
 	private static final int OP_UPLOAD_LEGACY = 64;
 	private static final int OP_FILE_TICKET = 65;
+	private static final int OP_UPLOAD_QUOTE = 66;
+	private static final int OP_UPLOAD_AUTHORIZE = 67;
+	private static final int OP_UPLOAD_CANCEL = 68;
+	private static final int OP_FORWARD = 69;
 
 	private final Object lock = new Object();
 	private Connection cached;
@@ -416,6 +420,10 @@ public final class CryptTcpClient {
 		if ("POST".equals(method) && "/upload/complete".equals(path)) return OP_COMPLETE_UPLOAD;
 		if ("POST".equals(method) && "/upload".equals(path)) return OP_UPLOAD_LEGACY;
 		if ("GET".equals(method) && "/file/ticket".equals(path)) return OP_FILE_TICKET;
+		if ("POST".equals(method) && "/upload/quote".equals(path)) return OP_UPLOAD_QUOTE;
+		if ("POST".equals(method) && "/upload/authorize".equals(path)) return OP_UPLOAD_AUTHORIZE;
+		if ("POST".equals(method) && "/upload/cancel".equals(path)) return OP_UPLOAD_CANCEL;
+		if ("POST".equals(method) && "/forward".equals(path)) return OP_FORWARD;
 		if ("GET".equals(method) && "/nodes/status".equals(path)) return OP_NODES_STATUS;
 		if ("GET".equals(method) && "/chats".equals(path)) return OP_CHATS;
 		if ("POST".equals(method) && "/chats/delete".equals(path)) return OP_DELETE_CHAT;

@@ -75,6 +75,10 @@
 	<string name="attachment_attach">Прикрепить</string>
 	<string name="chooser_select_picture">Выбрать фото</string>
 	<string name="chooser_select_file">Выбрать файл</string>
+	<string name="media_payment_title">Отправка платного медиа</string>
+	<string name="media_payment_detail">%1$s · %2$s\nКупить недостающий объём за %3$d DSR</string>
+	<string name="media_payment_slide_hint">Свайпните, чтобы оплатить %1$d DSR и отправить</string>
+	<string name="media_payment_no_dastars_message">Пополните баланс DSR, чтобы купить объём для медиа.</string>
 	<string name="nav_chats">Чаты</string>
 	<string name="nav_wallet">Кошелек</string>
 	<string name="nav_nodes">Ноды</string>

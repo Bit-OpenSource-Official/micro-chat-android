@@ -43,6 +43,8 @@ final class OutboxStore {
 		String preparedBody;
 		long commentPostId;
 		long replyToMessageId;
+		String mediaReservationId;
+		long maxDsrAmount;
 
 		MiniTaLib.Message localMessage(MiniTaLib.User me, MiniTaLib.User knownPeer) {
 			MiniTaLib.User target = knownPeer;
@@ -101,15 +103,28 @@ final class OutboxStore {
 
 	static synchronized Entry enqueueFile(Context context, String server, String user, String peer, boolean room,
 	                                      String name, String mime, byte[] data) throws Exception {
+		return enqueueAuthorizedFile(context, server, user, peer, room, name, mime, data,
+				UUID.randomUUID().toString(), "", 0, 0, 0);
+	}
+
+	static synchronized Entry enqueueAuthorizedFile(Context context, String server, String user, String peer, boolean room,
+	                                                String name, String mime, byte[] data, String clientMessageId,
+	                                                String mediaReservationId, long maxDsrAmount,
+	                                                long commentPostId, long replyToMessageId) throws Exception {
 		List<Entry> entries = load(context, server, user);
 		long total = data.length;
 		for (Entry value : entries) total += Math.max(0, value.size);
 		if (total > MAX_TOTAL_BYTES) throw new IllegalStateException("outbox is full (128 MiB)");
 		Entry entry = base(peer, room);
+		entry.id = clientMessageId;
 		entry.kind = "file";
 		entry.name = name;
 		entry.mime = mime;
 		entry.size = data.length;
+		entry.mediaReservationId = mediaReservationId == null ? "" : mediaReservationId;
+		entry.maxDsrAmount = Math.max(0, maxDsrAmount);
+		entry.commentPostId = Math.max(0, commentPostId);
+		entry.replyToMessageId = Math.max(0, replyToMessageId);
 		File payload = new File(payloadDir(context), entry.id + ".bin");
 		writeBytes(payload, data);
 		entry.localPath = payload.getAbsolutePath();
@@ -136,6 +151,7 @@ final class OutboxStore {
 		entry.state = QUEUED;
 		entry.error = "";
 		entry.preparedBody = "";
+		entry.mediaReservationId = "";
 		return entry;
 	}
 
@@ -283,6 +299,8 @@ final class OutboxStore {
 		raw.put("prepared_body", entry.preparedBody);
 		raw.put("comment_post_id", entry.commentPostId);
 		raw.put("reply_to_message_id", entry.replyToMessageId);
+		raw.put("media_reservation_id", entry.mediaReservationId);
+		raw.put("max_dsr_amount", entry.maxDsrAmount);
 		return raw;
 	}
 
@@ -306,6 +324,8 @@ final class OutboxStore {
 		entry.preparedBody = raw.optString("prepared_body");
 		entry.commentPostId = raw.optLong("comment_post_id");
 		entry.replyToMessageId = raw.optLong("reply_to_message_id");
+		entry.mediaReservationId = raw.optString("media_reservation_id");
+		entry.maxDsrAmount = raw.optLong("max_dsr_amount");
 		return entry;
 	}
 
