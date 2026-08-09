@@ -13,7 +13,7 @@ public final class CrashReportStoreTest {
 				"token=top-secret Bearer bearer-secret password=hunter2 " + longLine
 		);
 		String report = CrashReportStore.formatReport(
-				"report-1", "2026-08-09T00:00:00.000Z", "0.9.3", 100041,
+				"report-1", "2026-08-09T00:00:00.000Z", "0.9.4", 100042,
 				"15", 35, "OVE Test Device", "background-sync", crash
 		);
 		assertTrue(report.startsWith(CrashReportStore.MARKER));

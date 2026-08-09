@@ -1,11 +1,15 @@
 package ru.e6atb.chat;
 
 import android.content.Context;
+import android.os.Build;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewGroup;
+import android.view.animation.Animation;
+import android.view.animation.Transformation;
+import android.widget.AbsListView;
 import android.widget.FrameLayout;
 
 final class SwipeDismissLayout extends FrameLayout {
@@ -15,7 +19,8 @@ final class SwipeDismissLayout extends FrameLayout {
 	private VelocityTracker velocityTracker;
 	private float downRawX;
 	private float downRawY;
-	private float startTranslationY;
+	private float startOffsetY;
+	private float offsetY;
 	private boolean dragging;
 	private boolean finishing;
 
@@ -62,8 +67,7 @@ final class SwipeDismissLayout extends FrameLayout {
 		switch (event.getActionMasked()) {
 			case MotionEvent.ACTION_MOVE:
 				if (!dragging) return false;
-				setTranslationY(SwipeDismissDecider.dragTranslation(startTranslationY, downRawY, event.getRawY()));
-				setAlpha(Math.max(0.72f, 1.0f - getTranslationY() / Math.max(1.0f, getHeight()) * 0.28f));
+				setOffsetY(SwipeDismissDecider.dragTranslation(startOffsetY, downRawY, event.getRawY()));
 				return true;
 			case MotionEvent.ACTION_UP:
 				if (!dragging) {
@@ -75,7 +79,7 @@ final class SwipeDismissLayout extends FrameLayout {
 					velocityTracker.computeCurrentVelocity(1000);
 					velocity = velocityTracker.getYVelocity(event.getPointerId(0));
 				}
-				finishGesture(SwipeDismissDecider.shouldDismiss(getTranslationY(), getHeight(), velocity, density));
+				finishGesture(SwipeDismissDecider.shouldDismiss(offsetY, getHeight(), velocity, density));
 				return true;
 			case MotionEvent.ACTION_CANCEL:
 				if (dragging) finishGesture(false);
@@ -87,10 +91,10 @@ final class SwipeDismissLayout extends FrameLayout {
 	}
 
 	private void beginGesture(MotionEvent event) {
-		animate().cancel();
+		clearAnimation();
 		downRawX = event.getRawX();
 		downRawY = event.getRawY();
-		startTranslationY = Math.max(0.0f, getTranslationY());
+		startOffsetY = Math.max(0.0f, offsetY);
 		dragging = false;
 		finishing = false;
 		recycleTracker();
@@ -109,16 +113,43 @@ final class SwipeDismissLayout extends FrameLayout {
 		dragging = false;
 		recycleTracker();
 		if (dismiss) {
-			animate().translationY(Math.max(getHeight(), getResources().getDisplayMetrics().heightPixels))
-					.alpha(0.0f).setDuration(180L).withEndAction(new Runnable() {
-						@Override public void run() {
-							if (dismissAction != null) dismissAction.run();
-						}
-					}).start();
+			animateOffset(Math.max(getHeight(), getResources().getDisplayMetrics().heightPixels), true);
 		} else {
-			animate().translationY(0.0f).alpha(1.0f).setDuration(180L).withEndAction(new Runnable() {
-				@Override public void run() { finishing = false; }
-			}).start();
+			animateOffset(0.0f, false);
+		}
+	}
+
+	private void animateOffset(final float targetY, final boolean dismiss) {
+		final float initialY = offsetY;
+		Animation animation = new Animation() {
+			@Override
+			protected void applyTransformation(float progress, Transformation transformation) {
+				setOffsetY(SwipeDismissDecider.animationOffset(initialY, targetY, progress));
+				if (dismiss) transformation.setAlpha(Math.max(0.0f, 1.0f - progress));
+			}
+		};
+		animation.setDuration(180L);
+		animation.setAnimationListener(new Animation.AnimationListener() {
+			@Override public void onAnimationStart(Animation ignored) {}
+			@Override public void onAnimationRepeat(Animation ignored) {}
+			@Override public void onAnimationEnd(Animation ignored) {
+				if (dismiss) {
+					if (dismissAction != null) dismissAction.run();
+				} else {
+					setOffsetY(0.0f);
+					finishing = false;
+				}
+			}
+		});
+		startAnimation(animation);
+	}
+
+	private void setOffsetY(float value) {
+		float safe = Math.max(0.0f, value);
+		int delta = Math.round(safe - offsetY);
+		if (delta != 0) {
+			offsetTopAndBottom(delta);
+			offsetY += delta;
 		}
 	}
 
@@ -129,12 +160,30 @@ final class SwipeDismissLayout extends FrameLayout {
 	}
 
 	private static boolean descendantCanScrollUp(View view) {
-		if (view != null && view.canScrollVertically(-1)) return true;
+		if (canScrollUp(view)) return true;
 		if (!(view instanceof ViewGroup)) return false;
 		ViewGroup group = (ViewGroup) view;
 		for (int i = 0; i < group.getChildCount(); i++) {
 			if (descendantCanScrollUp(group.getChildAt(i))) return true;
 		}
 		return false;
+	}
+
+	private static boolean canScrollUp(View view) {
+		if (view == null) return false;
+		if (Build.VERSION.SDK_INT >= 14) {
+			try {
+				Object result = View.class.getMethod("canScrollVertically", int.class).invoke(view, -1);
+				if (result instanceof Boolean) return ((Boolean) result).booleanValue();
+			} catch (Exception ignored) {
+			}
+		}
+		if (view instanceof AbsListView) {
+			AbsListView list = (AbsListView) view;
+			return list.getChildCount() > 0
+					&& (list.getFirstVisiblePosition() > 0
+					|| list.getChildAt(0).getTop() < list.getPaddingTop());
+		}
+		return view.getScrollY() > 0;
 	}
 }

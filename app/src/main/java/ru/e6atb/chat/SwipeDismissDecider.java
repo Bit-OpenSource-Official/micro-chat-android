@@ -8,6 +8,11 @@ final class SwipeDismissDecider {
 		return Math.max(0.0f, startTranslationPx + currentRawYPx - downRawYPx);
 	}
 
+	static float animationOffset(float startPx, float targetPx, float progress) {
+		float boundedProgress = Math.max(0.0f, Math.min(1.0f, progress));
+		return startPx + (targetPx - startPx) * boundedProgress;
+	}
+
 	static boolean shouldDismiss(float distancePx, int heightPx, float velocityYPx, float density) {
 		float safeDensity = Math.max(1.0f, density);
 		float distanceThreshold = Math.max(96.0f * safeDensity, heightPx * 0.28f);

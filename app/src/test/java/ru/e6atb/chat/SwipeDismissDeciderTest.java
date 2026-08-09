@@ -22,4 +22,11 @@ public final class SwipeDismissDeciderTest {
 		assertEquals(35.0f, SwipeDismissDecider.dragTranslation(30.0f, 200.0f, 205.0f), 0.001f);
 		assertEquals(0.0f, SwipeDismissDecider.dragTranslation(0.0f, 100.0f, 80.0f), 0.001f);
 	}
+
+	@Test
+	public void legacyAnimationInterpolationIsBounded() {
+		assertEquals(20.0f, SwipeDismissDecider.animationOffset(20.0f, 100.0f, -1.0f), 0.001f);
+		assertEquals(60.0f, SwipeDismissDecider.animationOffset(20.0f, 100.0f, 0.5f), 0.001f);
+		assertEquals(100.0f, SwipeDismissDecider.animationOffset(20.0f, 100.0f, 2.0f), 0.001f);
+	}
 }
