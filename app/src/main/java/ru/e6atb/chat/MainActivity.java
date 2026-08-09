@@ -3490,6 +3490,7 @@ public final class MainActivity extends Activity {
 		SessionStore.save(MainActivity.this, url, ta.token(), myID, myLogin);
 		SessionStore.lastUpdate(MainActivity.this, 0);
 		SessionStore.backgroundLastUpdate(MainActivity.this, 0);
+		SessionStore.notificationBootstrapComplete(MainActivity.this, false);
 
 		startSyncService();
 

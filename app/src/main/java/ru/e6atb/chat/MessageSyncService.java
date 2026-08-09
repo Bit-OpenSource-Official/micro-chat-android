@@ -11,7 +11,9 @@ import android.os.IBinder;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.json.JSONObject;
 
 public final class MessageSyncService extends Service {
@@ -102,6 +104,10 @@ public final class MessageSyncService extends Service {
 						true
 				));
 				List<MiniTaLib.Update> updates = ta.getUpdates(after, 30);
+				boolean notificationBootstrapComplete =
+						SessionStore.notificationBootstrapComplete(this)
+								|| after > 0 || SessionStore.lastUpdate(this) > 0;
+				Set<Long> readMessageIds = readMessageIds(updates);
 				long newestUpdate = after;
 				for (MiniTaLib.Update u : updates) {
 					if (u.id > newestUpdate) newestUpdate = u.id;
@@ -116,13 +122,16 @@ public final class MessageSyncService extends Service {
 						if (m.clientMessageId.length() > 0) {
 							OutboxStore.complete(this, server, OutboxDispatcher.accountKey(this), m.clientMessageId);
 						}
-						if ("message".equals(u.type) && !sentByMe) {
+						if ("message".equals(u.type) && MessageNotificationPolicy.shouldNotify(
+								notificationBootstrapComplete, sentByMe, m.id, m.readAt, readMessageIds)) {
 							String oauthCode = oauthRequestCode(m);
 							if (oauthCode.length() > 0) {
 								showOAuthRequest(oauthCode, m);
 							} else {
 								showMessage(MESSAGE_BASE_ID + (int) (m.id % 100000), other, m.text);
 							}
+						} else if ("message_read".equals(u.type)) {
+							cancelMessageNotification(other);
 						}
 					} else if ("call_invite".equals(u.type) && u.call != null && u.call.from != null
 							&& !isOwnUser(u.call.from, userId, login) && !isStaleIncomingCall(u.call)) {
@@ -145,6 +154,9 @@ public final class MessageSyncService extends Service {
 					after = newestUpdate;
 					SessionStore.backgroundLastUpdate(this, after);
 				}
+				if (!SessionStore.notificationBootstrapComplete(this)) {
+					SessionStore.notificationBootstrapComplete(this, true);
+				}
 				failures = 0;
 			} catch (Exception e) {
 				if (MiniTaLib.isInvalidTokenError(e)) {
@@ -155,6 +167,18 @@ public final class MessageSyncService extends Service {
 				sleepWhileRunning(pollRetryDelayMs(failures++));
 			}
 		}
+	}
+
+	private static Set<Long> readMessageIds(List<MiniTaLib.Update> updates) {
+		Set<Long> ids = new HashSet<Long>();
+		if (updates == null) return ids;
+		for (MiniTaLib.Update update : updates) {
+			if (update == null || update.message == null) continue;
+			if ("message_read".equals(update.type) || update.message.readAt > 0) {
+				ids.add(update.message.id);
+			}
+		}
+		return ids;
 	}
 
 	private static long pollRetryDelayMs(int failures) {
@@ -223,6 +247,12 @@ public final class MessageSyncService extends Service {
 		n.contentIntent = pending;
 		n.flags |= Notification.FLAG_AUTO_CANCEL;
 		nm.notify(notifId, n);
+	}
+
+	private void cancelMessageNotification(String from) {
+		if (from == null || from.length() == 0) return;
+		NotificationManager nm = notificationManager();
+		if (nm != null) nm.cancel(MESSAGE_BASE_ID + Math.abs(from.hashCode()) % 100000);
 	}
 
 	private String oauthRequestCode(MiniTaLib.Message message) {

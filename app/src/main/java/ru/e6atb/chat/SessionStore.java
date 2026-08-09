@@ -19,6 +19,7 @@ final class SessionStore {
 	private static final String LEGACY_LOGIN = "login";
 	private static final String LAST_UPDATE = "last_update";
 	private static final String BACKGROUND_LAST_UPDATE = "background_last_update";
+	private static final String NOTIFICATION_BOOTSTRAP_COMPLETE = "notification_bootstrap_complete";
 	private static final String LAST_GITHUB_UPDATE_CHECK_AT = "last_github_update_check_at";
 	private static final String SHOW_STATUS = "show_status";
 	private static final String USE_INSETS = "use_insets";
@@ -57,6 +58,7 @@ final class SessionStore {
 		p.remove(LEGACY_LOGIN);
 		p.remove(LAST_UPDATE);
 		p.remove(BACKGROUND_LAST_UPDATE);
+		p.remove(NOTIFICATION_BOOTSTRAP_COMPLETE);
 		store(context, p);
 	}
 
@@ -117,6 +119,17 @@ final class SessionStore {
 
 	static void backgroundLastUpdate(Context context, long id) {
 		setLong(context, BACKGROUND_LAST_UPDATE, id);
+	}
+
+	static boolean notificationBootstrapComplete(Context context) {
+		// Existing installations predate this flag and already have a valid
+		// cursor, so default them to ready. A fresh login explicitly stores
+		// false before either polling loop is started.
+		return getBoolean(context, NOTIFICATION_BOOTSTRAP_COMPLETE, true);
+	}
+
+	static void notificationBootstrapComplete(Context context, boolean complete) {
+		setBoolean(context, NOTIFICATION_BOOTSTRAP_COMPLETE, complete);
 	}
 
 	static long lastGithubUpdateCheckAt(Context context) {
