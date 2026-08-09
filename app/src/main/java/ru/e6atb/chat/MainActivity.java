@@ -58,6 +58,7 @@ import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.ProgressBar;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -77,6 +78,7 @@ import java.io.InputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
 import org.json.JSONObject;
@@ -167,6 +169,7 @@ public final class MainActivity extends Activity {
 	private final Map < String, String > imagePreviewErrors = new HashMap < String, String > ();
 	private final Set < String > imagePreviewLoading = new HashSet < String > ();
 	private final ArrayList < MiniTaLib.Chat > chatData = new ArrayList < MiniTaLib.Chat > ();
+	private final ArrayList<ComposerMedia> composerMedia = new ArrayList<ComposerMedia>();
 	private final VoiceCall voiceCall = new VoiceCall();
 	private LinearLayout rootView;
 	private LinearLayout content;
@@ -183,6 +186,8 @@ public final class MainActivity extends Activity {
 	private EditText contactAddress;
 	private EditText peer;
 	private EditText text;
+	private LinearLayout composerMediaBar;
+	private boolean composerSending;
 	private EditText walletTo;
 	private EditText walletAmount;
 	private EditText walletComment;
@@ -275,6 +280,16 @@ public final class MainActivity extends Activity {
 	private Page page = Page.NONE;
 	private MiniTaLib.Message currentCommentPost;
 	private MiniTaLib.Message replyToMessage;
+	private MiniTaLib.Message editingMessage;
+
+	private static final class ComposerMedia {
+		Uri uri;
+		String name;
+		String mime;
+		String localPath;
+		String fileId;
+		long size;
+	}
 	private final Runnable channelHistoryReload = new Runnable() {
 		@Override public void run() {
 			if (page == Page.CHAT && currentPeerIsChannel()) loadHistory();
@@ -1153,11 +1168,15 @@ public final class MainActivity extends Activity {
 	private String replySummary(MiniTaLib.Message message) {
 		if (message == null) return getString(R.string.reply_message_unavailable);
 		String value;
-		if (message.file != null) {
-			value = message.file.name == null || message.file.name.length() == 0
-					? getString(R.string.file_fallback_name) : message.file.name;
+		if (message.text != null && message.text.trim().length() > 0) {
+			value = message.text.replace('\n', ' ').trim();
+		} else if (message.media != null && !message.media.isEmpty()) {
+			MiniTaLib.FileInfo first = message.media.get(0);
+			value = first.name == null || first.name.length() == 0
+					? getString(R.string.file_fallback_name) : first.name;
+			if (message.media.size() > 1) value += " +" + (message.media.size() - 1);
 		} else {
-			value = message.text == null ? "" : message.text.replace('\n', ' ').trim();
+			value = "";
 		}
 		if (value.length() == 0) value = getString(R.string.reply_message_unavailable);
 		return value.length() > 120 ? value.substring(0, 117) + "…" : value;
@@ -3774,8 +3793,182 @@ public final class MainActivity extends Activity {
 		}
 		currentPeer = peer == null ? currentPeer : peer.getText().toString().trim();
 		final String msg = text == null ? "" : text.getText().toString().trim();
-		if (currentPeer.isEmpty() || msg.isEmpty()) return;
-		sendChatMessage(currentPeer, msg, true);
+		if (currentPeer.isEmpty() || (msg.isEmpty() && composerMedia.isEmpty()) || composerSending) return;
+		if (editingMessage != null) {
+			sendEditedMediaMessage(msg, new ArrayList<ComposerMedia>(composerMedia));
+			return;
+		}
+		if (composerMedia.isEmpty()) {
+			sendChatMessage(currentPeer, msg, true);
+			return;
+		}
+		final MiniTaLib client = ta;
+		if (client == null) return;
+		final String peerName = currentPeer;
+		final boolean room = currentPeerIsRoom();
+		final long commentPostId = page == Page.CHANNEL_COMMENTS && currentCommentPost != null ? currentCommentPost.id : 0;
+		final long replyId = replyToMessage == null ? 0 : replyToMessage.id;
+		final ArrayList<ComposerMedia> snapshot = new ArrayList<ComposerMedia>(composerMedia);
+		composerSending = true;
+		run("quote_media_message", new Task() {
+			@Override public void run() throws Exception {
+				try {
+					ArrayList<MiniTaLib.MessageMedia> media = miniMedia(snapshot, false);
+					final MiniTaLib.MediaQuote quote = client.quoteMedia(media);
+					if (quote.dsrRequired <= 0) {
+						queueMediaMessage(client, peerName, room, msg, snapshot, 0, commentPostId, replyId);
+					} else {
+						ui(new Runnable() { @Override public void run() {
+							composerSending = false;
+							String label = snapshot.size() == 1 ? snapshot.get(0).name : snapshot.size() + " files";
+							showSwipeConfirmDialog(
+									getString(R.string.media_payment_title),
+									getString(R.string.media_payment_detail, label, formatBytes(quote.sizeBytes), quote.dsrRequired),
+									getString(R.string.media_payment_slide_hint, quote.dsrRequired),
+									new Runnable() { @Override public void run() {
+										if (composerSending) return;
+										composerSending = true;
+										MainActivity.this.run("queue_media_message", new Task() { @Override public void run() throws Exception {
+											try {
+												queueMediaMessage(client, peerName, room, msg, snapshot, quote.dsrRequired, commentPostId, replyId);
+											} catch (Exception error) {
+												ui(new Runnable() { @Override public void run() { composerSending = false; } });
+												throw error;
+											}
+										} });
+									} },
+									new Runnable() { @Override public void run() { composerSending = false; } }
+							);
+						} });
+					}
+				} catch (Exception error) {
+					ui(new Runnable() { @Override public void run() { composerSending = false; } });
+					throw error;
+				}
+			}
+		});
+	}
+
+	private ArrayList<MiniTaLib.MessageMedia> miniMedia(final List<ComposerMedia> items, boolean withSources) {
+		ArrayList<MiniTaLib.MessageMedia> out = new ArrayList<MiniTaLib.MessageMedia>();
+		for (int index = 0; index < items.size(); index++) {
+			final ComposerMedia item = items.get(index);
+			MiniTaLib.UploadSource source = null;
+			if (withSources) source = new MiniTaLib.UploadSource() {
+				@Override public InputStream open() throws Exception {
+					if (item.localPath != null && item.localPath.length() > 0) return new FileInputStream(new File(item.localPath));
+					if (item.uri != null) return getContentResolver().openInputStream(item.uri);
+					throw new IOException(getString(R.string.status_file_not_available));
+				}
+			};
+			out.add(new MiniTaLib.MessageMedia(String.format(Locale.US, "attachment-%06d", index),
+					item.fileId == null ? "" : item.fileId,
+					item.name, item.mime, item.size, source));
+		}
+		return out;
+	}
+
+	private void sendEditedMediaMessage(final String messageText, final ArrayList<ComposerMedia> items) {
+		final MiniTaLib client = ta;
+		final MiniTaLib.Message original = editingMessage;
+		if (client == null || original == null || (messageText.length() == 0 && items.isEmpty())) return;
+		composerSending = true;
+		run("quote_media_edit", new Task() {
+			@Override public void run() throws Exception {
+				try {
+					final MiniTaLib.MediaQuote quote = client.quoteMedia(miniMedia(items, false));
+					if (quote.dsrRequired <= 0) {
+						commitEditedMediaMessage(client, original, messageText, items, 0);
+					} else {
+						ui(new Runnable() { @Override public void run() {
+							composerSending = false;
+							showSwipeConfirmDialog(
+									getString(R.string.media_payment_title),
+									getString(R.string.media_payment_detail, items.size() + " files", formatBytes(quote.sizeBytes), quote.dsrRequired),
+									getString(R.string.media_payment_slide_hint, quote.dsrRequired),
+									new Runnable() { @Override public void run() {
+										if (composerSending) return;
+										composerSending = true;
+										MainActivity.this.run("commit_media_edit", new Task() { @Override public void run() throws Exception {
+											try {
+												commitEditedMediaMessage(client, original, messageText, items, quote.dsrRequired);
+											} catch (Exception error) {
+												ui(new Runnable() { @Override public void run() { composerSending = false; } });
+												throw error;
+											}
+										} });
+									} },
+									new Runnable() { @Override public void run() { composerSending = false; } }
+							);
+						} });
+					}
+				} catch (Exception error) {
+					ui(new Runnable() { @Override public void run() { composerSending = false; } });
+					throw error;
+				}
+			}
+		});
+	}
+
+	private void commitEditedMediaMessage(final MiniTaLib client, final MiniTaLib.Message original,
+	                                     String messageText, List<ComposerMedia> items,
+	                                     long maxDsr) throws Exception {
+		String clientMessageId = UUID.randomUUID().toString();
+		JSONObject prepared = client.prepareMessage(currentPeer, messageText, clientMessageId, currentPeerIsRoom(), original.replyToMessageId);
+		prepared.put("message_id", original.id);
+		if (original.commentPostId > 0) prepared.put("comment_post_id", original.commentPostId);
+		MiniTaLib.TransferControl transfer = new MiniTaLib.TransferControl(new MiniTaLib.ProgressListener() {
+			@Override public void onProgress(final long completed, final long total) {
+				ui(new Runnable() { @Override public void run() {
+					status.setText(total <= 0 ? getString(R.string.status_preparing_file) : (completed * 100L / total) + "%");
+				} });
+			}
+		});
+		final MiniTaLib.Message updated = client.sendMessageWithMedia(prepared, miniMedia(items, true), transfer, maxDsr);
+		ui(new Runnable() { @Override public void run() {
+			composerSending = false;
+			editingMessage = null;
+			composerMedia.clear();
+			renderComposerMedia();
+			if (text != null) text.setText("");
+			status.setText("");
+			applyMessageUpdate(updated);
+		} });
+	}
+
+	private void queueMediaMessage(final MiniTaLib client, final String peerName, final boolean room,
+	                              final String messageText, final List<ComposerMedia> items,
+	                              final long maxDsr, final long commentPostId, final long replyId) throws Exception {
+		final String clientMessageId = UUID.randomUUID().toString();
+		JSONObject prepared = client.prepareMessage(peerName, messageText, clientMessageId, room, replyId);
+		if (commentPostId > 0) prepared.put("comment_post_id", commentPostId);
+		ArrayList<OutboxStore.Attachment> attachments = new ArrayList<OutboxStore.Attachment>();
+		for (int index = 0; index < items.size(); index++) {
+			ComposerMedia item = items.get(index);
+			OutboxStore.Attachment attachment = new OutboxStore.Attachment();
+			attachment.clientId = String.format(Locale.US, "attachment-%06d", index);
+			attachment.fileId = item.fileId == null ? "" : item.fileId;
+			attachment.name = item.name;
+			attachment.mime = item.mime;
+			attachment.localPath = item.localPath == null ? "" : item.localPath;
+			attachment.sourceUri = item.uri == null ? "" : item.uri.toString();
+			attachment.size = item.size;
+			attachments.add(attachment);
+		}
+		final OutboxStore.Entry entry = OutboxStore.enqueueMedia(
+				this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this),
+				peerName, room, messageText, attachments, clientMessageId, maxDsr,
+				commentPostId, replyId, prepared.toString());
+		ui(new Runnable() { @Override public void run() {
+			composerSending = false;
+			composerMedia.clear();
+			renderComposerMedia();
+			if (text != null) text.setText("");
+			if (replyId > 0) clearReply();
+			addMessageRow(outboxMessage(entry), false);
+			if (messageList != null) messageList.setSelection(messageRows.getCount() - 1);
+			dispatchOutbox(client);
+		} });
 	}
 
 	private void sendBotStart() {
@@ -3999,16 +4192,20 @@ public final class MainActivity extends Activity {
 	}
 
 	private void pickImage() {
-		Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+		Intent i = new Intent(Build.VERSION.SDK_INT >= 19 ? Intent.ACTION_OPEN_DOCUMENT : Intent.ACTION_GET_CONTENT);
 		i.setType("image/*");
 		i.addCategory(Intent.CATEGORY_OPENABLE);
+		if (Build.VERSION.SDK_INT >= 18) i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+		if (Build.VERSION.SDK_INT >= 19) i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
 		startActivityForResult(Intent.createChooser(i, getString(R.string.chooser_select_picture)), REQ_PICK_IMAGE);
 	}
 
 	private void pickFile() {
-		Intent i = new Intent(Intent.ACTION_GET_CONTENT);
+		Intent i = new Intent(Build.VERSION.SDK_INT >= 19 ? Intent.ACTION_OPEN_DOCUMENT : Intent.ACTION_GET_CONTENT);
 		i.setType("*/*");
 		i.addCategory(Intent.CATEGORY_OPENABLE);
+		if (Build.VERSION.SDK_INT >= 18) i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+		if (Build.VERSION.SDK_INT >= 19) i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
 		startActivityForResult(Intent.createChooser(i, getString(R.string.chooser_select_file)), REQ_PICK_FILE);
 	}
 
@@ -4157,163 +4354,98 @@ public final class MainActivity extends Activity {
 			openOAuthDeviceRequest(data.getStringExtra(QrScannerActivity.EXTRA_RESULT));
 			return;
 		}
-		Uri uri = data.getData();
-		if (uri == null) return;
-		if (requestCode == REQ_PICK_IMAGE) {
-			sendImageUri(uri);
-		} else if (requestCode == REQ_PICK_FILE) {
-			sendFileUri(uri);
+		ArrayList<Uri> selected = new ArrayList<Uri>();
+		if (Build.VERSION.SDK_INT >= 16 && data.getClipData() != null) {
+			android.content.ClipData clips = data.getClipData();
+			for (int i = 0; i < clips.getItemCount() && selected.size() < 10 - composerMedia.size(); i++) {
+				Uri uri = clips.getItemAt(i).getUri();
+				if (uri != null) selected.add(uri);
+			}
+		} else if (data.getData() != null) {
+			selected.add(data.getData());
+		}
+		for (Uri uri : selected) {
+			if (Build.VERSION.SDK_INT >= 19) {
+				try { getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION); }
+				catch (Exception ignored) {}
+			}
+			addComposerMedia(uri, requestCode == REQ_PICK_IMAGE);
 		}
 	}
 
-	private void sendImageUri(Uri uri) {
-		sendPickedFile(uri, true);
-	}
-
-	private void sendFileUri(Uri uri) {
-		sendPickedFile(uri, false);
-	}
-
-	private void sendPickedFile(Uri uri, boolean imageOnly) {
-		final MiniTaLib c = ta;
-		if (c == null) {
-			status.setText(getString(R.string.status_sign_in_first));
-			return;
-		}
-		currentPeer = peer == null ? currentPeer : peer.getText().toString().trim();
-		if (currentPeer.isEmpty()) return;
-		final String peerName = currentPeer;
-		final Uri pickedUri = uri;
-		final boolean room = currentPeerIsRoom();
-		final long commentPostId = page == Page.CHANNEL_COMMENTS && currentCommentPost != null ? currentCommentPost.id : 0;
-		final long replyToMessageId = replyToMessage == null ? 0 : replyToMessage.id;
+	private void addComposerMedia(final Uri pickedUri, final boolean imageOnly) {
+		if (composerMedia.size() >= 10) return;
 		status.setText(imageOnly ? getString(R.string.status_preparing_image) : getString(R.string.status_preparing_file));
-		run(imageOnly ? "send_image" : "send_file", new Task() {
-			@Override
-			public void run() throws Exception {
+		run("prepare_media", new Task() {
+			@Override public void run() throws Exception {
 				String type = getContentResolver().getType(pickedUri);
 				if (type == null || type.length() == 0) type = "application/octet-stream";
-				if (imageOnly && !type.toLowerCase(Locale.US).startsWith("image/")) {
-					throw new IOException(getString(R.string.status_not_an_image));
-				}
+				if (imageOnly && !type.toLowerCase(Locale.US).startsWith("image/")) throw new IOException(getString(R.string.status_not_an_image));
 				String displayName = queryDisplayName(pickedUri);
-				if (displayName == null || displayName.trim().isEmpty()) displayName = imageOnly ? getString(R.string.image_fallback_name) : getString(R.string.file_fallback_name);
-				InputStream is = null;
-				try {
-					is = getContentResolver().openInputStream(pickedUri);
-					if (is == null) throw new IOException(getString(R.string.status_file_not_available));
-					final byte[] bytes = readAllLimited(is, MAX_UPLOAD_BYTES);
-					if (bytes.length == 0) throw new IOException(getString(R.string.status_empty_file));
-					final String name = displayName;
-					final String mime = type;
-					final MiniTaLib.MediaQuote quote = c.quoteMedia(bytes.length);
-					if (quote.dsrRequired <= 0) {
-						authorizeAndQueueMedia(c, peerName, room, name, mime, bytes, 0,
-								commentPostId, replyToMessageId);
-					} else {
-						ui(new Runnable() {
-							@Override public void run() {
-								showMediaPaymentConfirmation(c, peerName, room, name, mime, bytes,
-										quote.dsrRequired, commentPostId, replyToMessageId);
-							}
-						});
-					}
-				} finally {
-					if (is != null) {
-						try {
-							is.close();
-						} catch (IOException ignored) {
-						}
-					}
+				if (displayName == null || displayName.trim().length() == 0) displayName = imageOnly ? getString(R.string.image_fallback_name) : getString(R.string.file_fallback_name);
+				long detectedSize = queryFileSize(pickedUri);
+				String localPath = "";
+				if (detectedSize < 0) {
+					File staged = stagePickedFile(pickedUri);
+					detectedSize = staged.length();
+					localPath = staged.getAbsolutePath();
 				}
+				if (detectedSize <= 0) throw new IOException(getString(R.string.status_empty_file));
+				if (detectedSize > MAX_UPLOAD_BYTES) throw new IOException(getString(R.string.status_file_too_large, formatBytes(detectedSize)));
+				final ComposerMedia item = new ComposerMedia();
+				item.uri = localPath.length() == 0 ? pickedUri : null;
+				item.localPath = localPath;
+				item.name = displayName;
+				item.mime = type;
+				item.size = detectedSize;
+				ui(new Runnable() { @Override public void run() {
+					if (composerMedia.size() < 10) composerMedia.add(item);
+					else if (item.localPath.length() > 0) new File(item.localPath).delete();
+					renderComposerMedia();
+					status.setText("");
+				} });
 			}
 		});
 	}
 
-	private void showMediaPaymentConfirmation(final MiniTaLib client, final String peerName,
-	                                          final boolean room, final String name, final String mime,
-	                                          final byte[] bytes, final long dsrRequired,
-	                                          final long commentPostId, final long replyToMessageId) {
-		showSwipeConfirmDialog(
-				getString(R.string.media_payment_title),
-				getString(R.string.media_payment_detail, name, formatBytes(bytes.length), dsrRequired),
-				getString(R.string.media_payment_slide_hint, dsrRequired),
-				new Runnable() {
-					@Override public void run() {
-						authorizeAndQueueMedia(client, peerName, room, name, mime, bytes, dsrRequired,
-								commentPostId, replyToMessageId);
-					}
-				}
-		);
+	private long queryFileSize(Uri uri) {
+		android.database.Cursor cursor = null;
+		try {
+			cursor = getContentResolver().query(uri, new String[]{"_size"}, null, null, null);
+			if (cursor != null && cursor.moveToFirst() && !cursor.isNull(0)) return cursor.getLong(0);
+		} catch (Exception ignored) {
+		} finally { if (cursor != null) cursor.close(); }
+		try {
+			android.content.res.AssetFileDescriptor descriptor = getContentResolver().openAssetFileDescriptor(uri, "r");
+			if (descriptor != null) {
+				try { if (descriptor.getLength() >= 0) return descriptor.getLength(); }
+				finally { descriptor.close(); }
+			}
+		} catch (Exception ignored) {}
+		return -1;
 	}
 
-	private void authorizeAndQueueMedia(final MiniTaLib client, final String peerName,
-	                                    final boolean room, final String name, final String mime,
-	                                    final byte[] bytes, final long maxDsrAmount,
-	                                    final long commentPostId, final long replyToMessageId) {
-		run("authorize_media", new Task() {
-			@Override public void run() throws Exception {
-				final String clientMessageId = UUID.randomUUID().toString();
-				final MiniTaLib.MediaAuthorization authorization;
-				try {
-					authorization = client.authorizeMedia(bytes.length, clientMessageId, maxDsrAmount);
-				} catch (Exception error) {
-					if (isInsufficientDastarsError(error)) {
-						ui(new Runnable() { @Override public void run() { showMediaTopUpDialog(); } });
-						return;
-					}
-					if (isMediaPriceChangedError(error)) {
-						final MiniTaLib.MediaQuote refreshed = client.quoteMedia(bytes.length);
-						ui(new Runnable() {
-							@Override public void run() {
-								if (refreshed.dsrRequired > 0) {
-									showMediaPaymentConfirmation(client, peerName, room, name, mime, bytes,
-											refreshed.dsrRequired, commentPostId, replyToMessageId);
-								} else {
-									authorizeAndQueueMedia(client, peerName, room, name, mime, bytes, 0,
-											commentPostId, replyToMessageId);
-								}
-							}
-						});
-						return;
-					}
-					throw error;
-				}
-				final OutboxStore.Entry entry;
-				try {
-					entry = OutboxStore.enqueueAuthorizedFile(
-							MainActivity.this, SessionStore.server(MainActivity.this, DEFAULT_SERVER),
-							OutboxDispatcher.accountKey(MainActivity.this), peerName, room, name, mime, bytes,
-							clientMessageId, authorization.reservationId, authorization.dsrAmount,
-							commentPostId, replyToMessageId);
-				} catch (Exception error) {
-					try { client.cancelMediaAuthorization(authorization.reservationId); } catch (Exception ignored) {}
-					throw error;
-				}
-				ui(new Runnable() {
-					@Override public void run() {
-						if (text != null) text.setText("");
-						if (replyToMessageId > 0) clearReply();
-						addMessageRow(outboxMessage(entry), false);
-						if (messageList != null) messageList.setSelection(messageRows.getCount() - 1);
-						dispatchOutbox(client);
-					}
-				});
+	private File stagePickedFile(Uri uri) throws IOException {
+		File target = OutboxStore.payloadFile(this, "picked-" + UUID.randomUUID().toString());
+		InputStream input = getContentResolver().openInputStream(uri);
+		if (input == null) throw new IOException(getString(R.string.status_file_not_available));
+		FileOutputStream output = new FileOutputStream(target);
+		long completed = 0;
+		try {
+			byte[] buffer = new byte[64 * 1024];
+			int count;
+			while ((count = input.read(buffer)) >= 0) {
+				completed += count;
+				if (completed > MAX_UPLOAD_BYTES) throw new IOException(getString(R.string.status_file_too_large, formatBytes(completed)));
+				output.write(buffer, 0, count);
 			}
-		});
-	}
-
-	private byte[] readAllLimited(InputStream is, int maxBytes) throws IOException {
-		ByteArrayOutputStream out = new ByteArrayOutputStream();
-		byte[] buffer = new byte[8192];
-		int read;
-		while ((read = is.read(buffer)) != -1) {
-			if (out.size() + read > maxBytes) {
-				throw new IOException(getString(R.string.status_file_too_large, formatBytes((long)out.size() + read)));
-			}
-			out.write(buffer, 0, read);
+		} catch (IOException error) {
+			target.delete();
+			throw error;
+		} finally {
+			try { output.close(); } finally { input.close(); }
 		}
-		return out.toByteArray();
+		return target;
 	}
 
 	private String queryDisplayName(Uri uri) {
@@ -4366,8 +4498,7 @@ public final class MainActivity extends Activity {
 					int maxBytes = file.size > 0 && file.size < Integer.MAX_VALUE
 							? (int)Math.min(file.size + 1024, 64L * 1024 * 1024)
 							: 64 * 1024 * 1024;
-					byte[] data = c.downloadFileBytes(file.id, maxBytes);
-					writeFile(local, data);
+					c.downloadFile(file.id, local, maxBytes, null);
 					ui(new Runnable() {
 						@Override
 						public void run() {
@@ -4392,18 +4523,6 @@ public final class MainActivity extends Activity {
 				}
 			}
 		});
-	}
-
-	private void writeFile(File target, byte[] data) throws IOException {
-		FileOutputStream output = null;
-		try {
-			output = new FileOutputStream(target);
-			output.write(data);
-		} finally {
-			if (output != null) {
-				output.close();
-			}
-		}
 	}
 
 	private boolean openDownloadedFile(MiniTaLib.FileInfo file) {
@@ -5776,7 +5895,7 @@ public final class MainActivity extends Activity {
 	private MiniTaLib.Message withCommentsCount(MiniTaLib.Message message, int commentsCount) {
 		return new MiniTaLib.Message(
 				message.id, message.chatId, message.from, message.to, message.text, message.date,
-				message.readAt, message.file, message.buttons, message.encrypted, message.system,
+				message.readAt, message.media, message.buttons, message.encrypted, message.system,
 				message.data, message.clientMessageId, message.editedAt, message.deliveryState,
 				message.localFilePath, message.reactions, message.paidReaction, message.reactionVersion,
 				message.commentPostId, commentsCount, message.replyToMessageId
@@ -5863,23 +5982,19 @@ public final class MainActivity extends Activity {
 	private void showMessageMenu(final MiniTaLib.Message message) {
 		if (message == null) return;
 		if (!"sent".equals(message.deliveryState) && !"sent-own".equals(message.deliveryState)) {
-			if (OutboxStore.FAILED.equals(message.deliveryState)) {
-				showActionDialog(new String[] {
-					getString(R.string.action_copy),
-					getString(R.string.action_retry),
-					getString(R.string.action_remove)
-				}, new ChoiceHandler() {
-					@Override public void onChoice(int which) {
-						if (which == 0) copyMessage(message);
-						else if (which == 1) retryOutboxMessage(message);
-						else removeOutboxMessage(message);
-					}
-				});
-			} else {
-				showActionDialog(new String[] { getString(R.string.action_copy) }, new ChoiceHandler() {
-					@Override public void onChoice(int which) { copyMessage(message); }
-				});
-			}
+			final boolean failed = OutboxStore.FAILED.equals(message.deliveryState);
+			final ArrayList<String> actions = new ArrayList<String>();
+			actions.add(getString(R.string.action_copy));
+			if (failed) actions.add(getString(R.string.action_retry));
+			actions.add(getString(R.string.action_cancel));
+			showActionDialog(actions.toArray(new String[actions.size()]), new ChoiceHandler() {
+				@Override public void onChoice(int which) {
+					String action = actions.get(which);
+					if (action.equals(getString(R.string.action_copy))) copyMessage(message);
+					else if (action.equals(getString(R.string.action_retry))) retryOutboxMessage(message);
+					else removeOutboxMessage(message);
+				}
+			});
 			return;
 		}
 		final boolean editable = canEditMessage(message);
@@ -6255,7 +6370,7 @@ public final class MainActivity extends Activity {
 	}
 
 	private boolean canEditMessage(MiniTaLib.Message message) {
-		if (message == null || message.file != null || message.system || message.text == null || message.text.length() == 0) return false;
+		if (message == null || message.system) return false;
 		if (System.currentTimeMillis() / 1000L - message.date > 48L * 60L * 60L) return false;
 		if (message.commentPostId > 0) return isOwnUser(message.from);
 		return currentPeerIsChannel() ? currentPeerCanManageRoom() : isOwnUser(message.from);
@@ -6269,21 +6384,22 @@ public final class MainActivity extends Activity {
 	}
 
 	private void editMessage(final MiniTaLib.Message message) {
-		final EditText input = input(getString(R.string.action_edit), false);
-		input.setText(message.text);
-		input.setSelection(input.length());
-		showContentDialog(getString(R.string.action_edit), input, getString(R.string.action_save), new Runnable() {
-			@Override public void run() {
-				final String value = input.getText().toString().trim();
-				if (value.length() == 0 || value.equals(message.text) || ta == null) return;
-				final MiniTaLib c = ta;
-				MainActivity.this.run("edit_message", new Task() {
-					@Override public void run() throws Exception {
-						applyMessageUpdate(c.editMessage(message.id, currentPeer, value, currentPeerIsRoom()));
-					}
-				});
-			}
-		}, getString(R.string.action_cancel));
+		if (message == null || text == null) return;
+		editingMessage = message;
+		text.setText(message.text == null ? "" : message.text);
+		text.setSelection(text.length());
+		composerMedia.clear();
+		if (message.media != null) for (MiniTaLib.FileInfo file : message.media) {
+			ComposerMedia item = new ComposerMedia();
+			item.fileId = file.id;
+			item.name = file.name;
+			item.mime = file.mime;
+			item.size = file.size;
+			item.localPath = "";
+			composerMedia.add(item);
+		}
+		renderComposerMedia();
+		status.setText(getString(R.string.action_edit));
 	}
 
 	private void retryOutboxMessage(MiniTaLib.Message message) {
@@ -6295,19 +6411,23 @@ public final class MainActivity extends Activity {
 	}
 
 	private void removeOutboxMessage(MiniTaLib.Message message) {
-		String reservationId = "";
-		for (OutboxStore.Entry entry : OutboxStore.load(this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this))) {
-			if (entry.id.equals(message.clientMessageId)) {
-				reservationId = entry.mediaReservationId;
-				break;
-			}
-		}
-		OutboxStore.complete(this, SessionStore.server(this, DEFAULT_SERVER), OutboxDispatcher.accountKey(this), message.clientMessageId);
+		final String server = SessionStore.server(this, DEFAULT_SERVER);
+		final String account = OutboxDispatcher.accountKey(this);
+		OutboxStore.Entry entry = OutboxStore.find(this, server, account, message.clientMessageId);
+		OutboxStore.requestCancel(this, server, account, message.clientMessageId);
+		OutboxDispatcher.cancel(message.clientMessageId);
+		OutboxStore.complete(this, server, account, message.clientMessageId);
 		final MiniTaLib client = ta;
-		final String cancelReservationId = reservationId;
-		if (client != null && cancelReservationId.length() > 0) {
+		final String clientMessageId = message.clientMessageId;
+		if (client != null && clientMessageId.length() > 0) {
 			run("cancel_media", new Task() {
-				@Override public void run() throws Exception { client.cancelMediaAuthorization(cancelReservationId); }
+				@Override public void run() throws Exception {
+					JSONObject result = client.cancelMessageOperation(clientMessageId);
+					if (result.optBoolean("complete") && result.optJSONObject("message") != null) {
+						final MiniTaLib.Message sent = client.message(result.getJSONObject("message")).asOutgoing();
+						ui(new Runnable() { @Override public void run() { append(sent); } });
+					}
+				}
 			});
 		}
 		if (messageRows != null) messageRows.removeMessage(message.id);
@@ -6356,11 +6476,17 @@ public final class MainActivity extends Activity {
 
 	private String copyText(MiniTaLib.Message message) {
 		if (message == null) return "";
-		if (message.file != null) {
-			String name = message.file.name == null || message.file.name.length() == 0 ? "file" : message.file.name;
-			return name;
+		String value = message.text == null ? "" : message.text;
+		if (message.media != null && !message.media.isEmpty()) {
+			StringBuilder names = new StringBuilder();
+			for (MiniTaLib.FileInfo file : message.media) {
+				if (names.length() > 0) names.append('\n');
+				names.append(file.name == null || file.name.length() == 0 ? "file" : file.name);
+			}
+			if (value.length() == 0) return names.toString();
+			return value + "\n" + names;
 		}
-		return message.text == null ? "" : message.text;
+		return value;
 	}
 
 	private void deleteMessage(final MiniTaLib.Message message) {
@@ -6471,7 +6597,7 @@ public final class MainActivity extends Activity {
 			String target
 	) {
 		if (source == null || targetChat == null || targetChat.peer == null || ta == null) return;
-		if (source.file != null && source.file.id != null && source.file.id.length() > 0) {
+		if (source.media != null && !source.media.isEmpty()) {
 			final MiniTaLib client = ta;
 			final long sourceMessageId = source.id;
 			final String targetPeer = target;
@@ -6520,12 +6646,14 @@ public final class MainActivity extends Activity {
 	}
 
 	private String chatLastText(MiniTaLib.Message m) {
-		if (m.file != null) {
-			String kind = m.file.mime != null && m.file.mime.toLowerCase(Locale.US).startsWith("image/") ? getString(R.string.message_image_prefix) : getString(R.string.message_file_prefix);
-			String name = m.file.name == null || m.file.name.length() == 0 ? getString(R.string.file_fallback_name) : m.file.name;
-			return kind + name;
+		if (m.text != null && m.text.trim().length() > 0) return m.text;
+		if (m.media != null && !m.media.isEmpty()) {
+			MiniTaLib.FileInfo first = m.media.get(0);
+			String kind = first.mime != null && first.mime.toLowerCase(Locale.US).startsWith("image/") ? getString(R.string.message_image_prefix) : getString(R.string.message_file_prefix);
+			String name = first.name == null || first.name.length() == 0 ? getString(R.string.file_fallback_name) : first.name;
+			return kind + name + (m.media.size() > 1 ? " +" + (m.media.size() - 1) : "");
 		}
-		return m.text;
+		return "";
 	}
 
 	private String displayUser(MiniTaLib.User user) {
@@ -7242,22 +7370,31 @@ public final class MainActivity extends Activity {
 					LinearLayout.LayoutParams contentLp = new LinearLayout.LayoutParams(-1, -2);
 					contentLp.setMargins(0, gap / 3, 0, 0);
 					box.addView(imageContent(row.imageData), contentLp);
-				} else if (row.file != null) {
-					LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(-1, -2);
-					labelLp.setMargins(0, gap / 3, 0, 0);
-					box.addView(fileLabel(row.text), labelLp);
-					if (row.message != null && row.message.localFilePath.length() > 0) {
-						if (isImageFile(row.file)) addLocalImagePreview(box, row.message.localFilePath);
-					} else {
-						if (isImageFile(row.file)) addImagePreview(box, row);
-						addDownloadButton(box, row);
-					}
-				} else {
-					TextView body = messageTextLabel(row.text);
+				}
+				String messageText = row.message == null || row.message.text == null ? "" : row.message.text;
+				if (row.imageData == null && messageText.length() > 0) {
+					TextView body = messageTextLabel(messageText);
 					installMessageLongPress(body, row.message);
 					LinearLayout.LayoutParams bodyLp = new LinearLayout.LayoutParams(-1, -2);
 					bodyLp.setMargins(0, gap / 3, 0, 0);
 					box.addView(body, bodyLp);
+				}
+				if (row.message != null && row.message.media != null) {
+					for (int mediaIndex = 0; mediaIndex < row.message.media.size(); mediaIndex++) {
+						MiniTaLib.FileInfo file = row.message.media.get(mediaIndex);
+						String kind = isImageFile(file) ? getString(R.string.message_image_prefix) : getString(R.string.message_file_prefix);
+						String name = file.name == null || file.name.length() == 0 ? getString(R.string.file_fallback_name) : file.name;
+						MessageRow mediaRow = MessageRow.file(kind + name + " (" + formatBytes(file.size) + ")", file, row.message);
+						LinearLayout.LayoutParams labelLp = new LinearLayout.LayoutParams(-1, -2);
+						labelLp.setMargins(0, gap / 3, 0, 0);
+						box.addView(fileLabel(mediaRow.text), labelLp);
+						if (mediaIndex == 0 && row.message.localFilePath.length() > 0) {
+							if (isImageFile(file)) addLocalImagePreview(box, row.message.localFilePath);
+						} else if (file.id != null && file.id.length() > 0) {
+							if (isImageFile(file)) addImagePreview(box, mediaRow);
+							addDownloadButton(box, mediaRow);
+						}
+					}
 				}
 				addMessageMeta(box, row.message);
 				addChannelCommentsLink(box, row.message);
@@ -7428,7 +7565,17 @@ public final class MainActivity extends Activity {
 			}
 
 			private void addLocalImagePreview(LinearLayout box, String path) {
-				Bitmap bmp = BitmapFactory.decodeFile(path);
+				Bitmap bmp = null;
+				if (path != null && path.startsWith("content://")) {
+					InputStream input = null;
+					try {
+						input = getContentResolver().openInputStream(Uri.parse(path));
+						bmp = BitmapFactory.decodeStream(input);
+					} catch (Exception ignored) {
+					} finally { if (input != null) try { input.close(); } catch (Exception ignored) {} }
+				} else {
+					bmp = BitmapFactory.decodeFile(path);
+				}
 				if (bmp == null) return;
 				ImageView preview = new ImageView(MainActivity.this);
 				preview.setAdjustViewBounds(true);
@@ -7575,12 +7722,34 @@ public final class MainActivity extends Activity {
 			}
 
 			private void addMessageMeta(LinearLayout box, MiniTaLib.Message message) {
+				addTransferProgress(box, message);
 				MessageMetaLayout meta = new MessageMetaLayout(MainActivity.this, gap / 2, gap / 2);
 				if (message != null) addReactionChips(meta, message);
 				meta.setFooter(messageFooter(message));
 				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
 				lp.setMargins(0, gap / 3, 0, 0);
 				box.addView(meta, lp);
+			}
+
+			private void addTransferProgress(LinearLayout box, MiniTaLib.Message message) {
+				if (message == null || message.media == null || message.media.isEmpty()
+						|| "sent".equals(message.deliveryState) || "sent-own".equals(message.deliveryState)
+						|| OutboxStore.FAILED.equals(message.deliveryState)) return;
+				LinearLayout progressBox = new LinearLayout(MainActivity.this);
+				progressBox.setOrientation(LinearLayout.VERTICAL);
+				TextView progressText = label(getString(R.string.file_progress_sending, message.deliveryProgress));
+				progressText.setTextColor(muted);
+				progressText.setTextSize(12);
+				progressBox.addView(progressText, new LinearLayout.LayoutParams(-1, -2));
+				ProgressBar progress = new ProgressBar(MainActivity.this, null, android.R.attr.progressBarStyleHorizontal);
+				progress.setMax(100);
+				progress.setProgress(message.deliveryProgress);
+				LinearLayout.LayoutParams barLp = new LinearLayout.LayoutParams(-1, dp(5));
+				barLp.setMargins(0, gap / 3, 0, 0);
+				progressBox.addView(progress, barLp);
+				LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+				lp.setMargins(0, gap / 2, 0, 0);
+				box.addView(progressBox, lp);
 			}
 
 			private boolean messageHasReactions(MiniTaLib.Message message) {
@@ -7645,12 +7814,15 @@ public final class MainActivity extends Activity {
 				LinearLayout footer = new LinearLayout(MainActivity.this);
 				footer.setOrientation(LinearLayout.HORIZONTAL);
 				footer.setGravity(Gravity.RIGHT | Gravity.BOTTOM);
-				TextView time = new TextView(MainActivity.this);
-				time.setTextColor(muted);
-				time.setTextSize(12);
-				time.setText(formatMessageTime(message == null ? 0 : message.date));
-				footer.addView(time, new LinearLayout.LayoutParams(-2, -2));
-				if (message != null && message.editedAt > 0) {
+				boolean delivered = message == null || "sent".equals(message.deliveryState) || "sent-own".equals(message.deliveryState);
+				if (delivered) {
+					TextView time = new TextView(MainActivity.this);
+					time.setTextColor(muted);
+					time.setTextSize(12);
+					time.setText(formatMessageTime(message == null ? 0 : message.date));
+					footer.addView(time, new LinearLayout.LayoutParams(-2, -2));
+				}
+				if (delivered && message != null && message.editedAt > 0) {
 					TextView edited = new TextView(MainActivity.this);
 					edited.setTextColor(muted);
 					edited.setTextSize(12);
@@ -8379,7 +8551,18 @@ public final class MainActivity extends Activity {
 	}
 
 	private void showSwipeConfirmDialog(String titleText, String detailText, String hintText, final Runnable onConfirm) {
+		showSwipeConfirmDialog(titleText, detailText, hintText, onConfirm, null);
+	}
+
+	private void showSwipeConfirmDialog(String titleText, String detailText, String hintText,
+	                                  final Runnable onConfirm, final Runnable onCancel) {
 		final Dialog dialog = new Dialog(this);
+		final boolean[] confirmed = {false};
+		dialog.setOnDismissListener(new android.content.DialogInterface.OnDismissListener() {
+			@Override public void onDismiss(android.content.DialogInterface ignored) {
+				if (!confirmed[0] && onCancel != null) onCancel.run();
+			}
+		});
 		LinearLayout box = new LinearLayout(this);
 		box.setOrientation(LinearLayout.VERTICAL);
 		box.setPadding(pad, pad, pad, pad);
@@ -8396,6 +8579,7 @@ public final class MainActivity extends Activity {
 		slider.setOnConfirmAction(new Runnable() {
 			@Override
 			public void run() {
+				confirmed[0] = true;
 				dialog.dismiss();
 				if (onConfirm != null) onConfirm.run();
 			}
@@ -8735,6 +8919,11 @@ public final class MainActivity extends Activity {
 	}
 
 	private LinearLayout messageBar() {
+		LinearLayout outer = new LinearLayout(this);
+		outer.setOrientation(LinearLayout.VERTICAL);
+		composerMediaBar = new LinearLayout(this);
+		composerMediaBar.setOrientation(LinearLayout.VERTICAL);
+		outer.addView(composerMediaBar, new LinearLayout.LayoutParams(-1, -2));
 		LinearLayout r = new LinearLayout(this);
 		r.setOrientation(LinearLayout.HORIZONTAL);
 		r.setGravity(Gravity.BOTTOM);
@@ -8762,7 +8951,37 @@ public final class MainActivity extends Activity {
 			});
 		LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight);
 		r.addView(sendButton, sendLp);
-		return r;
+		outer.addView(r, new LinearLayout.LayoutParams(-1, -2));
+		renderComposerMedia();
+		return outer;
+	}
+
+	private void renderComposerMedia() {
+		if (composerMediaBar == null) return;
+		composerMediaBar.removeAllViews();
+		for (int index = 0; index < composerMedia.size(); index++) {
+			final int position = index;
+			ComposerMedia item = composerMedia.get(index);
+			LinearLayout row = new LinearLayout(this);
+			row.setOrientation(LinearLayout.HORIZONTAL);
+			row.setGravity(Gravity.CENTER_VERTICAL);
+			row.setPadding(gap, gap / 2, gap, gap / 2);
+			row.setBackgroundDrawable(shape(surfaceHi, 0, elementRadius()));
+			TextView label = label(item.name + " · " + formatBytes(item.size));
+			row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+			Button remove = button("×", new View.OnClickListener() {
+				@Override public void onClick(View v) {
+					if (position < 0 || position >= composerMedia.size()) return;
+					ComposerMedia removed = composerMedia.remove(position);
+					if (removed.localPath != null && removed.localPath.length() > 0) new File(removed.localPath).delete();
+					renderComposerMedia();
+				}
+			});
+			row.addView(remove, new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight));
+			LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+			lp.setMargins(0, 0, 0, gap / 2);
+			composerMediaBar.addView(row, lp);
+		}
 	}
 
 	private TextView bannedChatBlock() {

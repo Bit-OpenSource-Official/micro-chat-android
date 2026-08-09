@@ -222,14 +222,18 @@ final class ChatCache {
 			if (message.commentsCount > 0) out.put("comments_count", message.commentsCount);
 			if (message.replyToMessageId > 0) out.put("reply_to_message_id", message.replyToMessageId);
 			if (message.data != null && message.data.length() > 0) out.put("data", new JSONObject(message.data));
-		if (message.file != null) {
-			JSONObject file = new JSONObject();
-			file.put("id", message.file.id);
-			file.put("name", message.file.name);
-			file.put("mime", message.file.mime);
-			file.put("size", message.file.size);
-			out.put("file", file);
+		JSONArray media = new JSONArray();
+		if (message.media != null) {
+			for (MiniTaLib.FileInfo item : message.media) {
+				JSONObject file = new JSONObject();
+				file.put("id", item.id);
+				file.put("name", item.name);
+				file.put("mime", item.mime);
+				file.put("size", item.size);
+				media.put(file);
+			}
 		}
+		out.put("media", media);
 		if (message.buttons != null && !message.buttons.isEmpty()) {
 			JSONArray buttons = new JSONArray();
 			for (MiniTaLib.Button button : message.buttons) {

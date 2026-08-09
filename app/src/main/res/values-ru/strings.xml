@@ -394,6 +394,7 @@
 	<string name="sent_status">Отправлено</string>
 	<string name="pending_status">Отправляется</string>
 	<string name="failed_status">Не отправлено</string>
+	<string name="file_progress_sending">Отправка — %1$d%%</string>
 	<string name="message_edited">изменено</string>
 	<string name="logout_pending_title">Неотправленные сообщения</string>
 	<string name="logout_pending_message">Ожидают отправки: %1$d. При выходе они будут удалены.</string>

@@ -17,6 +17,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -418,58 +420,144 @@ final class MiniTaLib {
 		);
 	}
 
-	Message uploadFile(String to, String name, String mime, byte[] data) throws Exception {
-		return uploadFile(to, name, mime, data, null);
+	interface UploadSource {
+		InputStream open() throws Exception;
 	}
 
-	Message uploadFile(String to, String name, String mime, byte[] data, String clientMessageId) throws Exception {
-		return uploadFile(to, name, mime, data, clientMessageId, "", 0, 0, 0);
+	static final class MessageMedia {
+		final String clientId;
+		final String fileId;
+		final String name;
+		final String mime;
+		final long size;
+		final UploadSource source;
+
+		MessageMedia(String clientId, String fileId, String name, String mime, long size, UploadSource source) {
+			this.clientId = clientId == null ? "" : clientId;
+			this.fileId = fileId == null ? "" : fileId;
+			this.name = name == null || name.length() == 0 ? "file" : name;
+			this.mime = mime == null || mime.length() == 0 ? "application/octet-stream" : mime;
+			this.size = size;
+			this.source = source;
+		}
+
+		static MessageMedia existing(FileInfo file) {
+			return new MessageMedia("", file == null ? "" : file.id, file == null ? "file" : file.name,
+					file == null ? "application/octet-stream" : file.mime, file == null ? 0 : file.size, null);
+		}
+	}
+
+	interface ProgressListener {
+		void onProgress(long completed, long total);
+	}
+
+	static final class TransferControl {
+		private volatile boolean cancelled;
+		private volatile HttpURLConnection connection;
+		private volatile InputStream input;
+		private final ProgressListener listener;
+
+		TransferControl(ProgressListener listener) { this.listener = listener; }
+
+		boolean isCancelled() { return cancelled; }
+
+		void cancel() {
+			cancelled = true;
+			InputStream currentInput = input;
+			if (currentInput != null) try { currentInput.close(); } catch (Exception ignored) {}
+			HttpURLConnection currentConnection = connection;
+			if (currentConnection != null) currentConnection.disconnect();
+		}
+
+		private void bind(HttpURLConnection value, InputStream source) {
+			connection = value;
+			input = source;
+			if (cancelled) cancel();
+		}
+
+		private void clear() { connection = null; input = null; }
+
+		private void progress(long completed, long total) {
+			if (listener != null) listener.onProgress(completed, total);
+		}
 	}
 
 	MediaQuote quoteMedia(long sizeBytes) throws Exception {
 		JSONObject body = new JSONObject();
-		body.put("size", sizeBytes);
-		JSONObject out = post("/upload/quote", body, 10000);
-		return new MediaQuote(out.optLong("size_bytes", sizeBytes), out.optLong("dsr_required"), out.optBoolean("free"));
+		JSONArray media = new JSONArray();
+		JSONObject item = new JSONObject();
+		item.put("client_id", "quote-attachment-0001");
+		item.put("name", "file");
+		item.put("mime", "application/octet-stream");
+		item.put("size", sizeBytes);
+		media.put(item);
+		body.put("media", media);
+		JSONObject out = post("/media/quote", body, 10000);
+		return new MediaQuote(out.optLong("size_bytes", sizeBytes), out.optLong("dsr_amount", out.optLong("dsr_required")), out.optBoolean("free"));
 	}
 
-	MediaAuthorization authorizeMedia(long sizeBytes, String clientMessageId, long maxDsrAmount) throws Exception {
+	MediaQuote quoteMedia(List<MessageMedia> items) throws Exception {
 		JSONObject body = new JSONObject();
-		body.put("size", sizeBytes);
-		body.put("client_message_id", clientMessageId);
-		body.put("max_dsr_amount", maxDsrAmount);
-		JSONObject out = post("/upload/authorize", body, 10000);
-		return new MediaAuthorization(out.optString("reservation_id"), out.optLong("dsr_amount"), out.optBoolean("free"));
+		body.put("media", mediaRequest(items));
+		long size = 0;
+		if (items != null) for (MessageMedia item : items) if (item.fileId.length() == 0) size += item.size;
+		JSONObject out = post("/media/quote", body, 10000);
+		return new MediaQuote(out.optLong("size_bytes", size), out.optLong("dsr_amount", out.optLong("dsr_required")), out.optBoolean("free"));
 	}
 
-	void cancelMediaAuthorization(String reservationId) throws Exception {
-		if (reservationId == null || reservationId.length() == 0 || reservationId.startsWith("free:")) return;
-		JSONObject body = new JSONObject();
-		body.put("reservation_id", reservationId);
-		post("/upload/cancel", body, 10000);
-	}
-
-	Message uploadFile(String to, String name, String mime, byte[] data, String clientMessageId,
-	                   String mediaReservationId, long maxDsrAmount, long commentPostId,
-	                   long replyToMessageId) throws Exception {
-		if (data == null || data.length == 0) throw new IOException("file is empty");
-		JSONObject body = new JSONObject();
-		body.put("to", to);
-		if (clientMessageId != null && clientMessageId.length() > 0) body.put("client_message_id", clientMessageId);
-		body.put("name", name == null || name.length() == 0 ? "file" : name);
-		body.put("mime", mime == null || mime.length() == 0 ? "application/octet-stream" : mime);
-		body.put("size", data.length);
-		if (mediaReservationId != null && mediaReservationId.length() > 0) body.put("media_reservation_id", mediaReservationId);
+	Message sendMessageWithMedia(JSONObject preparedBody, List<MessageMedia> items,
+	                            TransferControl transfer, long maxDsrAmount) throws Exception {
+		JSONObject body = new JSONObject(preparedBody == null ? "{}" : preparedBody.toString());
+		body.put("media", mediaRequest(items));
 		body.put("max_dsr_amount", Math.max(0, maxDsrAmount));
-		if (commentPostId > 0) body.put("comment_post_id", commentPostId);
-		if (replyToMessageId > 0) body.put("reply_to_message_id", replyToMessageId);
-		JSONObject initialized = post("/upload/init", body, 10000);
-		if (initialized.optBoolean("complete")) return message(initialized.getJSONObject("message"));
-		String fileId = initialized.getString("file_id");
-		directUpload(initialized.getString("upload_url"), initialized.getString("ticket"), data);
+		JSONObject prepared = post("/messages/prepare", body, 10000);
+		if (prepared.optBoolean("complete") && prepared.optJSONObject("message") != null) {
+			return message(prepared.getJSONObject("message"));
+		}
+		String operationId = prepared.getString("operation_id");
+		JSONArray uploads = prepared.optJSONArray("uploads");
+		long total = 0;
+		if (items != null) for (MessageMedia item : items) if (item.fileId.length() == 0) total += item.size;
+		long completed = 0;
+		for (int i = 0; uploads != null && i < uploads.length(); i++) {
+			JSONObject ticket = uploads.getJSONObject(i);
+			String clientId = ticket.getString("client_id");
+			MessageMedia source = null;
+			if (items != null) for (MessageMedia item : items) if (item.clientId.equals(clientId)) { source = item; break; }
+			if (source == null || source.source == null || ticket.optLong("size") != source.size) {
+				throw new IOException("server returned an invalid media ticket");
+			}
+			directUpload(ticket.getString("upload_url"), ticket.getString("ticket"), source.size,
+					source.source, transfer, completed, total);
+			completed += source.size;
+		}
 		JSONObject complete = new JSONObject();
-		complete.put("file_id", fileId);
-		return message(post("/upload/complete", complete, 30000).getJSONObject("message"));
+		complete.put("operation_id", operationId);
+		return message(post("/messages/commit", complete, 30000).getJSONObject("message"));
+	}
+
+	JSONObject cancelMessageOperation(String clientMessageId) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("client_message_id", clientMessageId == null ? "" : clientMessageId);
+		return post("/messages/cancel", body, 10000);
+	}
+
+	private static JSONArray mediaRequest(List<MessageMedia> items) throws Exception {
+		JSONArray media = new JSONArray();
+		if (items == null) return media;
+		for (MessageMedia item : items) {
+			JSONObject raw = new JSONObject();
+			if (item.fileId.length() > 0) {
+				raw.put("file_id", item.fileId);
+			} else {
+				raw.put("client_id", item.clientId);
+				raw.put("name", item.name);
+				raw.put("mime", item.mime);
+				raw.put("size", item.size);
+			}
+			media.put(raw);
+		}
+		return media;
 	}
 
 	Message forwardMedia(long messageId, String to, String clientMessageId) throws Exception {
@@ -480,23 +568,44 @@ final class MiniTaLib {
 		return message(post("/forward", body, 10000).getJSONObject("message"));
 	}
 
-	private static void directUpload(String uploadUrl, String ticket, byte[] data) throws Exception {
+	private static void directUpload(String uploadUrl, String ticket, long size, UploadSource source,
+	                                 TransferControl transfer, long progressBase, long progressTotal) throws Exception {
 		HttpURLConnection connection = (HttpURLConnection)new URL(uploadUrl).openConnection();
+		InputStream input = null;
 		try {
 			connection.setConnectTimeout(10000);
 			connection.setReadTimeout(30000);
 			connection.setRequestMethod("PUT");
 			connection.setRequestProperty("Authorization", "Bearer " + ticket);
 			connection.setRequestProperty("Content-Type", "application/octet-stream");
-			connection.setFixedLengthStreamingMode(data.length);
+			connection.setFixedLengthStreamingMode((int)size);
 			connection.setDoOutput(true);
+			input = source.open();
+			if (input == null) throw new IOException("file is not available");
+			if (transfer != null) transfer.bind(connection, input);
 			OutputStream output = connection.getOutputStream();
-			try { output.write(data); output.flush(); } finally { output.close(); }
+			try {
+				byte[] buffer = new byte[64 * 1024];
+				long written = 0;
+				while (written < size) {
+					if (transfer != null && transfer.isCancelled()) throw new IOException("upload cancelled");
+					int wanted = (int)Math.min(buffer.length, size - written);
+					int count = input.read(buffer, 0, wanted);
+					if (count < 0) throw new IOException("file size changed");
+					output.write(buffer, 0, count);
+					written += count;
+					if (transfer != null) transfer.progress(progressBase + written, progressTotal);
+				}
+				if (input.read() >= 0) throw new IOException("file size changed");
+				output.flush();
+			} finally { output.close(); }
 			int code = connection.getResponseCode();
-			InputStream input = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-			if (input != null) try { while (input.read() >= 0) {} } finally { input.close(); }
+			InputStream responseInput = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
+			if (responseInput != null) try { while (responseInput.read() >= 0) {} } finally { responseInput.close(); }
 			if (code < 200 || code >= 300) throw new IOException("file node returned " + code);
 		} finally {
+			if (input != null) try { input.close(); } catch (Exception ignored) {}
+			if (transfer != null) transfer.clear();
 			connection.disconnect();
 		}
 	}
@@ -577,6 +686,43 @@ final class MiniTaLib {
 				}
 				return output.toByteArray();
 			} finally { input.close(); }
+		} finally { connection.disconnect(); }
+	}
+
+	void downloadFile(String fileID, File target, long maxBytes, ProgressListener listener) throws Exception {
+		JSONObject ticket = get("/file/ticket?id=" + enc(fileID), 10000);
+		long announced = ticket.optLong("size", -1);
+		if (maxBytes > 0 && announced > maxBytes) throw new IOException("file is too large");
+		HttpURLConnection connection = (HttpURLConnection)new URL(ticket.getString("download_url")).openConnection();
+		File temporary = new File(target.getParentFile(), target.getName() + ".part");
+		try {
+			connection.setConnectTimeout(10000);
+			connection.setReadTimeout(30000);
+			int code = connection.getResponseCode();
+			if (code < 200 || code >= 300) throw new IOException("file node returned " + code);
+			InputStream input = connection.getInputStream();
+			FileOutputStream output = new FileOutputStream(temporary);
+			long completed = 0;
+			try {
+				byte[] buffer = new byte[64 * 1024];
+				int count;
+				while ((count = input.read(buffer)) >= 0) {
+					completed += count;
+					if (maxBytes > 0 && completed > maxBytes) throw new IOException("file is too large");
+					output.write(buffer, 0, count);
+					if (listener != null) listener.onProgress(completed, announced);
+				}
+			} finally {
+				try { output.close(); } finally { input.close(); }
+			}
+			if (announced >= 0 && completed != announced) throw new IOException("downloaded file size mismatch");
+			if (!temporary.renameTo(target)) {
+				target.delete();
+				if (!temporary.renameTo(target)) throw new IOException("cannot save downloaded file");
+			}
+		} catch (Exception error) {
+			temporary.delete();
+			throw error;
 		} finally { connection.disconnect(); }
 	}
 
@@ -943,7 +1089,7 @@ final class MiniTaLib {
 		);
 	}
 
-	private Message message(JSONObject o) {
+	Message message(JSONObject o) {
 		if (o == null) return null;
 		User from = user(o.optJSONObject("from"));
 		User to = user(o.optJSONObject("to"));
@@ -957,7 +1103,7 @@ final class MiniTaLib {
 			text = decryptMessage(from, to, rawE2E);
 		} else if (!system
 				&& !roomMessage
-				&& o.optJSONObject("file") == null
+				&& (o.optJSONArray("media") == null || o.optJSONArray("media").length() == 0)
 				&& e2eIdentity != null
 				&& from.id.length() > 0
 				&& to.id.length() > 0) {
@@ -976,7 +1122,7 @@ final class MiniTaLib {
 					text,
 					o.optLong("date"),
 					o.optLong("read_at"),
-					file(o.optJSONObject("file")),
+					media(o.optJSONArray("media")),
 					buttons(o.optJSONArray("buttons")),
 					encrypted,
 					system,
@@ -1005,6 +1151,16 @@ final class MiniTaLib {
 			if (emoji.length() > 0 && count > 0) {
 				out.add(new Reaction(emoji, count, item.optBoolean("mine")));
 			}
+		}
+		return out;
+	}
+
+	private static ArrayList<FileInfo> media(JSONArray raw) {
+		ArrayList<FileInfo> out = new ArrayList<FileInfo>();
+		if (raw == null) return out;
+		for (int i = 0; i < raw.length(); i++) {
+			FileInfo item = file(raw.optJSONObject(i));
+			if (item != null) out.add(item);
 		}
 		return out;
 	}
@@ -1454,6 +1610,7 @@ final class MiniTaLib {
 			final long date;
 			final long readAt;
 			final FileInfo file;
+			final ArrayList<FileInfo> media;
 			final ArrayList<Button> buttons;
 			final boolean encrypted;
 			final boolean system;
@@ -1468,6 +1625,8 @@ final class MiniTaLib {
 			final long commentPostId;
 			final int commentsCount;
 			final long replyToMessageId;
+			final int deliveryProgress;
+			final String deliveryPhase;
 
 			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data) {
 				this(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system, data, "", 0, "sent", "");
@@ -1492,6 +1651,24 @@ final class MiniTaLib {
 			}
 
 			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data, String clientMessageId, long editedAt, String deliveryState, String localFilePath, ArrayList<Reaction> reactions, PaidReaction paidReaction, long reactionVersion, long commentPostId, int commentsCount, long replyToMessageId) {
+				this(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system, data,
+						clientMessageId, editedAt, deliveryState, localFilePath, reactions, paidReaction,
+						reactionVersion, commentPostId, commentsCount, replyToMessageId, 0, "");
+			}
+
+			Message(long id, String chatId, User from, User to, String text, long date, long readAt, FileInfo file, ArrayList<Button> buttons, boolean encrypted, boolean system, String data, String clientMessageId, long editedAt, String deliveryState, String localFilePath, ArrayList<Reaction> reactions, PaidReaction paidReaction, long reactionVersion, long commentPostId, int commentsCount, long replyToMessageId, int deliveryProgress, String deliveryPhase) {
+				this(id, chatId, from, to, text, date, readAt, singleMedia(file), buttons, encrypted, system,
+						data, clientMessageId, editedAt, deliveryState, localFilePath, reactions, paidReaction,
+						reactionVersion, commentPostId, commentsCount, replyToMessageId, deliveryProgress, deliveryPhase);
+			}
+
+			Message(long id, String chatId, User from, User to, String text, long date, long readAt, ArrayList<FileInfo> media, ArrayList<Button> buttons, boolean encrypted, boolean system, String data, String clientMessageId, long editedAt, String deliveryState, String localFilePath, ArrayList<Reaction> reactions, PaidReaction paidReaction, long reactionVersion, long commentPostId, int commentsCount, long replyToMessageId) {
+				this(id, chatId, from, to, text, date, readAt, media, buttons, encrypted, system, data,
+						clientMessageId, editedAt, deliveryState, localFilePath, reactions, paidReaction,
+						reactionVersion, commentPostId, commentsCount, replyToMessageId, 0, "");
+			}
+
+			Message(long id, String chatId, User from, User to, String text, long date, long readAt, ArrayList<FileInfo> media, ArrayList<Button> buttons, boolean encrypted, boolean system, String data, String clientMessageId, long editedAt, String deliveryState, String localFilePath, ArrayList<Reaction> reactions, PaidReaction paidReaction, long reactionVersion, long commentPostId, int commentsCount, long replyToMessageId, int deliveryProgress, String deliveryPhase) {
 				this.id = id;
 				this.chatId = chatId;
 				this.from = from;
@@ -1499,7 +1676,8 @@ final class MiniTaLib {
 				this.text = text;
 				this.date = date;
 				this.readAt = readAt;
-				this.file = file;
+				this.media = media == null ? new ArrayList<FileInfo>() : media;
+				this.file = this.media.isEmpty() ? null : this.media.get(0);
 				this.buttons = buttons == null ? new ArrayList<Button>() : buttons;
 				this.encrypted = encrypted;
 				this.system = system;
@@ -1514,12 +1692,20 @@ final class MiniTaLib {
 				this.commentPostId = commentPostId;
 				this.commentsCount = Math.max(0, commentsCount);
 				this.replyToMessageId = Math.max(0, replyToMessageId);
+				this.deliveryProgress = Math.max(0, Math.min(100, deliveryProgress));
+				this.deliveryPhase = deliveryPhase == null ? "" : deliveryPhase;
 			}
 
 			Message asOutgoing() {
-				return new Message(id, chatId, from, to, text, date, readAt, file, buttons, encrypted, system,
+				return new Message(id, chatId, from, to, text, date, readAt, media, buttons, encrypted, system,
 						data, clientMessageId, editedAt, "sent-own", localFilePath, reactions, paidReaction,
 						reactionVersion, commentPostId, commentsCount, replyToMessageId);
+			}
+
+			private static ArrayList<FileInfo> singleMedia(FileInfo file) {
+				ArrayList<FileInfo> out = new ArrayList<FileInfo>();
+				if (file != null) out.add(file);
+				return out;
 			}
 		}
 
@@ -1553,18 +1739,6 @@ final class MiniTaLib {
 		MediaQuote(long sizeBytes, long dsrRequired, boolean free) {
 			this.sizeBytes = sizeBytes;
 			this.dsrRequired = dsrRequired;
-			this.free = free;
-		}
-	}
-
-	static final class MediaAuthorization {
-		final String reservationId;
-		final long dsrAmount;
-		final boolean free;
-
-		MediaAuthorization(String reservationId, long dsrAmount, boolean free) {
-			this.reservationId = reservationId;
-			this.dsrAmount = dsrAmount;
 			this.free = free;
 		}
 	}

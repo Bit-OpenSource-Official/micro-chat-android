@@ -394,6 +394,7 @@
 	<string name="sent_status">Sent</string>
 	<string name="pending_status">Sending</string>
 	<string name="failed_status">Not sent</string>
+	<string name="file_progress_sending">Sending — %1$d%%</string>
 	<string name="message_edited">edited</string>
 	<string name="logout_pending_title">Unsent messages</string>
 	<string name="logout_pending_message">%1$d messages are waiting to be sent. Logging out will delete them.</string>

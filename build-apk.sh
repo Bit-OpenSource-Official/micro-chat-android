@@ -13,8 +13,8 @@ Optional environment:
   ENV_FILE=./.env
   CRYPT_SERVER_PUBLIC_KEY_B64=...  Override the production transport pin.
   GRADLE_USER_HOME=/tmp/ove-android-gradle
-  APP_VERSION_NAME=0.9.4
-  APP_VERSION_CODE=100042
+  APP_VERSION_NAME=0.9.5
+  APP_VERSION_CODE=100052
 
 Output:
   app/build/outputs/apk/release/app-release.apk
@@ -33,8 +33,8 @@ cd "$ROOT"
 GRADLE_ARGS=(
 	clean
 	:app:assembleRelease
-	-PappVersionName="${APP_VERSION_NAME:-0.9.4}"
-	-PappVersionCode="${APP_VERSION_CODE:-100042}"
+	-PappVersionName="${APP_VERSION_NAME:-0.9.5}"
+	-PappVersionCode="${APP_VERSION_CODE:-100052}"
 )
 if [[ -n "${CRYPT_SERVER_PUBLIC_KEY_B64:-}" ]]; then
 	GRADLE_ARGS+=("-PcryptServerPublicKeyB64=$CRYPT_SERVER_PUBLIC_KEY_B64")

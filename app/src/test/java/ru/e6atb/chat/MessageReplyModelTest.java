@@ -12,7 +12,7 @@ public final class MessageReplyModelTest {
 		MiniTaLib.User from = new MiniTaLib.User("1", "", "alice", "Alice", false, false, 0);
 		MiniTaLib.User to = new MiniTaLib.User("2", "", "bob", "Bob", false, false, 0);
 		MiniTaLib.Message message = new MiniTaLib.Message(
-				2, "1:2", from, to, "answer", 10, 0, null, null, false, false, "",
+				2, "1:2", from, to, "answer", 10, 0, new ArrayList<MiniTaLib.FileInfo>(), null, false, false, "",
 				"client-id", 0, "sent", "", new ArrayList<MiniTaLib.Reaction>(), null,
 				0, 0, 0, 1
 		);
