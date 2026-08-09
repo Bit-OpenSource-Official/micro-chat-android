@@ -77,6 +77,7 @@ public final class CryptTcpClient {
 	private static final int OP_MESSAGE_PREPARE = 71;
 	private static final int OP_MESSAGE_COMMIT = 72;
 	private static final int OP_MESSAGE_CANCEL = 73;
+	private static final int OP_SET_PROFILE_DESCRIPTION = 74;
 
 	private final Object lock = new Object();
 	private Connection cached;
@@ -420,6 +421,7 @@ public final class CryptTcpClient {
 		if ("POST".equals(method) && "/messages/prepare".equals(path)) return OP_MESSAGE_PREPARE;
 		if ("POST".equals(method) && "/messages/commit".equals(path)) return OP_MESSAGE_COMMIT;
 		if ("POST".equals(method) && "/messages/cancel".equals(path)) return OP_MESSAGE_CANCEL;
+		if ("POST".equals(method) && "/profiles/description".equals(path)) return OP_SET_PROFILE_DESCRIPTION;
 		if ("GET".equals(method) && "/nodes/status".equals(path)) return OP_NODES_STATUS;
 		if ("GET".equals(method) && "/chats".equals(path)) return OP_CHATS;
 		if ("POST".equals(method) && "/chats/delete".equals(path)) return OP_DELETE_CHAT;

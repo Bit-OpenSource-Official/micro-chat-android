@@ -113,6 +113,8 @@
 	<string name="status_username_saved">username сохранен</string>
 	<string name="status_saving_name">сохраняю имя...</string>
 	<string name="status_name_saved">имя сохранено</string>
+	<string name="status_saving_description">сохраняем описание…</string>
+	<string name="status_description_saved">описание сохранено</string>
 	<string name="status_saving_privacy">сохраняю приватность...</string>
 	<string name="status_privacy_saved">приватность сохранена</string>
 	<string name="status_sessions_count">сессий: %1$d</string>
@@ -270,6 +272,8 @@
 	<string name="settings_logout_subtitle">Завершить текущую сессию</string>
 	<string name="settings_app_version">Версия приложения</string>
 	<string name="settings_name">Имя</string>
+	<string name="settings_description_hint">До 200 символов</string>
+	<string name="settings_save_description">Сохранить описание</string>
 	<string name="settings_public_name_hint">публичное имя</string>
 	<string name="settings_save_username">Сохранить username</string>
 	<string name="settings_save_name">Сохранить имя</string>
@@ -308,6 +312,7 @@
 	<string name="action_create_channel">Создать канал</string>
 	<string name="action_invite">Пригласить</string>
 	<string name="action_edit_title">Изменить название</string>
+	<string name="action_edit_description">Изменить описание</string>
 	<string name="action_edit_username">Изменить @</string>
 	<string name="action_remove_member">Удалить участника</string>
 	<string name="action_members">Участники</string>
@@ -408,6 +413,8 @@
 	<string name="profile_id">ID</string>
 	<string name="profile_username">Username</string>
 	<string name="profile_name">Имя</string>
+	<string name="profile_description">Описание</string>
+	<string name="profile_description_empty">Описание не указано</string>
 	<string name="profile_type">Тип</string>
 	<string name="profile_channel">Канал</string>
 	<string name="profile_group">Беседа</string>

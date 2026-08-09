@@ -178,6 +178,7 @@ public final class MainActivity extends Activity {
 	private EditText email;
 	private EditText accountUsername;
 	private EditText accountName;
+	private EditText accountDescription;
 	private EditText emailCode;
 	private EditText password;
 	private EditText accountCloudPassword;
@@ -241,6 +242,7 @@ public final class MainActivity extends Activity {
 	private String myEmail = "";
 	private String myLogin = "";
 	private String myNick = "";
+	private String myDescription = "";
 	private boolean myVerified;
 	private boolean myBot;
 	private String myMessagePrivacy = "everyone";
@@ -2435,6 +2437,19 @@ public final class MainActivity extends Activity {
 				saveName(v);
 			}
 		}))));
+		box.addView(spaced(title(getString(R.string.profile_description))));
+		accountDescription = input(getString(R.string.settings_description_hint), false);
+		accountDescription.setSingleLine(false);
+		accountDescription.setMinLines(3);
+		accountDescription.setMaxLines(6);
+		accountDescription.setFilters(new android.text.InputFilter[] {
+				new android.text.InputFilter.LengthFilter(200)
+		});
+		accountDescription.setText(myDescription == null ? "" : myDescription);
+		box.addView(spaced(accountDescription));
+		box.addView(spaced(row(primaryButton(getString(R.string.settings_save_description), new View.OnClickListener() {
+			@Override public void onClick(View v) { saveOwnDescription(v); }
+		}))));
 	}
 
 	private void showSettingsSessions() {
@@ -2994,6 +3009,28 @@ public final class MainActivity extends Activity {
 		});
 	}
 
+	private void saveOwnDescription(final View actionButton) {
+		final MiniTaLib c = ta;
+		if (c == null) {
+			status.setText(getString(R.string.status_sign_in_first));
+			return;
+		}
+		final String value = accountDescription == null ? "" : accountDescription.getText().toString().trim();
+		status.setText(getString(R.string.status_saving_description));
+		runButtonTask("profile-description", actionButton, true, new Task() {
+			@Override public void run() throws Exception {
+				final MiniTaLib.User user = c.setProfileDescription("", value);
+				applyOwnUser(user);
+				ui(new Runnable() {
+					@Override public void run() {
+						status.setText(getString(R.string.status_description_saved));
+						showSettingsProfile();
+					}
+				});
+			}
+		});
+	}
+
 	private void savePrivacy() {
 		savePrivacy(null);
 	}
@@ -3468,6 +3505,7 @@ public final class MainActivity extends Activity {
 		myEmail = u.email;
 		myLogin = u.login;
 		myNick = u.nick;
+		myDescription = u.description;
 		myVerified = u.verified;
 		myBot = u.bot;
 		myMessagePrivacy = normalizePrivacy(u.messagePrivacy);
@@ -7371,14 +7409,6 @@ public final class MainActivity extends Activity {
 					contentLp.setMargins(0, gap / 3, 0, 0);
 					box.addView(imageContent(row.imageData), contentLp);
 				}
-				String messageText = row.message == null || row.message.text == null ? "" : row.message.text;
-				if (row.imageData == null && messageText.length() > 0) {
-					TextView body = messageTextLabel(messageText);
-					installMessageLongPress(body, row.message);
-					LinearLayout.LayoutParams bodyLp = new LinearLayout.LayoutParams(-1, -2);
-					bodyLp.setMargins(0, gap / 3, 0, 0);
-					box.addView(body, bodyLp);
-				}
 				if (row.message != null && row.message.media != null) {
 					for (int mediaIndex = 0; mediaIndex < row.message.media.size(); mediaIndex++) {
 						MiniTaLib.FileInfo file = row.message.media.get(mediaIndex);
@@ -7395,6 +7425,14 @@ public final class MainActivity extends Activity {
 							addDownloadButton(box, mediaRow);
 						}
 					}
+				}
+				String messageText = row.message == null || row.message.text == null ? "" : row.message.text;
+				if (messageText.length() > 0) {
+					TextView body = messageTextLabel(messageText);
+					installMessageLongPress(body, row.message);
+					LinearLayout.LayoutParams bodyLp = new LinearLayout.LayoutParams(-1, -2);
+					bodyLp.setMargins(0, gap / 3, 0, 0);
+					box.addView(body, bodyLp);
 				}
 				addMessageMeta(box, row.message);
 				addChannelCommentsLink(box, row.message);
@@ -8113,6 +8151,17 @@ public final class MainActivity extends Activity {
 		if (user.nick != null && user.nick.length() > 0) {
 			box.addView(spaced(userProfileRow(getString(R.string.profile_name), user.nick, null)));
 		}
+		box.addView(spaced(userProfileRow(
+				getString(R.string.profile_description),
+				user.description == null || user.description.length() == 0
+						? getString(R.string.profile_description_empty) : user.description,
+				null
+		)));
+		if (canEditProfileDescription(user)) {
+			box.addView(spaced(row(button(getString(R.string.action_edit_description), new View.OnClickListener() {
+				@Override public void onClick(View v) { showEditProfileDescriptionDialog(currentHeaderUser()); }
+			}))));
+		}
 		if (user.verified) {
 			box.addView(spaced(userProfileRow(getString(R.string.profile_verification), getString(R.string.profile_verified), null)));
 		}
@@ -8156,6 +8205,12 @@ public final class MainActivity extends Activity {
 				getString(R.string.action_edit_username),
 				currentPeerUser == null || currentPeerUser.login.length() == 0 ? getString(R.string.channel_username_empty) : "@" + currentPeerUser.login,
 				new View.OnClickListener() { @Override public void onClick(View v) { showEditChannelUsernameDialog(); } }
+		));
+		box.addView(settingsRow(
+				getString(R.string.action_edit_description),
+				currentPeerUser == null || currentPeerUser.description.length() == 0
+						? getString(R.string.profile_description_empty) : currentPeerUser.description,
+				new View.OnClickListener() { @Override public void onClick(View v) { showEditProfileDescriptionDialog(currentHeaderUser()); } }
 		));
 		box.addView(settingsSection(getString(R.string.channel_settings_discussion)));
 		final boolean commentsEnabled = currentPeerUser != null && currentPeerUser.commentsEnabled;
@@ -8284,6 +8339,57 @@ public final class MainActivity extends Activity {
 		if (user != null && "channel".equals(user.roomKind)) return getString(R.string.profile_channel);
 		if (user != null && "group".equals(user.roomKind)) return getString(R.string.profile_group);
 		return user != null && user.bot ? getString(R.string.profile_bot) : getString(R.string.profile_user);
+	}
+
+	private boolean canEditProfileDescription(MiniTaLib.User user) {
+		if (user == null) return false;
+		if (isOwnUser(user)) return true;
+		if (user.roomKind != null && user.roomKind.length() > 0) return currentPeerCanManageRoom();
+		return user.bot && "0000000000000001".equals(myID);
+	}
+
+	private void showEditProfileDescriptionDialog(final MiniTaLib.User user) {
+		if (!canEditProfileDescription(user)) return;
+		final EditText input = input(getString(R.string.settings_description_hint), false);
+		input.setSingleLine(false);
+		input.setMinLines(3);
+		input.setMaxLines(6);
+		input.setFilters(new android.text.InputFilter[] {
+				new android.text.InputFilter.LengthFilter(200)
+		});
+		input.setText(user.description == null ? "" : user.description);
+		showContentDialog(getString(R.string.action_edit_description), input, getString(R.string.action_save), new Runnable() {
+			@Override public void run() {
+				updateProfileDescription(user, input.getText().toString().trim());
+			}
+		}, getString(R.string.action_cancel));
+	}
+
+	private void updateProfileDescription(final MiniTaLib.User target, final String description) {
+		final MiniTaLib c = ta;
+		if (c == null || target == null) {
+			status.setText(getString(R.string.status_sign_in_first));
+			return;
+		}
+		final boolean own = isOwnUser(target);
+		final String address = own ? "" : target.id;
+		status.setText(getString(R.string.status_saving_description));
+		run("profile_description", new Task() {
+			@Override public void run() throws Exception {
+				final MiniTaLib.User updated = c.setProfileDescription(address, description);
+				ui(new Runnable() {
+					@Override public void run() {
+						if (own) applyOwnUser(updated);
+						else if (currentPeerUser != null && target.id.equals(currentPeerUser.id)) {
+							currentPeerUser = updated;
+							refreshCurrentPeerNameView();
+						}
+						status.setText(getString(R.string.status_description_saved));
+						if (page == Page.CHANNEL_SETTINGS) showChannelSettings();
+					}
+				});
+			}
+		});
 	}
 
 	private String roomKindLabel(MiniTaLib.User user) {

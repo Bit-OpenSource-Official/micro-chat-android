@@ -257,6 +257,7 @@ final class ChatCache {
 		if (user.email != null && user.email.length() > 0) out.put("email", user.email);
 		out.put("username", user.login);
 		if (user.nick != null && user.nick.length() > 0) out.put("name", user.nick);
+		if (user.description != null && user.description.length() > 0) out.put("description", user.description);
 		out.put("verified", user.verified);
 		out.put("bot", user.bot);
 		if (user.createdAt > 0) out.put("created_at", user.createdAt);
@@ -389,7 +390,8 @@ final class ChatCache {
 				raw.optInt("admins"),
 				members,
 				raw.optBoolean("can_manage"),
-				raw.optBoolean("comments_enabled")
+				raw.optBoolean("comments_enabled"),
+				raw.optString("description")
 		);
 	}
 

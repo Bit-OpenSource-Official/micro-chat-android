@@ -206,6 +206,14 @@ final class MiniTaLib {
 		return user(out.getJSONObject("user"));
 	}
 
+	User setProfileDescription(String profile, String description) throws Exception {
+		JSONObject body = new JSONObject();
+		if (profile != null && profile.trim().length() > 0) body.put("profile", profile.trim());
+		body.put("description", description == null ? "" : description.trim());
+		JSONObject out = post("/profiles/description", body, 10000).getJSONObject("profile");
+		return out.has("kind") ? roomUser(out) : user(out);
+	}
+
 	User setPrivacy(String messagePrivacy, String callPrivacy) throws Exception {
 		return setPrivacy(messagePrivacy, callPrivacy, "everyone");
 	}
@@ -1054,7 +1062,8 @@ final class MiniTaLib {
 				o.optInt("admins"),
 				null,
 				o.optBoolean("can_manage"),
-				o.optBoolean("comments_enabled")
+				o.optBoolean("comments_enabled"),
+				o.optString("description")
 		);
 	}
 
@@ -1085,7 +1094,8 @@ final class MiniTaLib {
 				o.optInt("admins"),
 				memberUsers,
 				o.optBoolean("can_manage"),
-				o.optBoolean("comments_enabled")
+				o.optBoolean("comments_enabled"),
+				o.optString("description")
 		);
 	}
 
@@ -1536,6 +1546,7 @@ final class MiniTaLib {
 		final String email;
 		final String login;
 		final String nick;
+		final String description;
 		final boolean verified;
 		final boolean bot;
 		final long createdAt;
@@ -1571,10 +1582,15 @@ final class MiniTaLib {
 		}
 
 		User(String id, String email, String login, String nick, boolean verified, boolean bot, long createdAt, String messagePrivacy, String callPrivacy, String invitePrivacy, String roomKind, String ownerId, int memberCount, int adminCount, List<User> memberUsers, boolean canManage, boolean commentsEnabled) {
+			this(id, email, login, nick, verified, bot, createdAt, messagePrivacy, callPrivacy, invitePrivacy, roomKind, ownerId, memberCount, adminCount, memberUsers, canManage, commentsEnabled, "");
+		}
+
+		User(String id, String email, String login, String nick, boolean verified, boolean bot, long createdAt, String messagePrivacy, String callPrivacy, String invitePrivacy, String roomKind, String ownerId, int memberCount, int adminCount, List<User> memberUsers, boolean canManage, boolean commentsEnabled, String description) {
 			this.id = id == null ? "" : id;
 			this.email = email == null ? "" : email;
 			this.login = login == null ? "" : login;
 			this.nick = nick == null ? "" : nick;
+			this.description = description == null ? "" : description;
 			this.verified = verified;
 			this.bot = bot;
 			this.createdAt = createdAt;

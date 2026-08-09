@@ -113,6 +113,8 @@
 	<string name="status_username_saved">username saved</string>
 	<string name="status_saving_name">saving name...</string>
 	<string name="status_name_saved">name saved</string>
+	<string name="status_saving_description">saving description…</string>
+	<string name="status_description_saved">description saved</string>
 	<string name="status_saving_privacy">saving privacy...</string>
 	<string name="status_privacy_saved">privacy saved</string>
 	<string name="status_sessions_count">sessions: %1$d</string>
@@ -270,6 +272,8 @@
 	<string name="settings_logout_subtitle">End current session</string>
 	<string name="settings_app_version">App version</string>
 	<string name="settings_name">Name</string>
+	<string name="settings_description_hint">Up to 200 characters</string>
+	<string name="settings_save_description">Save description</string>
 	<string name="settings_public_name_hint">public name</string>
 	<string name="settings_save_username">Save username</string>
 	<string name="settings_save_name">Save name</string>
@@ -308,6 +312,7 @@
 	<string name="action_create_channel">Create channel</string>
 	<string name="action_invite">Invite</string>
 	<string name="action_edit_title">Edit title</string>
+	<string name="action_edit_description">Edit description</string>
 	<string name="action_edit_username">Edit @</string>
 	<string name="action_remove_member">Remove member</string>
 	<string name="action_members">Members</string>
@@ -408,6 +413,8 @@
 	<string name="profile_id">ID</string>
 	<string name="profile_username">Username</string>
 	<string name="profile_name">Name</string>
+	<string name="profile_description">Description</string>
+	<string name="profile_description_empty">No description</string>
 	<string name="profile_type">Type</string>
 	<string name="profile_channel">Channel</string>
 	<string name="profile_group">Group</string>
