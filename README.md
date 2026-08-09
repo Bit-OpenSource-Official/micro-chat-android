@@ -74,7 +74,7 @@ The helper builds the production APK without requiring an `.env` file:
 Override the application version when needed:
 
 ```bash
-APP_VERSION_NAME=0.9.6 APP_VERSION_CODE=100053 ./build-apk.sh
+APP_VERSION_NAME=0.9.7 APP_VERSION_CODE=100054 ./build-apk.sh
 ```
 
 The output is:

@@ -757,6 +757,11 @@ public final class MainActivity extends Activity {
 		email = input(getString(R.string.hint_email), false);
 		email.setText(currentEmail);
 		status.setText(getString(R.string.status_server, SessionStore.server(this, DEFAULT_SERVER)));
+		TextView cloudPasswordWarning = label(getString(R.string.auth_cloud_password_warning));
+		cloudPasswordWarning.setTextColor(textColor);
+		cloudPasswordWarning.setPadding(gap, gap, gap, gap);
+		cloudPasswordWarning.setBackgroundDrawable(shape(surfaceHi, primary, elementRadius()));
+		content.addView(spaced(cloudPasswordWarning));
 		content.addView(spaced(title(getString(R.string.screen_account))));
 		content.addView(spaced(email));
 		if (!waitingEmailCode) {
