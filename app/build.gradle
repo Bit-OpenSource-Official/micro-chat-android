@@ -66,9 +66,12 @@ def prepareMst5Assets = tasks.register("prepareMst5Assets", Sync) {
     }
     into(generatedMst5Assets)
     doFirst {
-        if (mst5NativeAbi != "universal" &&
-            !file("src/main/assets/mst5-native/${mst5NativeAbi}/libmst5_android.so").isFile()) {
-            throw new GradleException("Missing mst5-client library for ${mst5NativeAbi}")
+        def requiredAbis = mst5NativeAbi == "universal" ?
+            ["armeabi", "armeabi-v7a", "arm64-v8a"] : [mst5NativeAbi]
+        requiredAbis.each { abi ->
+            if (!file("src/main/assets/mst5-native/${abi}/libmst5_android.so").isFile()) {
+                throw new GradleException("Missing mst5-client library for ${abi}; run make native-libs")
+            }
         }
     }
 }

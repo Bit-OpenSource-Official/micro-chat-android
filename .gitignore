@@ -1,6 +1,7 @@
 .gradle/
 build/
 app/build/
+app/src/main/assets/mst5-native/
 release/
 
 *.apk

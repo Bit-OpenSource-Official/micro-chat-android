@@ -8,17 +8,14 @@ import android.os.ParcelFileDescriptor;
 
 import rs.ove.crypt.proto.CryptTcpClient;
 import rs.ove.crypt.proto.Mst5MediaClient;
+import rs.ove.crypt.proto.CryptIdentity;
 import rs.ove.crypt.proto.E2ECipher;
 import rs.ove.crypt.proto.E2EKeyBackup;
 
-import java.net.URI;
 import java.net.URLEncoder;
-import java.net.Socket;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -462,8 +459,6 @@ final class MiniTaLib {
 
 	static final class TransferControl {
 		private volatile boolean cancelled;
-		private volatile Socket socket;
-		private volatile InputStream input;
 		private final ProgressListener listener;
 
 		TransferControl(ProgressListener listener) { this.listener = listener; }
@@ -472,19 +467,9 @@ final class MiniTaLib {
 
 		void cancel() {
 			cancelled = true;
-			InputStream currentInput = input;
-			if (currentInput != null) try { currentInput.close(); } catch (Exception ignored) {}
-			Socket currentSocket = socket;
-			if (currentSocket != null) try { currentSocket.close(); } catch (Exception ignored) {}
 		}
 
-		private void bind(Socket value, InputStream source) {
-			socket = value;
-			input = source;
-			if (cancelled) cancel();
-		}
-
-		private void clear() { socket = null; input = null; }
+		private void clear() {}
 
 		private void progress(long completed, long total) {
 			if (listener != null) listener.onProgress(completed, total);
@@ -581,38 +566,16 @@ final class MiniTaLib {
 	private static void directUpload(String endpoint, String serverPublicKey, String ticket, String fileId,
 	                                 long size, UploadSource source,
 	                                 TransferControl transfer, long progressBase, long progressTotal) throws Exception {
-		if (Mst5MediaClient.isNativeAvailable()) {
-			ParcelFileDescriptor descriptor = source.openDescriptor();
-			if (descriptor != null) {
-				try {
-					Mst5MediaClient.uploadDescriptor(endpoint, serverPublicKey, ticket, fileId, size, descriptor,
-							transfer == null ? null : new Mst5MediaClient.Observer() {
-								public boolean isCancelled() { return transfer.isCancelled(); }
-								public void onConnected(Socket socket, InputStream ignored) {}
-								public void onProgress(long value, long ignored) { transfer.progress(progressBase + value, progressTotal); }
-								public void onClosed() {}
-							});
-				} finally {
-					try { descriptor.close(); } catch (Exception ignored) {}
-					if (transfer != null) transfer.clear();
-				}
-				return;
-			}
-		}
-		InputStream input = null;
+		ParcelFileDescriptor descriptor = source.openDescriptor();
+		if (descriptor == null) throw new IOException("media descriptor is not available");
 		try {
-			input = source.open();
-			if (input == null) throw new IOException("file is not available");
-			final InputStream boundInput = input;
-			Mst5MediaClient.upload(endpoint, serverPublicKey, ticket, fileId, size, input,
+			Mst5MediaClient.uploadDescriptor(endpoint, serverPublicKey, ticket, fileId, size, descriptor,
 					transfer == null ? null : new Mst5MediaClient.Observer() {
 						public boolean isCancelled() { return transfer.isCancelled(); }
-						public void onConnected(Socket socket, InputStream ignored) { transfer.bind(socket, boundInput); }
 						public void onProgress(long value, long ignored) { transfer.progress(progressBase + value, progressTotal); }
-						public void onClosed() { transfer.clear(); }
 					});
 		} finally {
-			if (input != null) try { input.close(); } catch (Exception ignored) {}
+			try { descriptor.close(); } catch (Exception ignored) {}
 			if (transfer != null) transfer.clear();
 		}
 	}
@@ -674,7 +637,8 @@ final class MiniTaLib {
 		if (maxBytes > 0 && announced > maxBytes) throw new RuntimeException("file is too large");
 		return Mst5MediaClient.downloadBytes(
 				ticket.getString("endpoint"), ticket.getString("server_public_key"),
-				ticket.getString("ticket"), ticket.getString("file_id"), announced, maxBytes);
+				ticket.getString("ticket"), ticket.getString("file_id"), announced,
+				maxBytes > 0 ? maxBytes : Integer.MAX_VALUE);
 	}
 
 	void downloadFile(String fileID, File target, long maxBytes, ProgressListener listener) throws Exception {
@@ -683,34 +647,18 @@ final class MiniTaLib {
 		if (maxBytes > 0 && announced > maxBytes) throw new IOException("file is too large");
 		File temporary = new File(target.getParentFile(), target.getName() + ".part");
 		try {
-			if (Mst5MediaClient.isNativeAvailable() && announced >= 0) {
-				ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(temporary,
-						ParcelFileDescriptor.MODE_CREATE | ParcelFileDescriptor.MODE_TRUNCATE | ParcelFileDescriptor.MODE_WRITE_ONLY);
-				try {
-					Mst5MediaClient.downloadDescriptor(
-							ticket.getString("endpoint"), ticket.getString("server_public_key"),
-							ticket.getString("ticket"), ticket.getString("file_id"), announced, descriptor,
-							listener == null ? null : new Mst5MediaClient.Observer() {
-								public boolean isCancelled() { return false; }
-								public void onConnected(Socket socket, InputStream source) {}
-								public void onProgress(long completed, long total) { listener.onProgress(completed, total); }
-								public void onClosed() {}
-							});
-				} finally { try { descriptor.close(); } catch (Exception ignored) {} }
-			} else {
-				FileOutputStream output = new FileOutputStream(temporary);
-				try {
-					Mst5MediaClient.download(
-							ticket.getString("endpoint"), ticket.getString("server_public_key"),
-							ticket.getString("ticket"), ticket.getString("file_id"), announced, output,
-							listener == null ? null : new Mst5MediaClient.Observer() {
-								public boolean isCancelled() { return false; }
-								public void onConnected(Socket socket, InputStream source) {}
-								public void onProgress(long completed, long total) { listener.onProgress(completed, total); }
-								public void onClosed() {}
-							});
-				} finally { output.close(); }
-			}
+			if (announced < 0) throw new IOException("server did not announce media size");
+			ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(temporary,
+					ParcelFileDescriptor.MODE_CREATE | ParcelFileDescriptor.MODE_TRUNCATE | ParcelFileDescriptor.MODE_WRITE_ONLY);
+			try {
+				Mst5MediaClient.downloadDescriptor(
+						ticket.getString("endpoint"), ticket.getString("server_public_key"),
+						ticket.getString("ticket"), ticket.getString("file_id"), announced, descriptor,
+						listener == null ? null : new Mst5MediaClient.Observer() {
+							public boolean isCancelled() { return false; }
+							public void onProgress(long completed, long total) { listener.onProgress(completed, total); }
+						});
+			} finally { try { descriptor.close(); } catch (Exception ignored) {} }
 			if (!temporary.renameTo(target)) {
 				target.delete();
 				if (!temporary.renameTo(target)) throw new IOException("cannot save downloaded file");
@@ -845,7 +793,19 @@ final class MiniTaLib {
 		return out.optInt("revoked");
 	}
 
-	String voiceUrl(String peer) throws Exception {
+	static final class VoiceAccess {
+		final String endpoint;
+		final String serverPublicKey;
+		final String ticket;
+
+		VoiceAccess(String endpoint, String serverPublicKey, String ticket) {
+			this.endpoint = endpoint;
+			this.serverPublicKey = serverPublicKey;
+			this.ticket = ticket;
+		}
+	}
+
+	VoiceAccess voiceAccess(String peer) throws Exception {
 		JSONObject body = new JSONObject();
 		body.put("peer", peer);
 		JSONObject response = post("/voice-ticket", body, 10000);
@@ -853,7 +813,7 @@ final class MiniTaLib {
 		if (ticket == null || ticket.length() == 0) {
 			throw new IOException("server did not return a voice ticket");
 		}
-		return voiceSocketUrl(ticket);
+		return new VoiceAccess(baseUrl, CryptIdentity.serverPublicKeyBase64(), ticket);
 	}
 
 	List<User> voiceParticipants(String chat) throws Exception {
@@ -864,13 +824,6 @@ final class MiniTaLib {
 			out.add(user(arr.getJSONObject(i)));
 		}
 		return out;
-	}
-
-	String voiceSocketUrl(String ticket) throws Exception {
-		if (ticket == null || ticket.length() == 0) {
-			throw new IOException("server did not return a voice ticket");
-		}
-		return wsBaseUrl() + "/voice?ticket=" + enc(ticket);
 	}
 
 	String e2eFingerprint(String peer) throws Exception {
@@ -957,48 +910,6 @@ final class MiniTaLib {
 				|| text.contains("bad token")
 				|| (text.contains("token") && text.contains("invalid"))
 				|| (text.contains("токен") && (text.contains("невер") || text.contains("не вер")));
-	}
-
-	private String wsBaseUrl() throws Exception {
-		URI uri = normalizedUri(baseUrl);
-		String scheme = uri.getScheme();
-		String wsScheme;
-		if ("https".equalsIgnoreCase(scheme) || "tcps".equalsIgnoreCase(scheme) || "wss".equalsIgnoreCase(scheme)) {
-			wsScheme = "wss";
-		} else {
-			wsScheme = "ws";
-		}
-		return wsScheme + "://" + hostPort(uri);
-	}
-
-	private String wsHttpBaseUrl() throws Exception {
-		URI uri = normalizedUri(baseUrl);
-		String scheme = uri.getScheme();
-		String httpScheme = "https".equalsIgnoreCase(scheme) || "tcps".equalsIgnoreCase(scheme) || "wss".equalsIgnoreCase(scheme) ? "https" : "http";
-		return httpScheme + "://" + hostPort(uri);
-	}
-
-	private static URI normalizedUri(String raw) {
-		String value = raw == null || raw.trim().length() == 0 ? "127.0.0.1:8080" : raw.trim();
-		if (value.indexOf("://") < 0) {
-			value = "tcp" + "://" + value;
-		}
-		return URI.create(value);
-	}
-
-	private static String hostPort(URI uri) {
-		String host = uri.getHost();
-		if (host == null || host.length() == 0) {
-			throw new IllegalArgumentException("server host is required");
-		}
-		if (host.indexOf(':') >= 0 && !host.startsWith("[")) {
-			host = "[" + host + "]";
-		}
-		int port = uri.getPort();
-		if (port >= 0) {
-			return host + ":" + port;
-		}
-		return host;
 	}
 
 	private static String enc(String s) throws Exception {

@@ -4883,11 +4883,11 @@ public final class MainActivity extends Activity {
 			@Override
 			public void run() throws Exception {
 				try {
-					final String url = client.voiceUrl(targetPeer);
+					final MiniTaLib.VoiceAccess access = client.voiceAccess(targetPeer);
 					if (generation != voiceConnectGeneration || "idle".equals(callState)) {
 						return;
 					}
-					voiceCall.start(MainActivity.this, url, new VoiceCall.Listener() {
+					voiceCall.start(MainActivity.this, access, new VoiceCall.Listener() {
 						@Override
 						public void onState(final String s) {
 							ui(new Runnable() {

@@ -21,6 +21,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Checkout public mst5-client
+        uses: actions/checkout@v4
+        with:
+          repository: Bit-OpenSource-Official/mst5-client
+          ref: main
+          path: mst5-client
+
       - name: Resolve release version
         id: version
         shell: bash
@@ -44,8 +51,24 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+          targets: aarch64-linux-android,armv7-linux-androideabi,arm-linux-androideabi
+
       - name: Install Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.3.11579264"
+
+      - name: Install legacy ARMv6 NDK
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 \
+            --output "${RUNNER_TEMP}/android-ndk-r14b.zip" \
+            https://dl.google.com/android/repository/android-ndk-r14b-linux-x86_64.zip
+          unzip -q "${RUNNER_TEMP}/android-ndk-r14b.zip" -d "${RUNNER_TEMP}"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/26.3.11579264" >> "${GITHUB_ENV}"
+          echo "ANDROID_NDK_R14_HOME=${RUNNER_TEMP}/android-ndk-r14b" >> "${GITHUB_ENV}"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -60,35 +83,22 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: |
-          store_pass="${RELEASE_STORE_PASSWORD:-password}"
-          key_alias="${RELEASE_KEY_ALIAS:-micromsg}"
-          key_pass="${RELEASE_KEY_PASSWORD:-${store_pass}}"
-
-          if [[ -n "${ANDROID_KEYSTORE_B64}" ]]; then
-            printf "%s" "${ANDROID_KEYSTORE_B64}" | base64 -d > micromsg.keystore
-          else
-            keytool -genkeypair \
-              -keystore micromsg.keystore \
-              -storepass "${store_pass}" \
-              -keypass "${key_pass}" \
-              -alias "${key_alias}" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=OVE.rs, OU=Android, O=OVE.rs, L=NA, ST=NA, C=US"
+          if [[ -z "${ANDROID_KEYSTORE_B64}" || -z "${RELEASE_STORE_PASSWORD}" || \
+                -z "${RELEASE_KEY_ALIAS}" || -z "${RELEASE_KEY_PASSWORD}" ]]; then
+            echo "Android release signing secrets are required" >&2
+            exit 1
           fi
+          printf "%s" "${ANDROID_KEYSTORE_B64}" | base64 -d > micromsg.keystore
 
           echo "RELEASE_STORE_FILE=micromsg.keystore" >> "${GITHUB_ENV}"
-          echo "RELEASE_STORE_PASSWORD=${store_pass}" >> "${GITHUB_ENV}"
-          echo "RELEASE_KEY_ALIAS=${key_alias}" >> "${GITHUB_ENV}"
-          echo "RELEASE_KEY_PASSWORD=${key_pass}" >> "${GITHUB_ENV}"
+          echo "RELEASE_STORE_PASSWORD=${RELEASE_STORE_PASSWORD}" >> "${GITHUB_ENV}"
+          echo "RELEASE_KEY_ALIAS=${RELEASE_KEY_ALIAS}" >> "${GITHUB_ENV}"
+          echo "RELEASE_KEY_PASSWORD=${RELEASE_KEY_PASSWORD}" >> "${GITHUB_ENV}"
 
-      - name: Run release checks
-        run: make release-check
-
-      - name: Build universal and platform APKs
+      - name: Check and build universal/platform APKs
         run: |
-          make release-apks \
+          make native-libs release-check release-apks \
+            MST5_CLIENT_DIR=mst5-client \
             VERSION="${{ steps.version.outputs.name }}" \
             VERSION_CODE="${{ steps.version.outputs.code }}" \
             RELEASE_TAG="${{ steps.version.outputs.tag }}"

@@ -37,18 +37,18 @@ work, rekeys automatically, and compresses eligible payloads. The production pin
 official builds are reproducible. A custom server can override it with
 `-PcryptServerPublicKeyB64=...`, `CRYPT_SERVER_PUBLIC_KEY_B64`, or `.env`.
 
-On ARM Android 2.3+ the app loads `mst5-client` through the bundled Rust JNI
-bridge. Regular requests and direct media streams then use the Rust transport;
-uploads and downloads cross JNI as file descriptors rather than full Java byte
-arrays. The assets contain `armeabi` (ARMv6/API 9), `armeabi-v7a`, and
-`arm64-v8a` builds.
+On ARM Android 2.3+ the app requires the Rust `mst5-client` JNI bridge. Requests,
+media streams and voice streams are implemented exclusively by the Rust crate;
+there is no Java MST5/WebSocket fallback. Uploads and downloads cross JNI as file
+descriptors rather than full Java byte arrays.
 
-Rebuild the native assets from the sibling `mst5-client` checkout with:
+Native assets are generated and are not committed to this repository. Build all
+three ABIs from the public sibling `mst5-client` checkout with:
 
 ```bash
-bash ../mst5-client/android-jni/build-android.sh app/src/main/assets/mst5-native
+ANDROID_NDK_HOME=/opt/android-ndk-r26d \
 ANDROID_NDK_R14_HOME=/opt/android-ndk-r14b \
-  bash ../mst5-client/android-jni/build-armv6.sh app/src/main/assets/mst5-native
+  make native-libs
 ```
 
 Bot links use:
@@ -69,6 +69,7 @@ Requirements:
 - JDK 17;
 - Android SDK platform 35 and build-tools 35.0.0;
 - Gradle 8.10.2 or a compatible Gradle 8 release.
+- Rust nightly with `rust-src`, Android NDK r26d, and NDK r14b for ARMv6.
 
 Build and test locally:
 
@@ -80,8 +81,9 @@ make apk
 The release build uses R8/resource shrinking and must be signed. By default it
 loads the existing `micromsg.keystore`; that legacy filename and its signing
 identity are intentionally retained so installed clients can update in place.
-`make apk` builds the universal production APK without requiring an `.env`
-file. Platform-specific packages can be built with:
+`make apk` first builds `mst5-client` for all ABIs and then builds the universal
+production APK without requiring an `.env` file. Platform-specific packages can
+be built with:
 
 ```bash
 make apk-armv6
@@ -111,6 +113,7 @@ app/build/outputs/apk/release/app-release.apk
 Docker build:
 
 ```bash
+make native-libs
 docker build -t ove-rs-android .
 docker create --name ove-rs-apk ove-rs-android
 docker cp ove-rs-apk:/src/app/build/outputs/apk/release/app-release.apk ./ove-rs.apk
@@ -154,8 +157,8 @@ Configure these repository secrets to preserve the production signing identity:
 - `RELEASE_KEY_ALIAS`;
 - `RELEASE_KEY_PASSWORD`.
 
-If `ANDROID_KEYSTORE_B64` is absent, CI creates a temporary test keystore. Such
-an APK cannot update an installation signed with the production key.
+The workflow fails when any signing secret is absent; it never creates a
+temporary replacement key.
 
 ## Compatibility identifiers
 

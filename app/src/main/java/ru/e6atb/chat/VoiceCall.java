@@ -9,10 +9,9 @@ import android.media.AudioRecord;
 import android.media.AudioTrack;
 import android.media.MediaRecorder;
 
-import java.io.Closeable;
 import java.io.IOException;
 
-import rs.ove.crypt.proto.SecureSession;
+import rs.ove.crypt.proto.NativeMst5;
 
 final class VoiceCall {
 	static final String STATE_ENDED = "call_ended";
@@ -26,8 +25,7 @@ final class VoiceCall {
 	private static final int FRAME_BYTES = 640;
 
 	private volatile boolean running;
-	private SimpleWebSocket ws;
-	private SecureSession crypt;
+	private volatile long stream;
 	private AudioRecord recorder;
 	private AudioTrack player;
 	private Thread readThread;
@@ -42,7 +40,7 @@ final class VoiceCall {
 		return running;
 	}
 
-	void start(final Context context, final String url, Listener listener) {
+	void start(final Context context, final MiniTaLib.VoiceAccess access, Listener listener) {
 		if (running) {
 			return;
 		}
@@ -51,7 +49,7 @@ final class VoiceCall {
 		readThread = new Thread(new Runnable() {
 			@Override
 			public void run() {
-				VoiceCall.this.run(context == null ? null : context.getApplicationContext(), url);
+				VoiceCall.this.run(context == null ? null : context.getApplicationContext(), access);
 			}
 		}, "e6atb-voice-read");
 		readThread.start();
@@ -63,20 +61,18 @@ final class VoiceCall {
 
 	private void stop(boolean notify) {
 		running = false;
-		crypt = null;
-		closeQuietly(ws);
-		ws = null;
+		long current = stream;
+		stream = 0;
+		NativeMst5.closeVoice(current);
 		releaseRecorder();
 		releasePlayer();
 		if (notify) state(STATE_ENDED);
 	}
 
-	private void run(Context context, String url) {
+	private void run(Context context, MiniTaLib.VoiceAccess access) {
 		boolean remoteClosed = false;
 		try {
-			ws = new SimpleWebSocket();
-			ws.connect(url);
-			crypt = connectCrypt(context, ws);
+			stream = NativeMst5.openVoice(access.endpoint, access.serverPublicKey, access.ticket);
 			setupPlayer(context);
 			setupRecorder(context);
 			player.play();
@@ -85,23 +81,16 @@ final class VoiceCall {
 			state(STATE_CONNECTED);
 
 			while (running) {
-				SimpleWebSocket.Frame frame = ws.readFrame();
-				if (frame.opcode == SimpleWebSocket.CLOSE) {
-					remoteClosed = true;
-					break;
-				}
-				if (frame.opcode == SimpleWebSocket.BINARY && frame.payload.length > 0) {
-					byte[] plain = crypt.openApplicationRecord(frame.payload);
-					if (plain.length > 0) {
-						player.write(plain, 0, plain.length);
-					}
-				}
+				byte[] pcm = NativeMst5.receiveVoice(stream);
+				if (pcm == null || pcm.length == 0) continue;
+				player.write(pcm, 0, pcm.length);
 			}
 		} catch (SecurityException e) {
 			state(STATE_MICROPHONE_PERMISSION_DENIED);
 		} catch (IOException e) {
 			if (running) {
-				state(STATE_ERROR_PREFIX + errorText(e));
+				remoteClosed = connectionClosed(e);
+				if (!remoteClosed) state(STATE_ERROR_PREFIX + errorText(e));
 			}
 		} catch (Exception e) {
 			if (running) {
@@ -113,17 +102,6 @@ final class VoiceCall {
 			}
 			stop(false);
 		}
-	}
-
-	private SecureSession connectCrypt(Context context, SimpleWebSocket ws) throws Exception {
-		SecureSession.ClientHello hello = SecureSession.createClientHello();
-		byte[] message = hello.message();
-		ws.sendBinary(message, message.length);
-		SimpleWebSocket.Frame frame = ws.readFrame();
-		if (frame.opcode != SimpleWebSocket.BINARY) {
-			throw new IOException(text(context, R.string.status_crypto_handshake_failed));
-		}
-		return SecureSession.openClient(hello, frame.payload);
 	}
 
 	private void setupPlayer(Context context) {
@@ -193,8 +171,7 @@ final class VoiceCall {
 						try {
 							byte[] plain = new byte[n];
 							System.arraycopy(buf, 0, plain, 0, n);
-							byte[] sealed = crypt.sealApplicationRecord(plain);
-							ws.sendBinary(sealed, sealed.length);
+							NativeMst5.sendVoice(stream, plain);
 						} catch (Exception e) {
 							if (running) {
 								state(STATE_SEND_ERROR_PREFIX + errorText(e));
@@ -241,16 +218,6 @@ final class VoiceCall {
 		}
 	}
 
-	private static void closeQuietly(Closeable closeable) {
-		if (closeable == null) {
-			return;
-		}
-		try {
-			closeable.close();
-		} catch (Exception ignored) {
-		}
-	}
-
 	private static String errorText(Throwable error) {
 		if (error == null) return "";
 		String message = error.getMessage();
@@ -258,6 +225,13 @@ final class VoiceCall {
 			message = error.getClass().getSimpleName();
 		}
 		return message;
+	}
+
+	private static boolean connectionClosed(Throwable error) {
+		String message = errorText(error).toLowerCase(java.util.Locale.US);
+		return message.contains("stream closed")
+				|| message.contains("connection closed")
+				|| message.contains("broken pipe");
 	}
 
 	private static String text(Context context, int resId) {
