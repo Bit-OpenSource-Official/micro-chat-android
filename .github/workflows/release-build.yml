@@ -1,19 +1,21 @@
 name: OVE.rs Android release
 
 on:
-  create:
   push:
     branches:
       - "release/**"
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
 
 jobs:
   build:
-    name: Build OVE.rs APK
+    name: Build OVE.rs release APKs
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' || (github.event_name == 'create' && github.event.ref_type == 'branch' && startsWith(github.event.ref, 'release/'))
 
     steps:
       - name: Checkout
@@ -24,9 +26,6 @@ jobs:
         shell: bash
         run: |
           ref="${GITHUB_REF_NAME}"
-          if [[ "${GITHUB_EVENT_NAME}" == "create" ]]; then
-            ref="${{ github.event.ref }}"
-          fi
           version="${ref#release/}"
           if [[ -z "${version}" || "${version}" == "${ref}" ]]; then
             echo "Expected branch name release/VERSION, got ${ref}" >&2
@@ -84,38 +83,28 @@ jobs:
           echo "RELEASE_KEY_ALIAS=${key_alias}" >> "${GITHUB_ENV}"
           echo "RELEASE_KEY_PASSWORD=${key_pass}" >> "${GITHUB_ENV}"
 
-      - name: Build release APK
-        run: |
-          gradle --no-daemon :app:assembleRelease \
-            -PappVersionName="${{ steps.version.outputs.name }}" \
-            -PappVersionCode="${{ steps.version.outputs.code }}"
+      - name: Run release checks
+        run: make release-check
 
-      - name: Prepare APK asset
-        shell: bash
+      - name: Build universal and platform APKs
         run: |
-          mkdir -p release
-          apk="release/ove-rs-${{ steps.version.outputs.name }}.apk"
-          cp app/build/outputs/apk/release/app-release.apk "${apk}"
-          apk_sha256="$(sha256sum "${apk}" | awk '{print $1}')"
-          apk_size="$(wc -c < "${apk}")"
-          cat > release/update.json <<EOF
-          {
-            "packageName": "ru.e6atb.chat",
-            "versionName": "${{ steps.version.outputs.name }}",
-            "versionCode": ${{ steps.version.outputs.code }},
-            "apkName": "ove-rs-${{ steps.version.outputs.name }}.apk",
-            "apkSize": ${apk_size},
-            "apkSha256": "${apk_sha256}"
-          }
-          EOF
+          make release-apks \
+            VERSION="${{ steps.version.outputs.name }}" \
+            VERSION_CODE="${{ steps.version.outputs.code }}" \
+            RELEASE_TAG="${{ steps.version.outputs.tag }}"
 
-      - name: Upload APK
+      - name: Upload release artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ove-rs-${{ steps.version.outputs.name }}-release
           path: |
-            release/ove-rs-${{ steps.version.outputs.name }}.apk
+            release/ove-rs-${{ steps.version.outputs.name }}-universal.apk
+            release/ove-rs-${{ steps.version.outputs.name }}-armv6.apk
+            release/ove-rs-${{ steps.version.outputs.name }}-armv7.apk
+            release/ove-rs-${{ steps.version.outputs.name }}-arm64.apk
             release/update.json
+            release/SHA256SUMS
+            release/release-notes.md
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -123,14 +112,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_NAME: OVE.rs ${{ steps.version.outputs.name }}
-          APK_PATH: release/ove-rs-${{ steps.version.outputs.name }}.apk
-          UPDATE_PATH: release/update.json
         run: |
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release upload "${RELEASE_TAG}" "${APK_PATH}" "${UPDATE_PATH}" --clobber
+            gh release upload "${RELEASE_TAG}" \
+              release/*.apk release/update.json release/SHA256SUMS --clobber
+            gh release edit "${RELEASE_TAG}" \
+              --title "${RELEASE_NAME}" \
+              --notes-file release/release-notes.md
           else
-            gh release create "${RELEASE_TAG}" "${APK_PATH}" "${UPDATE_PATH}" \
+            gh release create "${RELEASE_TAG}" \
+              release/*.apk release/update.json release/SHA256SUMS \
               --target "${GITHUB_SHA}" \
               --title "${RELEASE_NAME}" \
-              --notes "Release ${RELEASE_NAME}"
+              --notes-file release/release-notes.md
           fi

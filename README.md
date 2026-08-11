@@ -37,6 +37,20 @@ work, rekeys automatically, and compresses eligible payloads. The production pin
 official builds are reproducible. A custom server can override it with
 `-PcryptServerPublicKeyB64=...`, `CRYPT_SERVER_PUBLIC_KEY_B64`, or `.env`.
 
+On ARM Android 2.3+ the app loads `mst5-client` through the bundled Rust JNI
+bridge. Regular requests and direct media streams then use the Rust transport;
+uploads and downloads cross JNI as file descriptors rather than full Java byte
+arrays. The assets contain `armeabi` (ARMv6/API 9), `armeabi-v7a`, and
+`arm64-v8a` builds.
+
+Rebuild the native assets from the sibling `mst5-client` checkout with:
+
+```bash
+bash ../mst5-client/android-jni/build-android.sh app/src/main/assets/mst5-native
+ANDROID_NDK_R14_HOME=/opt/android-ndk-r14b \
+  bash ../mst5-client/android-jni/build-armv6.sh app/src/main/assets/mst5-native
+```
+
 Bot links use:
 
 ```text
@@ -59,23 +73,33 @@ Requirements:
 Build and test locally:
 
 ```bash
-gradle :app:testDebugUnitTest
-gradle :app:assembleRelease
+make test
+make apk
 ```
 
 The release build uses R8/resource shrinking and must be signed. By default it
 loads the existing `micromsg.keystore`; that legacy filename and its signing
 identity are intentionally retained so installed clients can update in place.
-The helper builds the production APK without requiring an `.env` file:
+`make apk` builds the universal production APK without requiring an `.env`
+file. Platform-specific packages can be built with:
 
 ```bash
-./build-apk.sh
+make apk-armv6
+make apk-armv7
+make apk-arm64
 ```
 
 Override the application version when needed:
 
 ```bash
 APP_VERSION_NAME=0.9.8 APP_VERSION_CODE=100055 ./build-apk.sh
+```
+
+Prepare the same four APKs, `update.json`, `SHA256SUMS`, and the release notes
+table used by GitHub Actions:
+
+```bash
+make release-apks VERSION=0.9.9 VERSION_CODE=100056
 ```
 
 The output is:
@@ -97,11 +121,12 @@ docker rm ove-rs-apk
 
 Pushing a `release/VERSION` branch runs the `OVE.rs Android release` workflow.
 It uses the branch suffix as `versionName`, assigns a monotonically increasing
-`versionCode`, builds `ove-rs-VERSION.apk`, and publishes:
+`versionCode`, runs the release Make targets, and publishes:
 
 - a GitHub Release tagged `vVERSION` and titled `OVE.rs VERSION`;
-- the signed APK;
-- `update.json` containing the package, version, size, and SHA-256 checksum.
+- universal, ARMv6, ARMv7, and ARM64 signed APKs;
+- a download table in the release description;
+- `update.json` for the universal APK and `SHA256SUMS` for every APK.
 
 Publish the current commit of a clean local `main` as a remote release branch
 with one command:

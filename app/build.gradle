@@ -44,6 +44,34 @@ def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
 def appVersionCode = (providers.gradleProperty("appVersionCode").orNull ?:
     System.getenv("APP_VERSION_CODE") ?:
     "100055").toInteger()
+def mst5NativeAbi = providers.gradleProperty("mst5NativeAbi").orNull ?: "universal"
+def supportedMst5NativeAbis = ["universal", "armeabi", "armeabi-v7a", "arm64-v8a"]
+if (!supportedMst5NativeAbis.contains(mst5NativeAbi)) {
+    throw new GradleException(
+        "Unsupported -Pmst5NativeAbi=${mst5NativeAbi}; expected one of ${supportedMst5NativeAbis.join(', ')}"
+    )
+}
+def generatedMst5Assets = layout.buildDirectory.dir("generated/mst5-assets")
+def prepareMst5Assets = tasks.register("prepareMst5Assets", Sync) {
+    inputs.property("mst5NativeAbi", mst5NativeAbi)
+    if (mst5NativeAbi == "universal") {
+        from("src/main/assets")
+    } else {
+        from("src/main/assets") {
+            exclude "mst5-native/**"
+        }
+        from("src/main/assets/mst5-native/${mst5NativeAbi}") {
+            into "mst5-native/${mst5NativeAbi}"
+        }
+    }
+    into(generatedMst5Assets)
+    doFirst {
+        if (mst5NativeAbi != "universal" &&
+            !file("src/main/assets/mst5-native/${mst5NativeAbi}/libmst5_android.so").isFile()) {
+            throw new GradleException("Missing mst5-client library for ${mst5NativeAbi}")
+        }
+    }
+}
 def productionGithubRepository = "Bit-OpenSource-Official/micro-chat-android"
 def githubRepository = providers.gradleProperty("githubRepository").orNull ?:
     System.getenv("GITHUB_REPOSITORY") ?:
@@ -93,6 +121,10 @@ android {
         buildConfig true
     }
 
+    sourceSets {
+        main.assets.setSrcDirs([generatedMst5Assets.get().asFile])
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
@@ -118,6 +150,12 @@ android {
             signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name.matches("merge.*Assets") || task.name.toLowerCase().contains("lint")) {
+        task.dependsOn(prepareMst5Assets)
     }
 }
 

@@ -2,6 +2,7 @@ package ru.e6atb.chat;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.ParcelFileDescriptor;
 
 import org.json.JSONObject;
 
@@ -94,11 +95,20 @@ final class OutboxDispatcher {
 					for (final OutboxStore.Attachment attachment : entry.attachments) {
 						MiniTaLib.UploadSource source = null;
 						if (attachment.fileId == null || attachment.fileId.length() == 0) {
-							source = new MiniTaLib.UploadSource() {
+								source = new MiniTaLib.UploadSource() {
 								@Override public InputStream open() throws Exception {
 									if (attachment.localPath != null && attachment.localPath.length() > 0) return new FileInputStream(new File(attachment.localPath));
 									if (attachment.sourceUri != null && attachment.sourceUri.length() > 0) return context.getContentResolver().openInputStream(Uri.parse(attachment.sourceUri));
 									throw new IllegalStateException("media source is unavailable");
+								}
+								@Override public ParcelFileDescriptor openDescriptor() throws Exception {
+									if (attachment.localPath != null && attachment.localPath.length() > 0) {
+										return ParcelFileDescriptor.open(new File(attachment.localPath), ParcelFileDescriptor.MODE_READ_ONLY);
+									}
+									if (attachment.sourceUri != null && attachment.sourceUri.length() > 0) {
+										return context.getContentResolver().openFileDescriptor(Uri.parse(attachment.sourceUri), "r");
+									}
+									return null;
 								}
 							};
 						}

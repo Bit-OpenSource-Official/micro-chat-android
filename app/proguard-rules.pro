@@ -1,0 +1,3 @@
+-keep class rs.ove.crypt.proto.NativeMst5 { *; }
+-keep interface rs.ove.crypt.proto.NativeMst5$Observer { *; }
+-keep class * implements rs.ove.crypt.proto.NativeMst5$Observer { *; }

@@ -90,9 +90,13 @@ public final class CryptTcpClient {
 	private static final int OP_SET_PROFILE_DESCRIPTION = 74;
 
 	private final Object lock = new Object();
+	private final Object nativeLock = new Object();
 	private Connection cached;
+	private long nativeHandle;
+	private String nativeEndpoint = "";
 
 	public Response request(String baseUrl, String token, String method, String path, byte[] body, int timeoutMs) throws Exception {
+		if (NativeMst5.isAvailable()) return nativeRequest(baseUrl, token, method, path, body, timeoutMs);
 		Endpoint endpoint = Endpoint.parse(baseUrl);
 		int timeout = timeoutMs > 0 ? timeoutMs : 10000;
 		if (!usePersistent(path, timeout)) {
@@ -118,6 +122,80 @@ public final class CryptTcpClient {
 				}
 			}
 			throw ex;
+		}
+	}
+
+	public void close() {
+		synchronized (nativeLock) {
+			NativeMst5.close(nativeHandle);
+			nativeHandle = 0;
+			nativeEndpoint = "";
+		}
+		synchronized (lock) {
+			if (cached != null) closeCachedLocked(cached);
+		}
+	}
+
+	@Override
+	protected void finalize() throws Throwable {
+		try { close(); }
+		finally { super.finalize(); }
+	}
+
+	private Response nativeRequest(String baseUrl, String token, String method, String path,
+	                              byte[] body, int timeoutMs) throws Exception {
+		String normalizedMethod = method == null ? "GET" : method.toUpperCase(Locale.US);
+		String requestPath = path == null || path.length() == 0 ? "/" : path;
+		int opcode = opcode(normalizedMethod, requestPath);
+		JSONObject payload;
+		if ("GET".equals(normalizedMethod)) {
+			payload = new JSONObject();
+			int split = requestPath.indexOf('?');
+			if (split >= 0 && split + 1 < requestPath.length()) payload.put("query", requestPath.substring(split + 1));
+		} else {
+			payload = body == null || body.length == 0
+					? new JSONObject()
+					: new JSONObject(new String(body, "UTF-8"));
+		}
+		int kind = "GET".equals(normalizedMethod) ? Mst5Frame.QUERY : Mst5Frame.COMMAND;
+		byte[] requestNonce = new byte[16];
+		if (kind == Mst5Frame.COMMAND) CryptoRandom.nextBytes(requestNonce);
+		int timeout = timeoutMs > 0 ? timeoutMs : 10000;
+		long handle = nativeConnection(baseUrl);
+		try {
+			NativeMst5.Response response = NativeMst5.request(handle, token, kind, opcode,
+					requestNonce, System.currentTimeMillis() + timeout, MiniCbor.encode(payload));
+			if (response.kind != Mst5Frame.RESULT && response.kind != Mst5Frame.EVENT_BATCH
+					&& response.kind != Mst5Frame.ERROR) throw new IOException("unexpected MST5 response");
+			return new Response(response.code, Collections.<String, String>emptyMap(),
+					jsonBytes(MiniCbor.decode(response.payload)));
+		} catch (IOException error) {
+			closeNative(handle);
+			throw error;
+		}
+	}
+
+	private long nativeConnection(String endpoint) throws IOException {
+		String value = endpoint == null ? "" : endpoint.trim();
+		synchronized (nativeLock) {
+			if (nativeHandle != 0 && !nativeEndpoint.equals(value)) {
+				NativeMst5.close(nativeHandle);
+				nativeHandle = 0;
+			}
+			if (nativeHandle == 0) {
+				nativeHandle = NativeMst5.open(value, CryptIdentity.serverPublicKeyBase64());
+				nativeEndpoint = value;
+			}
+			return nativeHandle;
+		}
+	}
+
+	private void closeNative(long handle) {
+		synchronized (nativeLock) {
+			if (nativeHandle != handle) return;
+			NativeMst5.close(nativeHandle);
+			nativeHandle = 0;
+			nativeEndpoint = "";
 		}
 	}
 

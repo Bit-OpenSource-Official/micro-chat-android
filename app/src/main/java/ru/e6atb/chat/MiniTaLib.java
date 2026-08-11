@@ -4,6 +4,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import android.content.Context;
+import android.os.ParcelFileDescriptor;
 
 import rs.ove.crypt.proto.CryptTcpClient;
 import rs.ove.crypt.proto.Mst5MediaClient;
@@ -429,6 +430,7 @@ final class MiniTaLib {
 
 	interface UploadSource {
 		InputStream open() throws Exception;
+		ParcelFileDescriptor openDescriptor() throws Exception;
 	}
 
 	static final class MessageMedia {
@@ -579,6 +581,24 @@ final class MiniTaLib {
 	private static void directUpload(String endpoint, String serverPublicKey, String ticket, String fileId,
 	                                 long size, UploadSource source,
 	                                 TransferControl transfer, long progressBase, long progressTotal) throws Exception {
+		if (Mst5MediaClient.isNativeAvailable()) {
+			ParcelFileDescriptor descriptor = source.openDescriptor();
+			if (descriptor != null) {
+				try {
+					Mst5MediaClient.uploadDescriptor(endpoint, serverPublicKey, ticket, fileId, size, descriptor,
+							transfer == null ? null : new Mst5MediaClient.Observer() {
+								public boolean isCancelled() { return transfer.isCancelled(); }
+								public void onConnected(Socket socket, InputStream ignored) {}
+								public void onProgress(long value, long ignored) { transfer.progress(progressBase + value, progressTotal); }
+								public void onClosed() {}
+							});
+				} finally {
+					try { descriptor.close(); } catch (Exception ignored) {}
+					if (transfer != null) transfer.clear();
+				}
+				return;
+			}
+		}
 		InputStream input = null;
 		try {
 			input = source.open();
@@ -663,18 +683,34 @@ final class MiniTaLib {
 		if (maxBytes > 0 && announced > maxBytes) throw new IOException("file is too large");
 		File temporary = new File(target.getParentFile(), target.getName() + ".part");
 		try {
-			FileOutputStream output = new FileOutputStream(temporary);
-			try {
-				Mst5MediaClient.download(
-						ticket.getString("endpoint"), ticket.getString("server_public_key"),
-						ticket.getString("ticket"), ticket.getString("file_id"), announced, output,
-						listener == null ? null : new Mst5MediaClient.Observer() {
-							public boolean isCancelled() { return false; }
-							public void onConnected(Socket socket, InputStream source) {}
-							public void onProgress(long completed, long total) { listener.onProgress(completed, total); }
-							public void onClosed() {}
-						});
-			} finally { output.close(); }
+			if (Mst5MediaClient.isNativeAvailable() && announced >= 0) {
+				ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(temporary,
+						ParcelFileDescriptor.MODE_CREATE | ParcelFileDescriptor.MODE_TRUNCATE | ParcelFileDescriptor.MODE_WRITE_ONLY);
+				try {
+					Mst5MediaClient.downloadDescriptor(
+							ticket.getString("endpoint"), ticket.getString("server_public_key"),
+							ticket.getString("ticket"), ticket.getString("file_id"), announced, descriptor,
+							listener == null ? null : new Mst5MediaClient.Observer() {
+								public boolean isCancelled() { return false; }
+								public void onConnected(Socket socket, InputStream source) {}
+								public void onProgress(long completed, long total) { listener.onProgress(completed, total); }
+								public void onClosed() {}
+							});
+				} finally { try { descriptor.close(); } catch (Exception ignored) {} }
+			} else {
+				FileOutputStream output = new FileOutputStream(temporary);
+				try {
+					Mst5MediaClient.download(
+							ticket.getString("endpoint"), ticket.getString("server_public_key"),
+							ticket.getString("ticket"), ticket.getString("file_id"), announced, output,
+							listener == null ? null : new Mst5MediaClient.Observer() {
+								public boolean isCancelled() { return false; }
+								public void onConnected(Socket socket, InputStream source) {}
+								public void onProgress(long completed, long total) { listener.onProgress(completed, total); }
+								public void onClosed() {}
+							});
+				} finally { output.close(); }
+			}
 			if (!temporary.renameTo(target)) {
 				target.delete();
 				if (!temporary.renameTo(target)) throw new IOException("cannot save downloaded file");

@@ -1,5 +1,7 @@
 package rs.ove.crypt.proto;
 
+import android.os.ParcelFileDescriptor;
+
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
@@ -27,6 +29,30 @@ public final class Mst5MediaClient {
 	}
 
 	private Mst5MediaClient() {}
+
+	public static boolean isNativeAvailable() {
+		return NativeMst5.isAvailable();
+	}
+
+	public static void uploadDescriptor(String endpoint, String publicKeyB64, String ticket,
+	                                    String fileId, long size, ParcelFileDescriptor source,
+	                                    final Observer observer) throws Exception {
+		NativeMst5.upload(endpoint, publicKeyB64, ticket, fileId, size, source,
+				observer == null ? null : new NativeMst5.Observer() {
+					@Override public boolean isCancelled() { return observer.isCancelled(); }
+					@Override public void onProgress(long completed, long total) { observer.onProgress(completed, total); }
+				});
+	}
+
+	public static long downloadDescriptor(String endpoint, String publicKeyB64, String ticket,
+	                                     String fileId, long expectedSize, ParcelFileDescriptor target,
+	                                     final Observer observer) throws Exception {
+		return NativeMst5.download(endpoint, publicKeyB64, ticket, fileId, expectedSize, target,
+				observer == null ? null : new NativeMst5.Observer() {
+					@Override public boolean isCancelled() { return observer.isCancelled(); }
+					@Override public void onProgress(long completed, long total) { observer.onProgress(completed, total); }
+				});
+	}
 
 	public static void upload(String endpoint, String publicKeyB64, String ticket, String fileId,
 	                          long size, InputStream source, Observer observer) throws Exception {

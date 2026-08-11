@@ -28,6 +28,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.ParcelFileDescriptor;
 import android.provider.Settings;
 import android.text.InputType;
 import android.text.Spanned;
@@ -117,7 +118,6 @@ public final class MainActivity extends Activity {
 	private static final String CALL_NOTIFICATION_CHANNEL = "calls_visual";
 	private static final int ACTIVE_CALL_NOTIFICATION_ID = 3;
 	private static final int MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
-	private static final int MAX_IMAGE_PREVIEW_BYTES = 12 * 1024 * 1024;
 	private static final int MAX_IMAGE_PREVIEW_PX = 1280;
 	private static final int USERNAME_RESERVATION_FEE_DSR = 20;
 	private static final int MAX_INCOMING_CALL_AGE_SEC = 120;
@@ -291,6 +291,7 @@ public final class MainActivity extends Activity {
 		String localPath;
 		String fileId;
 		long size;
+		Bitmap preview;
 	}
 	private final Runnable channelHistoryReload = new Runnable() {
 		@Override public void run() {
@@ -457,6 +458,7 @@ public final class MainActivity extends Activity {
 		}
 		paidReactionBatches.clear();
 		paidReactionIo.shutdownNow();
+		recycleComposerPreviews();
 		super.onDestroy();
 	}
 
@@ -3904,6 +3906,12 @@ public final class MainActivity extends Activity {
 					if (item.uri != null) return getContentResolver().openInputStream(item.uri);
 					throw new IOException(getString(R.string.status_file_not_available));
 				}
+				@Override public ParcelFileDescriptor openDescriptor() throws Exception {
+					if (item.localPath != null && item.localPath.length() > 0) {
+						return ParcelFileDescriptor.open(new File(item.localPath), ParcelFileDescriptor.MODE_READ_ONLY);
+					}
+					return item.uri == null ? null : getContentResolver().openFileDescriptor(item.uri, "r");
+				}
 			};
 			out.add(new MiniTaLib.MessageMedia(String.format(Locale.US, "attachment-%06d", index),
 					item.fileId == null ? "" : item.fileId,
@@ -3972,6 +3980,7 @@ public final class MainActivity extends Activity {
 		ui(new Runnable() { @Override public void run() {
 			composerSending = false;
 			editingMessage = null;
+			recycleComposerPreviews();
 			composerMedia.clear();
 			renderComposerMedia();
 			if (text != null) text.setText("");
@@ -4005,6 +4014,7 @@ public final class MainActivity extends Activity {
 				commentPostId, replyId, prepared.toString());
 		ui(new Runnable() { @Override public void run() {
 			composerSending = false;
+			recycleComposerPreviews();
 			composerMedia.clear();
 			renderComposerMedia();
 			if (text != null) text.setText("");
@@ -4447,9 +4457,52 @@ public final class MainActivity extends Activity {
 					else if (item.localPath.length() > 0) new File(item.localPath).delete();
 					renderComposerMedia();
 					status.setText("");
+					if (item.mime.toLowerCase(Locale.US).startsWith("image/")) loadComposerPreview(item);
 				} });
 			}
 		});
+	}
+
+	private void loadComposerPreview(final ComposerMedia item) {
+		io.execute(new Runnable() {
+			@Override public void run() {
+				final Bitmap decoded = decodeComposerPreview(item, MAX_IMAGE_PREVIEW_PX);
+				if (decoded == null) return;
+				ui(new Runnable() { @Override public void run() {
+					if (!composerMedia.contains(item)) {
+						decoded.recycle();
+						return;
+					}
+					item.preview = decoded;
+					renderComposerMedia();
+				} });
+			}
+		});
+	}
+
+	private Bitmap decodeComposerPreview(ComposerMedia item, int maxSide) {
+		if (item == null) return null;
+		if (item.localPath != null && item.localPath.length() > 0) {
+			return decodePreviewBitmap(new File(item.localPath), maxSide);
+		}
+		if (item.uri == null) return null;
+		InputStream probeInput = null;
+		InputStream decodeInput = null;
+		try {
+			BitmapFactory.Options probe = new BitmapFactory.Options();
+			probe.inJustDecodeBounds = true;
+			probeInput = getContentResolver().openInputStream(item.uri);
+			BitmapFactory.decodeStream(probeInput, null, probe);
+			if (probe.outWidth <= 0 || probe.outHeight <= 0) return null;
+			BitmapFactory.Options options = previewOptions(probe.outWidth, probe.outHeight, maxSide);
+			decodeInput = getContentResolver().openInputStream(item.uri);
+			return BitmapFactory.decodeStream(decodeInput, null, options);
+		} catch (Exception ignored) {
+			return null;
+		} finally {
+			if (probeInput != null) try { probeInput.close(); } catch (Exception ignored) {}
+			if (decodeInput != null) try { decodeInput.close(); } catch (Exception ignored) {}
+		}
 	}
 
 	private long queryFileSize(Uri uri) {
@@ -4678,15 +4731,20 @@ public final class MainActivity extends Activity {
 			public void run() {
 				Bitmap decoded = null;
 				String error = null;
+				File downloaded = null;
 				try {
-					byte[] data = c.downloadFileBytes(file.id, MAX_IMAGE_PREVIEW_BYTES);
-					decoded = decodePreviewBitmap(data, MAX_IMAGE_PREVIEW_PX);
+					downloaded = File.createTempFile("mst5-preview-", ".image", getCacheDir());
+					long limit = file.size > 0 ? file.size : MAX_UPLOAD_BYTES;
+					c.downloadFile(file.id, downloaded, limit, null);
+					decoded = decodePreviewBitmap(downloaded, MAX_IMAGE_PREVIEW_PX);
 					if (decoded == null) {
 						error = "invalid image";
 					}
 				} catch (Exception e) {
 					error = e.getMessage();
 					if (error == null || error.length() == 0) error = e.getClass().getSimpleName();
+				} finally {
+					if (downloaded != null) downloaded.delete();
 				}
 				final Bitmap out = decoded;
 				final String outError = error;
@@ -4709,19 +4767,23 @@ public final class MainActivity extends Activity {
 		});
 	}
 
-	private Bitmap decodePreviewBitmap(byte[] data, int maxSide) {
-		if (data == null || data.length == 0) return null;
+	private Bitmap decodePreviewBitmap(File file, int maxSide) {
+		if (file == null || !file.isFile() || file.length() == 0) return null;
 		BitmapFactory.Options probe = new BitmapFactory.Options();
 		probe.inJustDecodeBounds = true;
-		BitmapFactory.decodeByteArray(data, 0, data.length, probe);
+		BitmapFactory.decodeFile(file.getAbsolutePath(), probe);
 		if (probe.outWidth <= 0 || probe.outHeight <= 0) return null;
+		return BitmapFactory.decodeFile(file.getAbsolutePath(), previewOptions(probe.outWidth, probe.outHeight, maxSide));
+	}
+
+	private BitmapFactory.Options previewOptions(int width, int height, int maxSide) {
 		int sample = 1;
-		while (probe.outWidth / sample > maxSide || probe.outHeight / sample > maxSide) {
+		while (width / sample > maxSide || height / sample > maxSide) {
 			sample *= 2;
 		}
 		BitmapFactory.Options opts = new BitmapFactory.Options();
 		opts.inSampleSize = sample;
-		return BitmapFactory.decodeByteArray(data, 0, data.length, opts);
+		return opts;
 	}
 
 	private void acceptIncomingCall(final String peerName) {
@@ -6432,6 +6494,7 @@ public final class MainActivity extends Activity {
 		editingMessage = message;
 		text.setText(message.text == null ? "" : message.text);
 		text.setSelection(text.length());
+		recycleComposerPreviews();
 		composerMedia.clear();
 		if (message.media != null) for (MiniTaLib.FileInfo file : message.media) {
 			ComposerMedia item = new ComposerMedia();
@@ -7608,18 +7671,11 @@ public final class MainActivity extends Activity {
 				return iv;
 			}
 
-			private void addLocalImagePreview(LinearLayout box, String path) {
-				Bitmap bmp = null;
-				if (path != null && path.startsWith("content://")) {
-					InputStream input = null;
-					try {
-						input = getContentResolver().openInputStream(Uri.parse(path));
-						bmp = BitmapFactory.decodeStream(input);
-					} catch (Exception ignored) {
-					} finally { if (input != null) try { input.close(); } catch (Exception ignored) {} }
-				} else {
-					bmp = BitmapFactory.decodeFile(path);
-				}
+		private void addLocalImagePreview(LinearLayout box, String path) {
+				ComposerMedia source = new ComposerMedia();
+				if (path != null && path.startsWith("content://")) source.uri = Uri.parse(path);
+				else source.localPath = path;
+				Bitmap bmp = decodeComposerPreview(source, MAX_IMAGE_PREVIEW_PX);
 				if (bmp == null) return;
 				ImageView preview = new ImageView(MainActivity.this);
 				preview.setAdjustViewBounds(true);
@@ -9074,25 +9130,44 @@ public final class MainActivity extends Activity {
 		for (int index = 0; index < composerMedia.size(); index++) {
 			final int position = index;
 			ComposerMedia item = composerMedia.get(index);
+			LinearLayout container = new LinearLayout(this);
+			container.setOrientation(LinearLayout.VERTICAL);
+			container.setPadding(gap, gap / 2, gap, gap / 2);
+			container.setBackgroundDrawable(shape(surfaceHi, 0, elementRadius()));
+			if (item.preview != null) {
+				ImageView preview = new ImageView(this);
+				preview.setAdjustViewBounds(true);
+				preview.setScaleType(ImageView.ScaleType.FIT_CENTER);
+				preview.setMaxHeight(dp(360));
+				preview.setImageBitmap(item.preview);
+				container.addView(preview, new LinearLayout.LayoutParams(-1, -2));
+			}
 			LinearLayout row = new LinearLayout(this);
 			row.setOrientation(LinearLayout.HORIZONTAL);
 			row.setGravity(Gravity.CENTER_VERTICAL);
-			row.setPadding(gap, gap / 2, gap, gap / 2);
-			row.setBackgroundDrawable(shape(surfaceHi, 0, elementRadius()));
 			TextView label = label(item.name + " · " + formatBytes(item.size));
 			row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
 			Button remove = button("×", new View.OnClickListener() {
 				@Override public void onClick(View v) {
 					if (position < 0 || position >= composerMedia.size()) return;
 					ComposerMedia removed = composerMedia.remove(position);
+					if (removed.preview != null && !removed.preview.isRecycled()) removed.preview.recycle();
 					if (removed.localPath != null && removed.localPath.length() > 0) new File(removed.localPath).delete();
 					renderComposerMedia();
 				}
 			});
 			row.addView(remove, new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight));
+			container.addView(row, new LinearLayout.LayoutParams(-1, -2));
 			LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
 			lp.setMargins(0, 0, 0, gap / 2);
-			composerMediaBar.addView(row, lp);
+			composerMediaBar.addView(container, lp);
+		}
+	}
+
+	private void recycleComposerPreviews() {
+		for (ComposerMedia item : composerMedia) {
+			if (item.preview != null && !item.preview.isRecycled()) item.preview.recycle();
+			item.preview = null;
 		}
 	}
 

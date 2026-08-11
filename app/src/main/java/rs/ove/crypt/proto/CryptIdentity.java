@@ -12,6 +12,10 @@ public final class CryptIdentity {
 	}
 
 	public static byte[] serverPublicKey() {
+		return decodePublicKey(serverPublicKeyBase64());
+	}
+
+	public static String serverPublicKeyBase64() {
 		String value = System.getProperty(SERVER_PUBLIC_PROPERTY);
 		if (value == null || value.trim().length() == 0) {
 			value = BuildConfig.CRYPT_SERVER_PUBLIC_KEY_B64;
@@ -19,7 +23,7 @@ public final class CryptIdentity {
 		if (value == null || value.trim().length() == 0) {
 			throw new IllegalStateException("server public key pin is not configured");
 		}
-		return decodePublicKey(value);
+		return value.trim();
 	}
 
 	public static byte[] decodePublicKey(String value) {

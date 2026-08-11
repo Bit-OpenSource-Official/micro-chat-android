@@ -87,11 +87,24 @@ final class OutboxStore {
 			for (Attachment attachment : attachments) media.add(attachment.fileInfo());
 			if (media.isEmpty() && "file".equals(kind)) media.add(new MiniTaLib.FileInfo("", name, mime, size));
 			long localId = -Math.max(1L, Math.abs((long)id.hashCode()));
+			String previewPath = localPath != null && localPath.length() > 0 ? localPath : sourceUri;
+			if (previewPath == null || previewPath.length() == 0) {
+				for (Attachment attachment : attachments) {
+					if (attachment.localPath != null && attachment.localPath.length() > 0) {
+						previewPath = attachment.localPath;
+						break;
+					}
+					if (attachment.sourceUri != null && attachment.sourceUri.length() > 0) {
+						previewPath = attachment.sourceUri;
+						break;
+					}
+				}
+			}
 			return new MiniTaLib.Message(
 					localId, room ? "chat:" + peer : "", me, target,
 					text, createdAt, 0, media, null,
 					false, false, "", id, 0, state,
-					localPath != null && localPath.length() > 0 ? localPath : sourceUri,
+					previewPath,
 					new ArrayList<MiniTaLib.Reaction>(), null, 0, commentPostId, 0,
 					replyToMessageId, progressPercent, progressPhase
 			);
