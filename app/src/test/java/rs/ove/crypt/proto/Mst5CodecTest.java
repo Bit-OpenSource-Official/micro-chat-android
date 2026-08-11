@@ -19,7 +19,7 @@ public final class Mst5CodecTest {
 		assertArrayEquals(hex("a165746f6b656e63616263"), payload);
 		Mst5Frame frame = new Mst5Frame(Mst5Frame.AUTH, 0, 1, payload);
 		assertArrayEquals(
-				hex("0100000000000000000000010000000ba165746f6b656e63616263"),
+				hex("0100000000000000000000010000000000000000000000000000000000000000000000000000000ba165746f6b656e63616263"),
 				frame.encode(false)
 		);
 		Mst5Frame decoded = Mst5Frame.decode(frame.encode(false));
@@ -54,6 +54,16 @@ public final class Mst5CodecTest {
 				new Mst5Frame(Mst5Frame.RESULT, 200, 9, payload).encode(true)
 		);
 		assertArrayEquals(payload, encoded.payload);
+	}
+
+	@Test
+	public void mediaStreamKindsCarryRawBinaryWithoutCompression() throws Exception {
+		byte[] chunk = new byte[] {0, 1, 2, (byte)255};
+		Mst5Frame decoded = Mst5Frame.decode(
+				new Mst5Frame(Mst5Frame.STREAM_DATA, 0, 7, chunk).encode(false));
+		assertEquals(Mst5Frame.STREAM_DATA, decoded.kind);
+		assertEquals(7L, decoded.id);
+		assertArrayEquals(chunk, decoded.payload);
 	}
 
 	private static byte[] hex(String value) {

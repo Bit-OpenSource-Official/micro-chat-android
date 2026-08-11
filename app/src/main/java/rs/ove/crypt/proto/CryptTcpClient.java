@@ -15,6 +15,16 @@ import java.util.HashMap;
 
 public final class CryptTcpClient {
 	private static final long IDLE_RECONNECT_MS = 90000L;
+	private static final long FEATURE_MULTIPLEX = 1L;
+	private static final long FEATURE_STRUCTURED_ERRORS = 1L << 1;
+	private static final long FEATURE_CBOR_QUERY = 1L << 2;
+	private static final long FEATURE_IDEMPOTENCY = 1L << 3;
+	private static final long FEATURE_DEADLINE = 1L << 4;
+	private static final long FEATURE_CANCEL = 1L << 5;
+	private static final long FEATURE_MEDIA_STREAMS = 1L << 6;
+	private static final long FEATURES = FEATURE_MULTIPLEX | FEATURE_STRUCTURED_ERRORS
+			| FEATURE_CBOR_QUERY | FEATURE_IDEMPOTENCY | FEATURE_DEADLINE | FEATURE_CANCEL | FEATURE_MEDIA_STREAMS;
+	private static final long REQUIRED_FEATURES = FEATURE_STRUCTURED_ERRORS | FEATURE_IDEMPOTENCY | FEATURE_DEADLINE;
 	private static final int OP_REGISTER = 1;
 	private static final int OP_LOGIN = 2;
 	private static final int OP_EMAIL_AUTH_START = 3;
@@ -127,10 +137,15 @@ public final class CryptTcpClient {
 					: new JSONObject(new String(body, "UTF-8"));
 		}
 		long requestId = connection.nextId();
+		int kind = "GET".equals(normalizedMethod) ? Mst5Frame.QUERY : Mst5Frame.COMMAND;
+		byte[] requestNonce = new byte[16];
+		if (kind == Mst5Frame.COMMAND) CryptoRandom.nextBytes(requestNonce);
 		Mst5Frame frame = new Mst5Frame(
-				"GET".equals(normalizedMethod) ? Mst5Frame.QUERY : Mst5Frame.COMMAND,
+				kind,
 				opcode,
 				requestId,
+				requestNonce,
+				System.currentTimeMillis() + timeoutMs,
 				MiniCbor.encode(payload)
 		);
 		Mst5Frame response = connection.exchange(frame, timeoutMs);
@@ -195,11 +210,19 @@ public final class CryptTcpClient {
 		Socket socket = CompatSocketConnector.connect(endpoint.host, endpoint.port, endpoint.tls, timeoutMs);
 		InputStream input = socket.getInputStream();
 		OutputStream output = socket.getOutputStream();
-		SecureSessionV4 session = SecureSessionV4.clientV5(input, output, CryptIdentity.serverPublicKey());
+		SecureSession session = SecureSession.client(input, output, CryptIdentity.serverPublicKey());
 		socket.setSoTimeout(0);
 		Connection connection = new Connection(endpoint, socket, input, output, session, now);
 		connection.startReader();
-		return connection;
+		try {
+			connection.negotiate(timeoutMs);
+			return connection;
+		} catch (Exception error) {
+			connection.shutdown(error instanceof IOException
+					? (IOException)error
+					: new IOException("MST5 HELLO failed", error));
+			throw error;
+		}
 	}
 
 	private static void close(Connection connection) {
@@ -247,7 +270,7 @@ public final class CryptTcpClient {
 		private final Socket socket;
 		private final InputStream input;
 		private final OutputStream output;
-		private final SecureSessionV4 session;
+		private final SecureSession session;
 		private final Object writeLock = new Object();
 		private final Object pendingLock = new Object();
 		private final Object authLock = new Object();
@@ -258,7 +281,7 @@ public final class CryptTcpClient {
 		private volatile IOException failure;
 		private volatile boolean closed;
 
-		private Connection(Endpoint endpoint, Socket socket, InputStream input, OutputStream output, SecureSessionV4 session, long lastUsedAt) {
+		private Connection(Endpoint endpoint, Socket socket, InputStream input, OutputStream output, SecureSession session, long lastUsedAt) {
 			this.endpoint = endpoint;
 			this.socket = socket;
 			this.input = input;
@@ -269,6 +292,34 @@ public final class CryptTcpClient {
 
 		private synchronized long nextId() {
 			return nextRequestId++;
+		}
+
+		private void negotiate(int timeoutMs) throws Exception {
+			JSONObject hello = new JSONObject();
+			hello.put("transport_major", 5);
+			hello.put("rpc_major", 1);
+			hello.put("rpc_minor", 1);
+			hello.put("features", FEATURES);
+			hello.put("required_features", REQUIRED_FEATURES);
+			hello.put("max_frame", 4 * 1024 * 1024);
+			Mst5Frame response = exchange(
+					new Mst5Frame(Mst5Frame.HELLO, 0, 0L, MiniCbor.encode(hello)),
+					timeoutMs
+			);
+			if (response.kind != Mst5Frame.HELLO || response.code != 200 || response.id != 0L) {
+				throw new IOException("MST5.1 HELLO negotiation failed");
+			}
+			Object decoded = MiniCbor.decode(response.payload);
+			if (!(decoded instanceof JSONObject)) {
+				throw new IOException("invalid MST5.1 SERVER_HELLO");
+			}
+			JSONObject serverHello = (JSONObject)decoded;
+			if (serverHello.optInt("transport_major", 0) != 5
+					|| serverHello.optInt("rpc_major", 0) != 1
+					|| (serverHello.optLong("features", 0L) & REQUIRED_FEATURES) != REQUIRED_FEATURES
+					|| serverHello.optLong("max_frame", 0L) != 4L * 1024L * 1024L) {
+				throw new IOException("invalid MST5.1 SERVER_HELLO");
+			}
 		}
 
 		private Mst5Frame exchange(Mst5Frame frame, int timeoutMs) throws Exception {
@@ -282,7 +333,19 @@ public final class CryptTcpClient {
 					if (failure != null) throw failure;
 					session.writeEncryptedFrame(output, frame.encode(false));
 				}
-				return waiter.await(timeoutMs);
+				try {
+					return waiter.await(timeoutMs);
+				} catch (java.net.SocketTimeoutException timeout) {
+					synchronized (writeLock) {
+						if (failure == null) {
+							session.writeEncryptedFrame(
+									output,
+									new Mst5Frame(Mst5Frame.CANCEL, 0, frame.id, new byte[0]).encode(false)
+							);
+						}
+					}
+					throw timeout;
+				}
 			} finally {
 				synchronized (pendingLock) {
 					pending.remove(Long.valueOf(frame.id));

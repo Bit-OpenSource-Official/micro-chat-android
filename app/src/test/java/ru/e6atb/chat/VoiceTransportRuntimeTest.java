@@ -3,12 +3,9 @@ package ru.e6atb.chat;
 import org.junit.Assume;
 import org.junit.Test;
 
-import rs.ove.crypt.proto.SecureSessionV4;
+import rs.ove.crypt.proto.CryptTcpClient;
+import rs.ove.crypt.proto.SecureSession;
 
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.Socket;
-import java.util.Base64;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -32,12 +29,12 @@ public final class VoiceTransportRuntimeTest {
 		SimpleWebSocket socket = new SimpleWebSocket();
 		try {
 			socket.connect(url);
-			SecureSessionV4.ClientHello hello = SecureSessionV4.createClientHello();
+			SecureSession.ClientHello hello = SecureSession.createClientHello();
 			byte[] message = hello.message();
 			socket.sendBinary(message, message.length);
 			SimpleWebSocket.Frame frame = socket.readFrame();
 			assertEquals(SimpleWebSocket.BINARY, frame.opcode);
-			SecureSessionV4.openClient(hello, frame.payload);
+			SecureSession.openClient(hello, frame.payload);
 		} finally {
 			socket.close();
 		}
@@ -45,29 +42,16 @@ public final class VoiceTransportRuntimeTest {
 
 	private static String request(String address, String token, String method, String path, String body)
 			throws Exception {
-		int split = address.lastIndexOf(':');
-		Socket socket = new Socket(address.substring(0, split), Integer.parseInt(address.substring(split + 1)));
-		try {
-			InputStream input = socket.getInputStream();
-			OutputStream output = socket.getOutputStream();
-			SecureSessionV4 session = SecureSessionV4.client(
-					input,
-					output,
-					ru.e6atb.chat.BuildConfig.CRYPT_SERVER_PUBLIC_KEY_B64.isEmpty()
-							? new byte[0]
-							: java.util.Base64.getDecoder().decode(ru.e6atb.chat.BuildConfig.CRYPT_SERVER_PUBLIC_KEY_B64)
-			);
-			String encodedBody = Base64.getEncoder().encodeToString(body.getBytes("UTF-8"));
-			String request = "{\"method\":\"" + method + "\",\"path\":\"" + path + "\"" +
-					(token.length() == 0 ? "" : ",\"token\":\"" + token + "\"") +
-					",\"body\":\"" + encodedBody + "\"}";
-			session.writeEncryptedFrame(output, request.getBytes("UTF-8"));
-			String response = new String(session.readEncryptedFrame(input), "UTF-8");
-			String encoded = jsonString(response, "body");
-			return new String(Base64.getDecoder().decode(encoded), "UTF-8");
-		} finally {
-			socket.close();
-		}
+		CryptTcpClient.Response response = new CryptTcpClient().request(
+				address,
+				token,
+				method,
+				path,
+				body == null ? null : body.getBytes("UTF-8"),
+				10000
+		);
+		assertEquals(new String(response.body(), "UTF-8"), 200, response.code());
+		return new String(response.body(), "UTF-8");
 	}
 
 	private static String jsonString(String json, String name) {

@@ -19,43 +19,41 @@ import java.util.Arrays;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
-/** MicroMsg Secure Transport v4: Noise NK + authenticated padded records. */
-public final class SecureSessionV4 {
+/** MicroMsg Secure Transport v5: Noise NK + authenticated padded records. */
+public final class SecureSession {
 	static final int HANDSHAKE_MESSAGE_LENGTH = 48;
 	static final int MAX_PAYLOAD = 20 * 1024 * 1024;
 	private static final int TAG_LENGTH = 16;
 	private static final int PADDING_BLOCK = 256;
 	private static final long MAX_RECORDS = 1L << 20;
 	private static final long MAX_PLAINTEXT_BYTES = 1L << 30;
-	private static final byte[] CLIENT_MAGIC = new byte[] {'R', 'C', 'P', '4'};
-	private static final byte[] SERVER_MAGIC = new byte[] {'R', 'S', 'P', '4'};
-	private static final byte[] CLIENT_MAGIC_V5 = new byte[] {'R', 'C', 'P', '5'};
-	private static final byte[] SERVER_MAGIC_V5 = new byte[] {'R', 'S', 'P', '5'};
+	private static final long REKEY_RECORDS = 1L << 18;
+	private static final long REKEY_BYTES = 256L << 20;
+	private static final byte[] CLIENT_MAGIC = new byte[] {'R', 'C', 'P', '5'};
+	private static final byte[] SERVER_MAGIC = new byte[] {'R', 'S', 'P', '5'};
 	private static final byte[] PROTOCOL_NAME = ascii("Noise_NK_25519_ChaChaPoly_SHA256");
-	private static final byte[] PROLOGUE = ascii("MicroMsg Secure Transport v4\0RCP4\0RSP4");
-	private static final byte[] RECORD_LABEL = ascii("MST4 record");
-	private static final byte[] PROLOGUE_V5 = ascii("MicroMsg Secure Transport v5\0RCP5\0RSP5");
-	private static final byte[] RECORD_LABEL_V5 = ascii("MST5 record");
+	private static final byte[] PROLOGUE = ascii("MicroMsg Secure Transport v5\0RCP5\0RSP5");
+	private static final byte[] RECORD_LABEL = ascii("MST5 record");
 
 	private final CipherState seal;
 	private final CipherState open;
 	private final byte[] handshakeHash;
 	private final byte[] recordLabel;
 
-	private SecureSessionV4(CipherState seal, CipherState open, byte[] handshakeHash, byte[] recordLabel) {
+	private SecureSession(CipherState seal, CipherState open, byte[] handshakeHash, byte[] recordLabel) {
 		this.seal = seal;
 		this.open = open;
 		this.handshakeHash = handshakeHash.clone();
 		this.recordLabel = recordLabel.clone();
 	}
 
-	public static SecureSessionV4 client(
+	public static SecureSession client(
 			InputStream input,
 			OutputStream output,
 			byte[] pinnedServerPublicKey
 	) throws IOException, GeneralSecurityException {
 		ClientHandshake handshake = createClientHandshake(
-				V4KeyPair.generate(),
+				X25519KeyPair.generate(),
 				pinnedServerPublicKey
 		);
 		writeHandshake(output, CLIENT_MAGIC, handshake.message);
@@ -63,26 +61,9 @@ public final class SecureSessionV4 {
 		return finishClientHandshake(handshake, serverMessage);
 	}
 
-	/** MST5 keeps the Noise suite and pin while binding the v5 application protocol. */
-	public static SecureSessionV4 clientV5(
-			InputStream input,
-			OutputStream output,
-			byte[] pinnedServerPublicKey
-	) throws IOException, GeneralSecurityException {
-		ClientHandshake handshake = createClientHandshake(
-				V4KeyPair.generate(),
-				pinnedServerPublicKey,
-				PROLOGUE_V5,
-				RECORD_LABEL_V5
-		);
-		writeHandshake(output, CLIENT_MAGIC_V5, handshake.message);
-		byte[] serverMessage = readHandshake(input, SERVER_MAGIC_V5);
-		return finishClientHandshake(handshake, serverMessage);
-	}
-
 	public static ClientHello createClientHello() throws IOException, GeneralSecurityException {
 		ClientHandshake handshake = createClientHandshake(
-				V4KeyPair.generate(),
+				X25519KeyPair.generate(),
 				CryptIdentity.serverPublicKey()
 		);
 		byte[] envelope = new byte[6 + handshake.message.length];
@@ -93,14 +74,14 @@ public final class SecureSessionV4 {
 		return new ClientHello(handshake, envelope);
 	}
 
-	public static SecureSessionV4 openClient(ClientHello hello, byte[] serverEnvelope)
+	public static SecureSession openClient(ClientHello hello, byte[] serverEnvelope)
 			throws IOException, GeneralSecurityException {
 		if (hello == null || serverEnvelope == null
 				|| serverEnvelope.length != 6 + HANDSHAKE_MESSAGE_LENGTH
 				|| !matches(serverEnvelope, 0, SERVER_MAGIC)
 				|| (serverEnvelope[4] & 0xff) != 0
 				|| (serverEnvelope[5] & 0xff) != HANDSHAKE_MESSAGE_LENGTH) {
-			throw new IOException("invalid v4 server handshake envelope");
+			throw new IOException("invalid secure transport server handshake envelope");
 		}
 		return finishClientHandshake(
 				hello.handshake,
@@ -112,18 +93,18 @@ public final class SecureSessionV4 {
 			byte[] clientPrivateKey,
 			byte[] pinnedServerPublicKey
 	) throws IOException, GeneralSecurityException {
-		return createClientHandshake(V4KeyPair.fromPrivate(clientPrivateKey), pinnedServerPublicKey);
+		return createClientHandshake(X25519KeyPair.fromPrivate(clientPrivateKey), pinnedServerPublicKey);
 	}
 
 	private static ClientHandshake createClientHandshake(
-			V4KeyPair local,
+			X25519KeyPair local,
 			byte[] pinnedServerPublicKey
 	) throws IOException, GeneralSecurityException {
 		return createClientHandshake(local, pinnedServerPublicKey, PROLOGUE, RECORD_LABEL);
 	}
 
 	private static ClientHandshake createClientHandshake(
-			V4KeyPair local,
+			X25519KeyPair local,
 			byte[] pinnedServerPublicKey,
 			byte[] prologue,
 			byte[] recordLabel
@@ -138,7 +119,7 @@ public final class SecureSessionV4 {
 		try {
 			es = local.shared(pinnedServerPublicKey);
 		} catch (IllegalArgumentException ex) {
-			throw new IOException("invalid v4 server static key", ex);
+			throw new IOException("invalid secure transport server static key", ex);
 		}
 		requireNonzeroDh(es);
 		state.mixKey(es);
@@ -146,12 +127,12 @@ public final class SecureSessionV4 {
 		return new ClientHandshake(local, state, concat(clientPublic, tag), recordLabel);
 	}
 
-	static SecureSessionV4 finishClientHandshake(
+	static SecureSession finishClientHandshake(
 			ClientHandshake handshake,
 			byte[] serverMessage
 	) throws IOException, GeneralSecurityException {
 		if (serverMessage == null || serverMessage.length != HANDSHAKE_MESSAGE_LENGTH) {
-			throw new IOException("invalid v4 server handshake length");
+			throw new IOException("invalid secure transport server handshake length");
 		}
 		byte[] serverEphemeral = Arrays.copyOfRange(serverMessage, 0, 32);
 		handshake.state.mixHash(serverEphemeral);
@@ -159,7 +140,7 @@ public final class SecureSessionV4 {
 		try {
 			ee = handshake.local.shared(serverEphemeral);
 		} catch (IllegalArgumentException ex) {
-			throw new IOException("invalid v4 server ephemeral key", ex);
+			throw new IOException("invalid secure transport server ephemeral key", ex);
 		}
 		requireNonzeroDh(ee);
 		handshake.state.mixKey(ee);
@@ -167,10 +148,10 @@ public final class SecureSessionV4 {
 				Arrays.copyOfRange(serverMessage, 32, serverMessage.length)
 		);
 		if (payload.length != 0) {
-			throw new IOException("v4 server handshake payload must be empty");
+			throw new IOException("secure transport server handshake payload must be empty");
 		}
 		CipherState[] split = handshake.state.split();
-		return new SecureSessionV4(split[0], split[1], handshake.state.handshakeHash, handshake.recordLabel);
+		return new SecureSession(split[0], split[1], handshake.state.handshakeHash, handshake.recordLabel);
 	}
 
 	public void writeEncryptedFrame(OutputStream output, byte[] payload)
@@ -185,13 +166,13 @@ public final class SecureSessionV4 {
 			throws IOException, GeneralSecurityException {
 		int length = readInt(input);
 		if (length < 8 + TAG_LENGTH || length > maxRecordLength()) {
-			throw new IOException("invalid v4 encrypted frame length");
+			throw new IOException("invalid secure transport encrypted frame length");
 		}
 		byte[] record = new byte[length];
 		readFully(input, record, 0, length);
 		DecodedRecord decoded = openRecord(record);
 		if (decoded.contentType == 1) {
-			throw new EOFException("authenticated v4 close");
+			throw new EOFException("authenticated secure transport close");
 		}
 		return decoded.payload;
 	}
@@ -205,7 +186,7 @@ public final class SecureSessionV4 {
 			throws IOException, GeneralSecurityException {
 		DecodedRecord decoded = openRecord(record);
 		if (decoded.contentType != 0) {
-			throw new EOFException("authenticated v4 close");
+			throw new EOFException("authenticated secure transport close");
 		}
 		return decoded.payload;
 	}
@@ -225,18 +206,18 @@ public final class SecureSessionV4 {
 		byte[] record = new byte[frameLength];
 		writeLong(record, 0, sequence);
 		System.arraycopy(ciphertext, 0, record, 8, ciphertext.length);
-		seal.commit(plaintext.length);
+		seal.commit(plaintext.length, handshakeHash);
 		return record;
 	}
 
 	private DecodedRecord openRecord(byte[] record)
 			throws IOException, GeneralSecurityException {
 		if (record == null || record.length < 8 + TAG_LENGTH || record.length > maxRecordLength()) {
-			throw new IOException("invalid v4 encrypted record length");
+			throw new IOException("invalid secure transport encrypted record length");
 		}
 		long sequence = readLong(record, 0);
 		if (sequence != open.nonce) {
-			throw new IOException("v4 encrypted record sequence mismatch");
+			throw new IOException("secure transport encrypted record sequence mismatch");
 		}
 		int plaintextLength = record.length - 8 - TAG_LENGTH;
 		open.checkLimit(plaintextLength);
@@ -249,16 +230,16 @@ public final class SecureSessionV4 {
 				Arrays.copyOfRange(record, 8, record.length)
 		);
 		DecodedRecord decoded = decodePlaintext(plaintext);
-		open.commit(plaintext.length);
+		open.commit(plaintext.length, handshakeHash);
 		return decoded;
 	}
 
 	private static byte[] encodePlaintext(int contentType, byte[] payload) throws IOException {
 		if (contentType < 0 || contentType > 1 || (contentType == 1 && payload.length != 0)) {
-			throw new IOException("invalid v4 content type");
+			throw new IOException("invalid secure transport content type");
 		}
 		if (payload.length > MAX_PAYLOAD) {
-			throw new IOException("v4 payload is too large");
+			throw new IOException("secure transport payload is too large");
 		}
 		int base = 5 + payload.length;
 		int padded = ((base + PADDING_BLOCK - 1) / PADDING_BLOCK) * PADDING_BLOCK;
@@ -271,25 +252,25 @@ public final class SecureSessionV4 {
 
 	private static DecodedRecord decodePlaintext(byte[] plaintext) throws IOException {
 		if (plaintext.length < PADDING_BLOCK || plaintext.length % PADDING_BLOCK != 0) {
-			throw new IOException("invalid v4 plaintext padding length");
+			throw new IOException("invalid secure transport plaintext padding length");
 		}
 		int contentType = plaintext[0] & 0xff;
 		int payloadLength = readInt(plaintext, 1);
 		if (payloadLength < 0 || payloadLength > MAX_PAYLOAD || 5 + payloadLength > plaintext.length) {
-			throw new IOException("invalid v4 payload length");
+			throw new IOException("invalid secure transport payload length");
 		}
 		int paddingDiff = 0;
 		for (int i = 5 + payloadLength; i < plaintext.length; i++) {
 			paddingDiff |= plaintext[i] & 0xff;
 		}
 		if (paddingDiff != 0) {
-			throw new IOException("invalid v4 record padding");
+			throw new IOException("invalid secure transport record padding");
 		}
 		if (contentType == 1 && payloadLength == 0) {
 			return new DecodedRecord(contentType, new byte[0]);
 		}
 		if (contentType != 0) {
-			throw new IOException("invalid v4 record content type");
+			throw new IOException("invalid secure transport record content type");
 		}
 		return new DecodedRecord(0, Arrays.copyOfRange(plaintext, 5, 5 + payloadLength));
 	}
@@ -324,7 +305,7 @@ public final class SecureSessionV4 {
 		try {
 			count += cipher.doFinal(output, count);
 		} catch (InvalidCipherTextException ex) {
-			throw new GeneralSecurityException("v4 authentication failed", ex);
+			throw new GeneralSecurityException("secure transport authentication failed", ex);
 		}
 		return count == output.length ? output : Arrays.copyOf(output, count);
 	}
@@ -340,7 +321,7 @@ public final class SecureSessionV4 {
 	private static void writeHandshake(OutputStream output, byte[] magic, byte[] message)
 			throws IOException {
 		if (message.length != HANDSHAKE_MESSAGE_LENGTH) {
-			throw new IOException("invalid v4 handshake message length");
+			throw new IOException("invalid secure transport handshake message length");
 		}
 		output.write(magic);
 		output.write(0);
@@ -353,11 +334,11 @@ public final class SecureSessionV4 {
 		byte[] magic = new byte[4];
 		readFully(input, magic, 0, magic.length);
 		if (!Arrays.equals(magic, expectedMagic)) {
-			throw new IOException("invalid v4 handshake magic");
+			throw new IOException("invalid secure transport handshake magic");
 		}
 		int length = (readByte(input) << 8) | readByte(input);
 		if (length != HANDSHAKE_MESSAGE_LENGTH) {
-			throw new IOException("invalid v4 handshake message length");
+			throw new IOException("invalid secure transport handshake message length");
 		}
 		byte[] message = new byte[length];
 		readFully(input, message, 0, length);
@@ -367,7 +348,7 @@ public final class SecureSessionV4 {
 	private static void requireNonzeroDh(byte[] shared) throws IOException {
 		int combined = 0;
 		for (int i = 0; i < shared.length; i++) combined |= shared[i] & 0xff;
-		if (combined == 0) throw new IOException("invalid v4 X25519 shared secret");
+		if (combined == 0) throw new IOException("invalid secure transport X25519 shared secret");
 	}
 
 	private static int maxRecordLength() {
@@ -430,7 +411,7 @@ public final class SecureSessionV4 {
 		int done = 0;
 		while (done < length) {
 			int count = input.read(output, offset + done, length - done);
-			if (count < 0) throw new EOFException("unexpected end of v4 stream");
+			if (count < 0) throw new EOFException("unexpected end of secure transport stream");
 			if (count == 0) continue;
 			done += count;
 		}
@@ -438,7 +419,7 @@ public final class SecureSessionV4 {
 
 	private static int readByte(InputStream input) throws IOException {
 		int value = input.read();
-		if (value < 0) throw new EOFException("unexpected end of v4 stream");
+		if (value < 0) throw new EOFException("unexpected end of secure transport stream");
 		return value;
 	}
 
@@ -484,12 +465,12 @@ public final class SecureSessionV4 {
 	}
 
 	static final class ClientHandshake {
-		final V4KeyPair local;
+		final X25519KeyPair local;
 		final SymmetricState state;
 		final byte[] message;
 		final byte[] recordLabel;
 
-		private ClientHandshake(V4KeyPair local, SymmetricState state, byte[] message, byte[] recordLabel) {
+		private ClientHandshake(X25519KeyPair local, SymmetricState state, byte[] message, byte[] recordLabel) {
 			this.local = local;
 			this.state = state;
 			this.message = message;
@@ -511,24 +492,24 @@ public final class SecureSessionV4 {
 		}
 	}
 
-	private static final class V4KeyPair {
+	private static final class X25519KeyPair {
 		private final X25519PrivateKeyParameters privateKey;
 		private final byte[] publicKey;
 
-		private V4KeyPair(X25519PrivateKeyParameters privateKey) {
+		private X25519KeyPair(X25519PrivateKeyParameters privateKey) {
 			this.privateKey = privateKey;
 			this.publicKey = privateKey.generatePublicKey().getEncoded();
 		}
 
-		private static V4KeyPair generate() {
-			return new V4KeyPair(new X25519PrivateKeyParameters(CryptoRandom.instance()));
+		private static X25519KeyPair generate() {
+			return new X25519KeyPair(new X25519PrivateKeyParameters(CryptoRandom.instance()));
 		}
 
-		private static V4KeyPair fromPrivate(byte[] privateKey) {
+		private static X25519KeyPair fromPrivate(byte[] privateKey) {
 			if (privateKey == null || privateKey.length != 32) {
 				throw new IllegalArgumentException("X25519 private key must be 32 bytes");
 			}
-			return new V4KeyPair(new X25519PrivateKeyParameters(privateKey));
+			return new X25519KeyPair(new X25519PrivateKeyParameters(privateKey));
 		}
 
 		private byte[] shared(byte[] remotePublic) {
@@ -594,21 +575,35 @@ public final class SecureSessionV4 {
 		private final byte[] key;
 		private long nonce;
 		private long plaintextBytes;
+		private long generation;
 
 		private CipherState(byte[] key) {
 			this.key = key.clone();
 		}
 
 		private void checkLimit(int plaintextLength) throws IOException {
-			if (nonce >= MAX_RECORDS) throw new IOException("v4 record limit reached; reconnect required");
+			if (nonce >= MAX_RECORDS) throw new IOException("secure transport record limit reached; reconnect required");
 			if (plaintextLength < 0 || plaintextBytes > MAX_PLAINTEXT_BYTES - plaintextLength) {
-				throw new IOException("v4 byte limit reached; reconnect required");
+				throw new IOException("secure transport byte limit reached; reconnect required");
 			}
 		}
 
-		private void commit(int plaintextLength) {
+		private void commit(int plaintextLength, byte[] handshakeHash)
+				throws IOException, GeneralSecurityException {
 			plaintextBytes += plaintextLength;
 			nonce++;
+			if (nonce >= REKEY_RECORDS || plaintextBytes >= REKEY_BYTES) {
+				if (generation == Long.MAX_VALUE) throw new IOException("MST5 key generation exhausted");
+				generation++;
+				byte[] encodedGeneration = new byte[8];
+				writeLong(encodedGeneration, 0, generation);
+				byte[][] output = hkdf(key, concat(handshakeHash, encodedGeneration), 2);
+				System.arraycopy(output[0], 0, key, 0, key.length);
+				Arrays.fill(output[0], (byte)0);
+				Arrays.fill(output[1], (byte)0);
+				nonce = 0;
+				plaintextBytes = 0;
+			}
 		}
 	}
 

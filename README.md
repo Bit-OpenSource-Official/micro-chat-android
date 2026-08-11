@@ -29,10 +29,11 @@ ms.ove.rs:8080
 
 ## Transport and links
 
-The client uses MicroMsg Secure Transport v5 (MST5, `RCP5`/`RSP5`) over TCP.
+The client uses MicroMsg Secure Transport v5.1 (MST5, `RCP5`/`RSP5`) over TCP.
 MST5 uses Noise `NK_25519_ChaChaPoly_SHA256`, pins the production server X25519
-public key, carries canonical CBOR frames, multiplexes requests, and compresses
-eligible payloads. The production pin is committed in `app/build.gradle` so
+public key, negotiates features in an encrypted HELLO, carries 40-byte CBOR
+frames with command nonces/deadlines, multiplexes requests, cancels timed-out
+work, rekeys automatically, and compresses eligible payloads. The production pin is committed in `app/build.gradle` so
 official builds are reproducible. A custom server can override it with
 `-PcryptServerPublicKeyB64=...`, `CRYPT_SERVER_PUBLIC_KEY_B64`, or `.env`.
 
@@ -101,6 +102,18 @@ It uses the branch suffix as `versionName`, assigns a monotonically increasing
 - a GitHub Release tagged `vVERSION` and titled `OVE.rs VERSION`;
 - the signed APK;
 - `update.json` containing the package, version, size, and SHA-256 checksum.
+
+Publish the current commit of a clean local `main` as a remote release branch
+with one command:
+
+```bash
+make release-branch 0.9.9
+```
+
+The command does not create or check out a local release branch. It pushes the
+current local `main` commit directly to `origin/release/0.9.9`, which starts the
+release workflow. Local `main` may be ahead of `origin/main`, but may not be
+behind or diverged from it.
 
 The client checks the repository's latest GitHub Release from Settings, verifies
 the package ID, file size, and checksum, then opens Android's package installer.

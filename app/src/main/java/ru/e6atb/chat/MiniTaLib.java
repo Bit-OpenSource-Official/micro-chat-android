@@ -6,17 +6,16 @@ import org.json.JSONObject;
 import android.content.Context;
 
 import rs.ove.crypt.proto.CryptTcpClient;
+import rs.ove.crypt.proto.Mst5MediaClient;
 import rs.ove.crypt.proto.E2ECipher;
 import rs.ove.crypt.proto.E2EKeyBackup;
 
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.URL;
-import java.net.HttpURLConnection;
+import java.net.Socket;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
@@ -461,7 +460,7 @@ final class MiniTaLib {
 
 	static final class TransferControl {
 		private volatile boolean cancelled;
-		private volatile HttpURLConnection connection;
+		private volatile Socket socket;
 		private volatile InputStream input;
 		private final ProgressListener listener;
 
@@ -473,17 +472,17 @@ final class MiniTaLib {
 			cancelled = true;
 			InputStream currentInput = input;
 			if (currentInput != null) try { currentInput.close(); } catch (Exception ignored) {}
-			HttpURLConnection currentConnection = connection;
-			if (currentConnection != null) currentConnection.disconnect();
+			Socket currentSocket = socket;
+			if (currentSocket != null) try { currentSocket.close(); } catch (Exception ignored) {}
 		}
 
-		private void bind(HttpURLConnection value, InputStream source) {
-			connection = value;
+		private void bind(Socket value, InputStream source) {
+			socket = value;
 			input = source;
 			if (cancelled) cancel();
 		}
 
-		private void clear() { connection = null; input = null; }
+		private void clear() { socket = null; input = null; }
 
 		private void progress(long completed, long total) {
 			if (listener != null) listener.onProgress(completed, total);
@@ -535,7 +534,8 @@ final class MiniTaLib {
 			if (source == null || source.source == null || ticket.optLong("size") != source.size) {
 				throw new IOException("server returned an invalid media ticket");
 			}
-			directUpload(ticket.getString("upload_url"), ticket.getString("ticket"), source.size,
+			directUpload(ticket.getString("endpoint"), ticket.getString("server_public_key"),
+					ticket.getString("ticket"), ticket.getString("file_id"), source.size,
 					source.source, transfer, completed, total);
 			completed += source.size;
 		}
@@ -576,45 +576,24 @@ final class MiniTaLib {
 		return message(post("/forward", body, 10000).getJSONObject("message"));
 	}
 
-	private static void directUpload(String uploadUrl, String ticket, long size, UploadSource source,
+	private static void directUpload(String endpoint, String serverPublicKey, String ticket, String fileId,
+	                                 long size, UploadSource source,
 	                                 TransferControl transfer, long progressBase, long progressTotal) throws Exception {
-		HttpURLConnection connection = (HttpURLConnection)new URL(uploadUrl).openConnection();
 		InputStream input = null;
 		try {
-			connection.setConnectTimeout(10000);
-			connection.setReadTimeout(30000);
-			connection.setRequestMethod("PUT");
-			connection.setRequestProperty("Authorization", "Bearer " + ticket);
-			connection.setRequestProperty("Content-Type", "application/octet-stream");
-			connection.setFixedLengthStreamingMode((int)size);
-			connection.setDoOutput(true);
 			input = source.open();
 			if (input == null) throw new IOException("file is not available");
-			if (transfer != null) transfer.bind(connection, input);
-			OutputStream output = connection.getOutputStream();
-			try {
-				byte[] buffer = new byte[64 * 1024];
-				long written = 0;
-				while (written < size) {
-					if (transfer != null && transfer.isCancelled()) throw new IOException("upload cancelled");
-					int wanted = (int)Math.min(buffer.length, size - written);
-					int count = input.read(buffer, 0, wanted);
-					if (count < 0) throw new IOException("file size changed");
-					output.write(buffer, 0, count);
-					written += count;
-					if (transfer != null) transfer.progress(progressBase + written, progressTotal);
-				}
-				if (input.read() >= 0) throw new IOException("file size changed");
-				output.flush();
-			} finally { output.close(); }
-			int code = connection.getResponseCode();
-			InputStream responseInput = code >= 400 ? connection.getErrorStream() : connection.getInputStream();
-			if (responseInput != null) try { while (responseInput.read() >= 0) {} } finally { responseInput.close(); }
-			if (code < 200 || code >= 300) throw new IOException("file node returned " + code);
+			final InputStream boundInput = input;
+			Mst5MediaClient.upload(endpoint, serverPublicKey, ticket, fileId, size, input,
+					transfer == null ? null : new Mst5MediaClient.Observer() {
+						public boolean isCancelled() { return transfer.isCancelled(); }
+						public void onConnected(Socket socket, InputStream ignored) { transfer.bind(socket, boundInput); }
+						public void onProgress(long value, long ignored) { transfer.progress(progressBase + value, progressTotal); }
+						public void onClosed() { transfer.clear(); }
+					});
 		} finally {
 			if (input != null) try { input.close(); } catch (Exception ignored) {}
 			if (transfer != null) transfer.clear();
-			connection.disconnect();
 		}
 	}
 
@@ -669,61 +648,33 @@ final class MiniTaLib {
 		post("/users/unban", body, 10000);
 	}
 
-	String fileUrl(String fileID) throws Exception {
-		return get("/file/ticket?id=" + enc(fileID), 10000).getString("download_url");
-	}
-
 	byte[] downloadFileBytes(String fileID, int maxBytes) throws Exception {
 		JSONObject ticket = get("/file/ticket?id=" + enc(fileID), 10000);
 		long announced = ticket.optLong("size", -1);
 		if (maxBytes > 0 && announced > maxBytes) throw new RuntimeException("file is too large");
-		HttpURLConnection connection = (HttpURLConnection)new URL(ticket.getString("download_url")).openConnection();
-		try {
-			connection.setConnectTimeout(10000);
-			connection.setReadTimeout(30000);
-			int code = connection.getResponseCode();
-			if (code < 200 || code >= 300) throw new IOException("file node returned " + code);
-			InputStream input = connection.getInputStream();
-			try {
-				ByteArrayOutputStream output = new ByteArrayOutputStream(announced > 0 && announced < Integer.MAX_VALUE ? (int)announced : 4096);
-				byte[] buffer = new byte[8192];
-				int count;
-				while ((count = input.read(buffer)) >= 0) {
-					if (maxBytes > 0 && output.size() + count > maxBytes) throw new IOException("file is too large");
-					output.write(buffer, 0, count);
-				}
-				return output.toByteArray();
-			} finally { input.close(); }
-		} finally { connection.disconnect(); }
+		return Mst5MediaClient.downloadBytes(
+				ticket.getString("endpoint"), ticket.getString("server_public_key"),
+				ticket.getString("ticket"), ticket.getString("file_id"), announced, maxBytes);
 	}
 
 	void downloadFile(String fileID, File target, long maxBytes, ProgressListener listener) throws Exception {
 		JSONObject ticket = get("/file/ticket?id=" + enc(fileID), 10000);
 		long announced = ticket.optLong("size", -1);
 		if (maxBytes > 0 && announced > maxBytes) throw new IOException("file is too large");
-		HttpURLConnection connection = (HttpURLConnection)new URL(ticket.getString("download_url")).openConnection();
 		File temporary = new File(target.getParentFile(), target.getName() + ".part");
 		try {
-			connection.setConnectTimeout(10000);
-			connection.setReadTimeout(30000);
-			int code = connection.getResponseCode();
-			if (code < 200 || code >= 300) throw new IOException("file node returned " + code);
-			InputStream input = connection.getInputStream();
 			FileOutputStream output = new FileOutputStream(temporary);
-			long completed = 0;
 			try {
-				byte[] buffer = new byte[64 * 1024];
-				int count;
-				while ((count = input.read(buffer)) >= 0) {
-					completed += count;
-					if (maxBytes > 0 && completed > maxBytes) throw new IOException("file is too large");
-					output.write(buffer, 0, count);
-					if (listener != null) listener.onProgress(completed, announced);
-				}
-			} finally {
-				try { output.close(); } finally { input.close(); }
-			}
-			if (announced >= 0 && completed != announced) throw new IOException("downloaded file size mismatch");
+				Mst5MediaClient.download(
+						ticket.getString("endpoint"), ticket.getString("server_public_key"),
+						ticket.getString("ticket"), ticket.getString("file_id"), announced, output,
+						listener == null ? null : new Mst5MediaClient.Observer() {
+							public boolean isCancelled() { return false; }
+							public void onConnected(Socket socket, InputStream source) {}
+							public void onProgress(long completed, long total) { listener.onProgress(completed, total); }
+							public void onClosed() {}
+						});
+			} finally { output.close(); }
 			if (!temporary.renameTo(target)) {
 				target.delete();
 				if (!temporary.renameTo(target)) throw new IOException("cannot save downloaded file");
@@ -731,7 +682,7 @@ final class MiniTaLib {
 		} catch (Exception error) {
 			temporary.delete();
 			throw error;
-		} finally { connection.disconnect(); }
+		}
 	}
 
 	void sendCall(String to, String action) throws Exception {
