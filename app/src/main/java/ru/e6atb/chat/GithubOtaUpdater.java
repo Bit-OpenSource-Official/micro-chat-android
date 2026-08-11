@@ -32,15 +32,18 @@ final class GithubOtaUpdater {
 		}
 		JSONObject release = fetchJson(API_BASE + repository + "/releases/latest");
 		JSONArray assets = release.optJSONArray("assets");
-		JSONObject apkAsset = findApkAsset(assets);
-		if (apkAsset == null) {
-			throw new IOException("release APK asset not found");
-		}
-
 		JSONObject metadata = null;
 		JSONObject metadataAsset = findMetadataAsset(assets);
 		if (metadataAsset != null) {
 			metadata = fetchJson(metadataAsset.optString("browser_download_url", ""));
+		}
+		String metadataApkName = metadata == null ? "" : metadata.optString("apkName", "").trim();
+		JSONObject apkAsset = findApkAsset(assets, metadataApkName);
+		if (apkAsset == null) {
+			if (metadataApkName.length() > 0) {
+				throw new IOException("release APK asset not found: " + metadataApkName);
+			}
+			throw new IOException("release APK asset not found");
 		}
 
 		String tag = release.optString("tag_name", "");
@@ -66,6 +69,8 @@ final class GithubOtaUpdater {
 		update.apkMime = APK_MIME;
 		update.apkSha256 = metadata == null ? "" : metadata.optString("apkSha256", "");
 		update.apkSize = metadata == null ? -1L : metadata.optLong("apkSize", -1L);
+		long assetSize = apkAsset.optLong("size", -1L);
+		validateAssetSize(update.apkSize, assetSize);
 		if (update.apkUrl.length() == 0) {
 			throw new IOException("release APK URL not found");
 		}
@@ -99,18 +104,33 @@ final class GithubOtaUpdater {
 		return target;
 	}
 
-	private static JSONObject findApkAsset(JSONArray assets) {
+	static JSONObject findApkAsset(JSONArray assets, String expectedName) {
 		if (assets == null) return null;
+		expectedName = expectedName == null ? "" : expectedName.trim();
+		if (expectedName.length() > 0) {
+			for (int i = 0; i < assets.length(); i++) {
+				JSONObject asset = assets.optJSONObject(i);
+				if (asset != null && expectedName.equals(asset.optString("name", ""))) return asset;
+			}
+			return null;
+		}
 		JSONObject fallback = null;
 		for (int i = 0; i < assets.length(); i++) {
 			JSONObject asset = assets.optJSONObject(i);
 			if (asset == null) continue;
 			String name = asset.optString("name", "").toLowerCase(Locale.US);
 			if (!name.endsWith(".apk")) continue;
+			if (name.indexOf("debug") >= 0) continue;
 			if (fallback == null) fallback = asset;
-			if (name.indexOf("debug") < 0) return asset;
+			if (name.endsWith("-universal.apk") || name.equals("universal.apk")) return asset;
 		}
 		return fallback;
+	}
+
+	static void validateAssetSize(long metadataSize, long assetSize) throws IOException {
+		if (metadataSize >= 0 && assetSize >= 0 && metadataSize != assetSize) {
+			throw new IOException("release APK size mismatch");
+		}
 	}
 
 	private static JSONObject findMetadataAsset(JSONArray assets) {

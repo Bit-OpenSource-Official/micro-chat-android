@@ -122,17 +122,30 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.version.outputs.tag }}
           RELEASE_NAME: OVE.rs ${{ steps.version.outputs.name }}
+          RELEASE_VERSION: ${{ steps.version.outputs.name }}
         run: |
+          universal="release/ove-rs-${RELEASE_VERSION}-universal.apk"
+          armv6="release/ove-rs-${RELEASE_VERSION}-armv6.apk"
+          armv7="release/ove-rs-${RELEASE_VERSION}-armv7.apk"
+          arm64="release/ove-rs-${RELEASE_VERSION}-arm64.apk"
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_TAG}" \
-              release/*.apk release/update.json release/SHA256SUMS --clobber
+              "${universal}" release/update.json release/SHA256SUMS --clobber
+            gh release upload "${RELEASE_TAG}" "${armv6}" "${armv7}" "${arm64}" --clobber
             gh release edit "${RELEASE_TAG}" \
               --title "${RELEASE_NAME}" \
               --notes-file release/release-notes.md
           else
             gh release create "${RELEASE_TAG}" \
-              release/*.apk release/update.json release/SHA256SUMS \
+              "${universal}" release/update.json release/SHA256SUMS \
               --target "${GITHUB_SHA}" \
               --title "${RELEASE_NAME}" \
               --notes-file release/release-notes.md
+            gh release upload "${RELEASE_TAG}" "${armv6}" "${armv7}" "${arm64}"
+          fi
+          first_apk="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            --jq '[.assets[] | select(.name | endswith(".apk"))][0].name')"
+          if [[ "${first_apk}" != "$(basename "${universal}")" ]]; then
+            echo "Universal APK must be the first release APK for legacy OTA clients; got ${first_apk}" >&2
+            exit 1
           fi

@@ -810,10 +810,13 @@ final class MiniTaLib {
 		body.put("peer", peer);
 		JSONObject response = post("/voice-ticket", body, 10000);
 		String ticket = response.optString("ticket");
-		if (ticket == null || ticket.length() == 0) {
+		String endpoint = response.optString("endpoint");
+		String serverPublicKey = response.optString("server_public_key");
+		if (ticket == null || ticket.length() == 0 || endpoint == null || endpoint.length() == 0
+				|| serverPublicKey == null || serverPublicKey.length() == 0) {
 			throw new IOException("server did not return a voice ticket");
 		}
-		return new VoiceAccess(baseUrl, CryptIdentity.serverPublicKeyBase64(), ticket);
+		return new VoiceAccess(endpoint, serverPublicKey, ticket);
 	}
 
 	List<User> voiceParticipants(String chat) throws Exception {
