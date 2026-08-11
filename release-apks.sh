@@ -36,7 +36,7 @@ build_apk armeabi armv6 0
 build_apk armeabi-v7a armv7 0
 build_apk arm64-v8a arm64 0
 
-universal_name="ove-rs-${version}-universal.apk"
+universal_name="ove-rs-${version}-all.apk"
 universal_path="${release_dir}/${universal_name}"
 universal_sha256="$(sha256sum "${universal_path}" | awk '{print $1}')"
 universal_size="$(wc -c < "${universal_path}")"
@@ -55,7 +55,7 @@ EOF
 (
 	cd "${release_dir}"
 	sha256sum \
-		"ove-rs-${version}-universal.apk" \
+		"${universal_name}" \
 		"ove-rs-${version}-armv6.apk" \
 		"ove-rs-${version}-armv7.apk" \
 		"ove-rs-${version}-arm64.apk" > SHA256SUMS
@@ -71,7 +71,7 @@ cat > "${release_dir}/release-notes.md" <<EOF
 
 | Сборка | Совместимость | Размер | Скачать |
 |---|---|---:|---|
-| Универсальная | ARMv6, ARMv7 и ARM64 | $(size_of "${release_dir}/ove-rs-${version}-universal.apk") | [ove-rs-${version}-universal.apk](${asset_url}/ove-rs-${version}-universal.apk) |
+| Универсальная | ARMv6, ARMv7 и ARM64 | $(size_of "${universal_path}") | [${universal_name}](${asset_url}/${universal_name}) |
 | ARMv6 | armeabi, Android 2.3+ | $(size_of "${release_dir}/ove-rs-${version}-armv6.apk") | [ove-rs-${version}-armv6.apk](${asset_url}/ove-rs-${version}-armv6.apk) |
 | ARMv7 | armeabi-v7a | $(size_of "${release_dir}/ove-rs-${version}-armv7.apk") | [ove-rs-${version}-armv7.apk](${asset_url}/ove-rs-${version}-armv7.apk) |
 | ARM64 | arm64-v8a | $(size_of "${release_dir}/ove-rs-${version}-arm64.apk") | [ove-rs-${version}-arm64.apk](${asset_url}/ove-rs-${version}-arm64.apk) |

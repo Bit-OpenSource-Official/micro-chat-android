@@ -122,7 +122,8 @@ final class GithubOtaUpdater {
 			if (!name.endsWith(".apk")) continue;
 			if (name.indexOf("debug") >= 0) continue;
 			if (fallback == null) fallback = asset;
-			if (name.endsWith("-universal.apk") || name.equals("universal.apk")) return asset;
+			if (name.endsWith("-all.apk") || name.equals("all.apk")
+					|| name.endsWith("-universal.apk") || name.equals("universal.apk")) return asset;
 		}
 		return fallback;
 	}

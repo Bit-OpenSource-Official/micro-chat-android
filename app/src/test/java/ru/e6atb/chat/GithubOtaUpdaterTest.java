@@ -34,6 +34,15 @@ public class GithubOtaUpdaterTest {
 		JSONArray assets = new JSONArray()
 				.put(asset("app-debug.apk", 1))
 				.put(asset("ove-rs-0.10.2-arm64.apk", 10))
+				.put(asset("ove-rs-0.10.2-all.apk", 20));
+		assertEquals("ove-rs-0.10.2-all.apk",
+				GithubOtaUpdater.findApkAsset(assets, "").getString("name"));
+	}
+
+	@Test
+	public void legacyFallbackStillRecognizesOldUniversalName() throws Exception {
+		JSONArray assets = new JSONArray()
+				.put(asset("ove-rs-0.10.2-arm64.apk", 10))
 				.put(asset("ove-rs-0.10.2-universal.apk", 20));
 		assertEquals("ove-rs-0.10.2-universal.apk",
 				GithubOtaUpdater.findApkAsset(assets, "").getString("name"));
