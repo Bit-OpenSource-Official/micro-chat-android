@@ -144,3 +144,10 @@ jobs:
               --title "${RELEASE_NAME}" \
               --notes-file release/release-notes.md
           fi
+          tag_sha="$(gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/git/refs/tags/${RELEASE_TAG}" \
+            -f sha="${GITHUB_SHA}" -F force=true --jq '.object.sha')"
+          if [[ "${tag_sha}" != "${GITHUB_SHA}" ]]; then
+            echo "Release tag points to ${tag_sha}, expected ${GITHUB_SHA}" >&2
+            exit 1
+          fi
