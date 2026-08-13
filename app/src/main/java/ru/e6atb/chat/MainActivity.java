@@ -462,6 +462,7 @@ public final class MainActivity extends Activity {
 		paidReactionBatches.clear();
 		paidReactionIo.shutdownNow();
 		recycleComposerPreviews();
+		if (ta != null) ta.close();
 		super.onDestroy();
 	}
 
@@ -531,6 +532,16 @@ public final class MainActivity extends Activity {
 		lastUpdate = SessionStore.lastUpdate(this);
 		ta = new MiniTaLib(this, url, token, myID, myLogin);
 		final MiniTaLib c = ta;
+		io.execute(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					CrashReportDispatcher.dispatch(MainActivity.this, c);
+				} catch (Exception ignored) {
+					// The report remains pending and is retried by the foreground service.
+				}
+			}
+		});
 		status.setText(getString(R.string.status_online));
 		showChats();
 		startPolling();
@@ -2005,7 +2016,7 @@ public final class MainActivity extends Activity {
 			return new MiniTaLib.NodeStatus("e2e", getString(R.string.node_e2e_keys), "check_failed", 0, 1);
 		}
 		try {
-			rs.ove.crypt.proto.E2ECipher.Identity local = SessionStore.e2eIdentity(this, accountKey);
+			rs.ove.crypt.proto.NativeE2E.Identity local = SessionStore.e2eIdentity(this, accountKey);
 			String registered = c == null ? "" : c.ownE2EPublicKey();
 			if (local != null && registered.length() > 0 && local.publicKeyB64.equals(registered)) {
 				return new MiniTaLib.NodeStatus("e2e", getString(R.string.node_e2e_keys), "online", 1, 1);
@@ -3463,6 +3474,7 @@ public final class MainActivity extends Activity {
 			@Override
 			public void run() throws Exception {
 				try {
+					if (ta != null) ta.close();
 					ta = new MiniTaLib(MainActivity.this, url);
 					MiniTaLib.User u = ta.verifyEmailAuth(mail, code, cloud);
 					finishAuth(url, u);
@@ -3506,6 +3518,7 @@ public final class MainActivity extends Activity {
 			@Override
 			public void run() throws Exception {
 				try {
+					if (ta != null) ta.close();
 					ta = new MiniTaLib(MainActivity.this, url);
 					MiniTaLib.User u = ta.resetCloudPassword(mail, code);
 					finishAuth(url, u);
@@ -3577,10 +3590,13 @@ public final class MainActivity extends Activity {
 		applyRootPadding(rootView);
 		requestApplyInsetsCompat(rootView);
 		if (ta != null && !ta.token().isEmpty()) {
-			ta = new MiniTaLib(this, url, ta.token(), myID, myLogin);
+			MiniTaLib previous = ta;
+			ta = new MiniTaLib(this, url, previous.token(), myID, myLogin);
+			previous.close();
 			SessionStore.save(this, url, ta.token(), myID, myLogin);
 			startSyncService();
 		} else {
+			if (ta != null) ta.close();
 			ta = null;
 			stopPolling();
 		}
@@ -3625,6 +3641,7 @@ public final class MainActivity extends Activity {
 		voiceCall.stop();
 		stopService(new Intent(this, MessageSyncService.class));
 		SessionStore.clear(this);
+		if (ta != null) ta.close();
 		ta = null;
 		myID = "";
 		myEmail = "";

@@ -55,7 +55,7 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rust-src
-          targets: aarch64-linux-android,armv7-linux-androideabi,arm-linux-androideabi
+          targets: aarch64-linux-android,armv7-linux-androideabi,arm-linux-androideabi,x86_64-linux-android
 
       - name: Install Android SDK packages
         run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.3.11579264"
@@ -112,6 +112,7 @@ jobs:
             release/ove-rs-${{ steps.version.outputs.name }}-armv6.apk
             release/ove-rs-${{ steps.version.outputs.name }}-armv7.apk
             release/ove-rs-${{ steps.version.outputs.name }}-arm64.apk
+            release/ove-rs-${{ steps.version.outputs.name }}-x86_64.apk
             release/update.json
             release/SHA256SUMS
             release/release-notes.md
@@ -128,6 +129,7 @@ jobs:
           armv6="release/ove-rs-${RELEASE_VERSION}-armv6.apk"
           armv7="release/ove-rs-${RELEASE_VERSION}-armv7.apk"
           arm64="release/ove-rs-${RELEASE_VERSION}-arm64.apk"
+          x86_64="release/ove-rs-${RELEASE_VERSION}-x86_64.apk"
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             for stale_name in "ove-rs-${RELEASE_VERSION}-universal.apk"; do
               stale_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
@@ -138,14 +140,14 @@ jobs:
               fi
             done
             gh release upload "${RELEASE_TAG}" \
-              "${universal}" "${armv6}" "${armv7}" "${arm64}" \
+              "${universal}" "${armv6}" "${armv7}" "${arm64}" "${x86_64}" \
               release/update.json release/SHA256SUMS --clobber
             gh release edit "${RELEASE_TAG}" \
               --title "${RELEASE_NAME}" \
               --notes-file release/release-notes.md
           else
             gh release create "${RELEASE_TAG}" \
-              "${universal}" "${armv6}" "${armv7}" "${arm64}" \
+              "${universal}" "${armv6}" "${armv7}" "${arm64}" "${x86_64}" \
               release/update.json release/SHA256SUMS \
               --target "${GITHUB_SHA}" \
               --title "${RELEASE_NAME}" \

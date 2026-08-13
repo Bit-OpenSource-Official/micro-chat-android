@@ -53,10 +53,12 @@ public class GithubOtaUpdaterTest {
 				.put("apks", new JSONObject()
 				.put("armv6", new JSONObject().put("apkName", "app-armv6.apk"))
 				.put("armv7", new JSONObject().put("apkName", "app-armv7.apk"))
-				.put("arm64", new JSONObject().put("apkName", "app-arm64.apk")));
+				.put("arm64", new JSONObject().put("apkName", "app-arm64.apk"))
+				.put("x86_64", new JSONObject().put("apkName", "app-x86_64.apk")));
 		assertEquals("app-armv6.apk", GithubOtaUpdater.findApkMetadata(metadata, "armv6").getString("apkName"));
 		assertEquals("app-armv7.apk", GithubOtaUpdater.findApkMetadata(metadata, "armv7").getString("apkName"));
 		assertEquals("app-arm64.apk", GithubOtaUpdater.findApkMetadata(metadata, "arm64").getString("apkName"));
+		assertEquals("app-x86_64.apk", GithubOtaUpdater.findApkMetadata(metadata, "x86_64").getString("apkName"));
 	}
 
 	@Test
@@ -64,7 +66,7 @@ public class GithubOtaUpdaterTest {
 		assertEquals("arm64", GithubOtaUpdater.selectArchitecture(new String[] {"arm64-v8a", "armeabi-v7a"}));
 		assertEquals("armv7", GithubOtaUpdater.selectArchitecture(new String[] {"armeabi-v7a", "armeabi"}));
 		assertEquals("armv6", GithubOtaUpdater.selectArchitecture(new String[] {"armeabi"}));
-		assertEquals("", GithubOtaUpdater.selectArchitecture(new String[] {"x86_64"}));
+		assertEquals("x86_64", GithubOtaUpdater.selectArchitecture(new String[] {"x86_64"}));
 	}
 
 	@Test

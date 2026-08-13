@@ -66,12 +66,17 @@ public final class NativeMst5 {
 		}
 	}
 
+	public static void installCrashHandler(String path) throws IOException {
+		requireAvailable();
+		nativeInstallCrashHandler(path);
+	}
+
 	private static String supportedAbi(Context context) {
 		String[] candidates = Build.VERSION.SDK_INT >= 21
 				? Api21.supportedAbis()
 				: new String[] {"armeabi"};
 		for (String abi : candidates) {
-			if (("arm64-v8a".equals(abi) || "armeabi-v7a".equals(abi) || "armeabi".equals(abi))
+			if (("arm64-v8a".equals(abi) || "armeabi-v7a".equals(abi) || "armeabi".equals(abi) || "x86_64".equals(abi))
 					&& assetExists(context, "mst5-native/" + abi + "/libmst5_android.so")) return abi;
 		}
 		return null;
@@ -207,6 +212,36 @@ public final class NativeMst5 {
 		try { nativeVoiceClose(handle); } catch (Throwable ignored) {}
 	}
 
+	static long openE2E(String path, boolean create) throws IOException {
+		requireAvailable();
+		long handle = nativeE2EOpen(path, create);
+		if (handle == 0) throw new IOException("mst5-client did not open an E2E identity");
+		return handle;
+	}
+
+	static void closeE2E(long handle) {
+		if (handle != 0) nativeE2EClose(handle);
+	}
+
+	static void removeE2E(String path) throws IOException { nativeE2ERemove(path); }
+	static byte[] e2ePublicKey(long handle) throws IOException { return nativeE2EPublicKey(handle); }
+	static String e2eFingerprint(long handle) throws IOException {
+		return new String(nativeE2EFingerprint(handle), "UTF-8");
+	}
+	static String e2ePublicFingerprint(byte[] publicKey) throws IOException {
+		return new String(nativeE2EPublicFingerprint(publicKey), "UTF-8");
+	}
+	static byte[] e2eSeal(long handle, byte[] peer, String from, String to, byte[] plaintext) throws IOException {
+		return nativeE2ESeal(handle, peer, from, to, plaintext);
+	}
+	static byte[] e2eDecrypt(long handle, byte[] peer, String from, String to, byte[] envelope) throws IOException {
+		return nativeE2EDecrypt(handle, peer, from, to, envelope);
+	}
+	static byte[] e2eBackup(long handle, String password) throws IOException { return nativeE2EBackup(handle, password); }
+	static long restoreE2E(String path, String password, byte[] backup) throws IOException {
+		return nativeE2ERestore(path, password, backup);
+	}
+
 	private static native int nativeVersion();
 	private static native long nativeOpen(String endpoint, String publicKeyB64) throws IOException;
 	private static native void nativeClose(long handle) throws IOException;
@@ -222,4 +257,15 @@ public final class NativeMst5 {
 	private static native void nativeVoiceSend(long handle, byte[] pcm) throws IOException;
 	private static native byte[] nativeVoiceReceive(long handle) throws IOException;
 	private static native void nativeVoiceClose(long handle) throws IOException;
+	private static native long nativeE2EOpen(String path, boolean create) throws IOException;
+	private static native void nativeE2EClose(long handle);
+	private static native void nativeE2ERemove(String path) throws IOException;
+	private static native byte[] nativeE2EPublicKey(long handle) throws IOException;
+	private static native byte[] nativeE2EFingerprint(long handle) throws IOException;
+	private static native byte[] nativeE2EPublicFingerprint(byte[] publicKey) throws IOException;
+	private static native byte[] nativeE2ESeal(long handle, byte[] peer, String from, String to, byte[] plaintext) throws IOException;
+	private static native byte[] nativeE2EDecrypt(long handle, byte[] peer, String from, String to, byte[] envelope) throws IOException;
+	private static native byte[] nativeE2EBackup(long handle, String password) throws IOException;
+	private static native long nativeE2ERestore(String path, String password, byte[] backup) throws IOException;
+	private static native void nativeInstallCrashHandler(String path) throws IOException;
 }

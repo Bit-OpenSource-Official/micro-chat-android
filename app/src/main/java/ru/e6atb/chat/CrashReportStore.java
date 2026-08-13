@@ -35,6 +35,11 @@ final class CrashReportStore {
 	private CrashReportStore() {
 	}
 
+	static String nativeReportPath(Context context) {
+		File directory = directory(context);
+		return directory == null ? "" : new File(directory, "native-crash" + SUFFIX).getAbsolutePath();
+	}
+
 	static synchronized void install(final Context context) {
 		if (installed || context == null) return;
 		final Context app = context.getApplicationContext() == null ? context : context.getApplicationContext();
@@ -123,6 +128,7 @@ final class CrashReportStore {
 		for (File file : files) {
 			if (!file.isFile() || !file.getName().endsWith(SUFFIX)) continue;
 			String text = read(file);
+			if (text.length() == 0 && file.getName().equals("native-crash" + SUFFIX)) continue;
 			if (text.length() == 0 || !text.startsWith(MARKER)) {
 				file.delete();
 				continue;
@@ -134,7 +140,17 @@ final class CrashReportStore {
 	}
 
 	static synchronized void remove(PendingReport report) {
-		if (report != null && report.file != null) report.file.delete();
+		if (report == null || report.file == null) return;
+		if (report.file.getName().equals("native-crash" + SUFFIX)) {
+			try {
+				FileOutputStream output = new FileOutputStream(report.file, false);
+				output.getFD().sync();
+				output.close();
+			} catch (Exception ignored) {
+			}
+			return;
+		}
+		report.file.delete();
 	}
 
 	private static File directory(Context context) {

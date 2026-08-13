@@ -40,12 +40,12 @@ def cryptServerPublicKey = providers.gradleProperty("cryptServerPublicKeyB64").o
     productionCryptServerPublicKey
 def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
     System.getenv("APP_VERSION_NAME") ?:
-    "0.9.8"
+    "0.10.3"
 def appVersionCode = (providers.gradleProperty("appVersionCode").orNull ?:
     System.getenv("APP_VERSION_CODE") ?:
-    "100055").toInteger()
+    "100103").toInteger()
 def mst5NativeAbi = providers.gradleProperty("mst5NativeAbi").orNull ?: "universal"
-def supportedMst5NativeAbis = ["universal", "armeabi", "armeabi-v7a", "arm64-v8a"]
+def supportedMst5NativeAbis = ["universal", "armeabi", "armeabi-v7a", "arm64-v8a", "x86_64"]
 if (!supportedMst5NativeAbis.contains(mst5NativeAbi)) {
     throw new GradleException(
         "Unsupported -Pmst5NativeAbi=${mst5NativeAbi}; expected one of ${supportedMst5NativeAbis.join(', ')}"
@@ -67,7 +67,7 @@ def prepareMst5Assets = tasks.register("prepareMst5Assets", Sync) {
     into(generatedMst5Assets)
     doFirst {
         def requiredAbis = mst5NativeAbi == "universal" ?
-            ["armeabi", "armeabi-v7a", "arm64-v8a"] : [mst5NativeAbi]
+            ["armeabi", "armeabi-v7a", "arm64-v8a", "x86_64"] : [mst5NativeAbi]
         requiredAbis.each { abi ->
             if (!file("src/main/assets/mst5-native/${abi}/libmst5_android.so").isFile()) {
                 throw new GradleException("Missing mst5-client library for ${abi}; run make native-libs")

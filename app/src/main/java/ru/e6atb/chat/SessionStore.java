@@ -8,7 +8,7 @@ import java.io.FileOutputStream;
 import java.security.MessageDigest;
 import java.util.Properties;
 
-import rs.ove.crypt.proto.E2ECipher;
+import rs.ove.crypt.proto.NativeE2E;
 
 final class SessionStore {
 	private static final String FILE_NAME = "e6atb.session.properties";
@@ -24,7 +24,6 @@ final class SessionStore {
 	private static final String SHOW_STATUS = "show_status";
 	private static final String USE_INSETS = "use_insets";
 	private static final String LANGUAGE = "language";
-	private static final String E2E_PRIVATE_PREFIX = "e2e.private.";
 	private static final String E2E_PEER_PREFIX = "e2e.peer.";
 
 	private SessionStore() {
@@ -181,40 +180,41 @@ final class SessionStore {
 		store(context, p);
 	}
 
-	static E2ECipher.Identity e2eIdentity(Context context, String login) {
-		String privateKey = get(context, E2E_PRIVATE_PREFIX + keyID(login), "");
-		if (privateKey.length() == 0) {
-			return null;
-		}
+	static NativeE2E.Identity e2eIdentity(Context context, String login) {
 		try {
-			return E2ECipher.identityFromPrivate(privateKey);
+			return NativeE2E.open(context, keyID(login), false);
 		} catch (Exception ignored) {
 			return null;
 		}
 	}
 
-	static E2ECipher.Identity createE2EIdentity(Context context, String login) {
-		E2ECipher.Identity existing = e2eIdentity(context, login);
-		if (existing != null) {
-			return existing;
-		}
-		E2ECipher.Identity identity = E2ECipher.generateIdentity();
+	static void clearLegacyE2EIdentity(Context context, String login) {
 		Properties p = load(context);
-		p.setProperty(E2E_PRIVATE_PREFIX + keyID(login), identity.privateKeyB64);
+		p.remove("e2e.private." + keyID(login));
 		store(context, p);
-		return identity;
 	}
 
-	static void saveE2EIdentity(Context context, String login, E2ECipher.Identity identity) {
-		if (identity == null) return;
-		Properties p = load(context);
-		p.setProperty(E2E_PRIVATE_PREFIX + keyID(login), identity.privateKeyB64);
-		store(context, p);
+	static NativeE2E.Identity createE2EIdentity(Context context, String login) {
+		try {
+			return NativeE2E.open(context, keyID(login), true);
+		} catch (Exception error) {
+			throw new IllegalStateException("cannot create native E2E identity", error);
+		}
+	}
+
+	static void saveE2EIdentity(Context context, String login, NativeE2E.Identity identity) {
+		// NativeE2E restore/save is atomic; managed code never receives private key bytes.
 	}
 
 	static void clearE2EIdentity(Context context, String login) {
+		try {
+			NativeE2E.Identity identity = e2eIdentity(context, login);
+			if (identity != null) identity.remove();
+		} catch (Exception ignored) {
+		}
 		Properties p = load(context);
-		p.remove(E2E_PRIVATE_PREFIX + keyID(login));
+		// Remove legacy Java private keys after the incompatible v3 migration.
+		p.remove("e2e.private." + keyID(login));
 		store(context, p);
 	}
 
@@ -233,7 +233,12 @@ final class SessionStore {
 	static String peerE2EFingerprint(Context context, String server, String ownLogin, String peer) {
 		String key = E2E_PEER_PREFIX + keyID(server + "\n" + ownLogin + "\n" + peer);
 		String publicKey = get(context, key, "");
-		return publicKey.length() == 0 ? "" : E2ECipher.fingerprint(publicKey);
+		if (publicKey.length() == 0) return "";
+		try {
+			return NativeE2E.fingerprint(publicKey);
+		} catch (Exception ignored) {
+			return "";
+		}
 	}
 
 	private static boolean getBoolean(Context context, String key, boolean fallback) {

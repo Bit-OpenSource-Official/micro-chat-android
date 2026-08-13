@@ -43,8 +43,16 @@ final class OutboxDispatcher {
 			}
 			WORKERS.execute(new Runnable() {
 				@Override public void run() {
-					try { drainPeer(context, client, server, user, peer, listener); }
+					MiniTaLib worker = new MiniTaLib(
+							context,
+							server,
+							SessionStore.token(context),
+							SessionStore.userId(context),
+							SessionStore.login(context)
+					);
+					try { drainPeer(context, worker, server, user, peer, listener); }
 					finally {
+						worker.close();
 						synchronized (ACTIVE) { ACTIVE.remove(key); }
 					}
 				}

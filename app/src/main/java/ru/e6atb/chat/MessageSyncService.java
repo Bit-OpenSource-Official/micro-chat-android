@@ -79,11 +79,6 @@ public final class MessageSyncService extends Service {
 				stopSelf();
 				return;
 			}
-			if (MainActivity.isForegroundPollingActive()) {
-				failures = 0;
-				sleepWhileRunning(5000);
-				continue;
-			}
 			String server = SessionStore.server(this, MainActivity.DEFAULT_SERVER);
 			String token = SessionStore.token(this);
 			String userId = SessionStore.userId(this);
@@ -92,7 +87,13 @@ public final class MessageSyncService extends Service {
 			try {
 				CrashReportDispatcher.dispatch(this, ta);
 			} catch (Exception ignored) {
-				// Keep the report on disk. The next sync pass retries it with the same idempotency key.
+				// Keep the report on disk. The next pass retries it with the same idempotency key.
+			}
+			if (MainActivity.isForegroundPollingActive()) {
+				ta.close();
+				failures = 0;
+				sleepWhileRunning(5000);
+				continue;
 			}
 			OutboxDispatcher.dispatch(this, ta, null);
 			long after = SessionStore.backgroundLastUpdate(this);
@@ -160,12 +161,14 @@ public final class MessageSyncService extends Service {
 				failures = 0;
 			} catch (Exception e) {
 				if (MiniTaLib.isInvalidTokenError(e)) {
+					ta.close();
 					SessionStore.clear(this);
 					stopSelf();
 					return;
 				}
 				sleepWhileRunning(pollRetryDelayMs(failures++));
 			}
+			ta.close();
 		}
 	}
 
@@ -202,8 +205,9 @@ public final class MessageSyncService extends Service {
 		new Thread(new Runnable() {
 			@Override
 			public void run() {
+				MiniTaLib ta = null;
 				try {
-					MiniTaLib ta = new MiniTaLib(
+					ta = new MiniTaLib(
 							MessageSyncService.this,
 							SessionStore.server(MessageSyncService.this, MainActivity.DEFAULT_SERVER),
 							SessionStore.token(MessageSyncService.this),
@@ -216,6 +220,8 @@ public final class MessageSyncService extends Service {
 						nm.cancel(CALL_NOTIFICATION_ID);
 					}
 				} catch (Exception ignored) {
+				} finally {
+					if (ta != null) ta.close();
 				}
 			}
 		}, "e6atb-call-reject").start();

@@ -22,7 +22,7 @@ RELEASE_VERSION := $(if $(VERSION),$(VERSION),$(word 1,$(POSITIONAL_RELEASE_ARGS
 MST5_CLIENT_DIR ?= ../mst5-client
 MST5_NATIVE_OUTPUT := $(CURDIR)/app/src/main/assets/mst5-native
 
-.PHONY: help release-branch test release-check native-libs require-native-libs apk apk-universal apk-armv6 apk-armv7 apk-arm64 release-apks
+.PHONY: help release-branch test release-check native-libs require-native-libs apk apk-universal apk-armv6 apk-armv7 apk-arm64 apk-x86_64 release-apks
 
 help:
 	@echo "Usage:"
@@ -30,7 +30,7 @@ help:
 	@echo "  make test"
 	@echo "  make native-libs"
 	@echo "  make apk"
-	@echo "  make apk-armv6 | apk-armv7 | apk-arm64"
+	@echo "  make apk-armv6 | apk-armv7 | apk-arm64 | apk-x86_64"
 	@echo "  make release-apks VERSION=0.9.9 VERSION_CODE=100056"
 
 release-branch:
@@ -51,6 +51,7 @@ require-native-libs:
 	@test -s "$(MST5_NATIVE_OUTPUT)/armeabi/libmst5_android.so"
 	@test -s "$(MST5_NATIVE_OUTPUT)/armeabi-v7a/libmst5_android.so"
 	@test -s "$(MST5_NATIVE_OUTPUT)/arm64-v8a/libmst5_android.so"
+	@test -s "$(MST5_NATIVE_OUTPUT)/x86_64/libmst5_android.so"
 
 apk: apk-universal
 
@@ -65,6 +66,9 @@ apk-armv7: native-libs require-native-libs
 
 apk-arm64: native-libs require-native-libs
 	@MST5_NATIVE_ABI=arm64-v8a ./build-apk.sh
+
+apk-x86_64: native-libs require-native-libs
+	@MST5_NATIVE_ABI=x86_64 ./build-apk.sh
 
 release-apks: native-libs
 	@if [ -z "$(VERSION)" ] || [ -z "$(VERSION_CODE)" ]; then \

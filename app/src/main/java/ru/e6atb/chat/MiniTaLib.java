@@ -9,8 +9,7 @@ import android.os.ParcelFileDescriptor;
 import rs.ove.crypt.proto.CryptTcpClient;
 import rs.ove.crypt.proto.Mst5MediaClient;
 import rs.ove.crypt.proto.CryptIdentity;
-import rs.ove.crypt.proto.E2ECipher;
-import rs.ove.crypt.proto.E2EKeyBackup;
+import rs.ove.crypt.proto.NativeE2E;
 
 import java.net.URLEncoder;
 import java.io.IOException;
@@ -26,11 +25,11 @@ final class MiniTaLib {
 	private final CryptTcpClient transport = new CryptTcpClient();
 	private final Context context;
 	private final HashMap<String, String> peerE2EKeys = new HashMap<String, String>();
-	private final HashMap<String, E2ECipher.Session> peerE2ESessions = new HashMap<String, E2ECipher.Session>();
+	private final HashMap<String, NativeE2E.Session> peerE2ESessions = new HashMap<String, NativeE2E.Session>();
 	private String token;
 	private String userId;
 	private String login;
-	private E2ECipher.Identity e2eIdentity;
+	private NativeE2E.Identity e2eIdentity;
 
 	static final class InvalidTokenException extends RuntimeException {
 		InvalidTokenException(String message) {
@@ -71,6 +70,14 @@ final class MiniTaLib {
 
 	String token() {
 		return token == null ? "" : token;
+	}
+
+	void close() {
+		transport.close();
+		NativeE2E.Identity identity = e2eIdentity;
+		e2eIdentity = null;
+		peerE2ESessions.clear();
+		if (identity != null) identity.close();
 	}
 
 	String startEmailAuth(String email) throws Exception {
@@ -143,7 +150,7 @@ final class MiniTaLib {
 		JSONObject body = new JSONObject();
 		body.put("password", value);
 		if (value.length() > 0) {
-			E2EKeyBackup.Backup backup = e2eBackupForCloudPassword(value);
+			NativeE2E.Backup backup = e2eBackupForCloudPassword(value);
 			if (backup != null) {
 				body.put("e2e_backup", e2eBackupJson(backup));
 			}
@@ -366,10 +373,10 @@ final class MiniTaLib {
 		if (e2eIdentity == null) {
 			throw new SecurityException("E2E private key is unavailable on this device");
 		}
-		E2ECipher.Envelope envelope;
+		NativeE2E.Envelope envelope;
 		try {
 			PeerE2EKey peer = peerE2EKey(to);
-			envelope = E2ECipher.sealV2(
+			envelope = NativeE2E.sealV3(
 					e2eSession(peer, accountAddress(), peer.user.id),
 					accountAddress(),
 					peer.user.id,
@@ -392,7 +399,6 @@ final class MiniTaLib {
 		e2e.put("version", envelope.version);
 		e2e.put("nonce", envelope.nonce);
 		e2e.put("ciphertext", envelope.ciphertext);
-		e2e.put("tag", envelope.tag);
 		body.put("e2e", e2e);
 		return body;
 	}
@@ -830,7 +836,7 @@ final class MiniTaLib {
 	}
 
 	String e2eFingerprint(String peer) throws Exception {
-		return E2ECipher.fingerprint(peerE2EKey(peer).publicKey);
+		return NativeE2E.fingerprint(peerE2EKey(peer).publicKey);
 	}
 
 	String ownE2EPublicKey() throws Exception {
@@ -1207,12 +1213,22 @@ final class MiniTaLib {
 		if (context == null || key.length() == 0 || address.length() == 0) {
 			return;
 		}
-		E2ECipher.Identity local = localE2EIdentity();
-		String registered = "";
+		NativeE2E.Identity local = localE2EIdentity();
+		PeerE2EKey registeredKey = null;
 		try {
-			registered = fetchE2EKey(address).publicKey;
+			registeredKey = fetchE2EKey(address);
 		} catch (RuntimeException ignored) {
 		}
+		if (registeredKey != null && registeredKey.version != 3) {
+			JSONObject reset = new JSONObject();
+			reset.put("confirm", "reset_e2e");
+			post("/e2e/reset", reset, 10000);
+			SessionStore.clearE2EIdentity(context, key);
+			local = null;
+			registeredKey = null;
+		}
+		SessionStore.clearLegacyE2EIdentity(context, key);
+		String registered = registeredKey == null ? "" : registeredKey.publicKey;
 		if (registered.length() > 0) {
 			if (local != null && local.publicKeyB64.equals(registered)) {
 				e2eIdentity = local;
@@ -1221,7 +1237,7 @@ final class MiniTaLib {
 			}
 			if (password != null) {
 				try {
-					E2ECipher.Identity restored = downloadE2EBackup(password);
+					NativeE2E.Identity restored = downloadE2EBackup(password);
 					if (restored != null && restored.publicKeyB64.equals(registered)) {
 						SessionStore.saveE2EIdentity(context, key, restored);
 						e2eIdentity = restored;
@@ -1237,6 +1253,7 @@ final class MiniTaLib {
 			local = SessionStore.createE2EIdentity(context, key);
 		}
 		JSONObject body = new JSONObject();
+		body.put("version", 3);
 		body.put("public_key", local.publicKeyB64);
 		post("/e2e/key", body, 10000);
 		if (password != null) uploadE2EBackupAsync(local, password);
@@ -1259,9 +1276,9 @@ final class MiniTaLib {
 		return accountKey();
 	}
 
-	private E2ECipher.Identity localE2EIdentity() {
+	private NativeE2E.Identity localE2EIdentity() {
 		if (context == null || accountKey().length() == 0) return null;
-		E2ECipher.Identity identity = SessionStore.e2eIdentity(context, accountKey());
+		NativeE2E.Identity identity = SessionStore.e2eIdentity(context, accountKey());
 		if (identity == null && userId != null && userId.length() > 0
 				&& login != null && login.length() > 0 && !userId.equals(login)) {
 			identity = SessionStore.e2eIdentity(context, login);
@@ -1272,46 +1289,59 @@ final class MiniTaLib {
 		return identity;
 	}
 
-	private void uploadE2EBackup(E2ECipher.Identity identity, String password) throws Exception {
-		E2EKeyBackup.Backup backup = E2EKeyBackup.seal(identity, password);
+	private void uploadE2EBackup(NativeE2E.Identity identity, String password) throws Exception {
+		NativeE2E.Backup backup = NativeE2E.backup(identity, password);
 		post("/e2e/backup", e2eBackupJson(backup), 10000);
 	}
 
-	private E2EKeyBackup.Backup e2eBackupForCloudPassword(String password) throws Exception {
-		E2ECipher.Identity identity = e2eIdentityForBackup();
-		return identity == null ? null : E2EKeyBackup.seal(identity, password);
+	private NativeE2E.Backup e2eBackupForCloudPassword(String password) throws Exception {
+		NativeE2E.Identity identity = e2eIdentityForBackup();
+		return identity == null ? null : NativeE2E.backup(identity, password);
 	}
 
-	private JSONObject e2eBackupJson(E2EKeyBackup.Backup backup) throws Exception {
+	private JSONObject e2eBackupJson(NativeE2E.Backup backup) throws Exception {
 		JSONObject body = new JSONObject();
 		body.put("version", backup.version);
-		body.put("salt", backup.salt);
-		body.put("iv", backup.iv);
-		body.put("ciphertext", backup.ciphertext);
-		body.put("tag", backup.tag);
+		byte[] salt = new byte[16]; byte[] nonce = new byte[24]; byte[] ciphertext = new byte[backup.encoded.length - 41];
+		System.arraycopy(backup.encoded, 1, salt, 0, 16);
+		System.arraycopy(backup.encoded, 17, nonce, 0, 24);
+		System.arraycopy(backup.encoded, 41, ciphertext, 0, ciphertext.length);
+		body.put("salt", android.util.Base64.encodeToString(salt, android.util.Base64.NO_WRAP));
+		body.put("nonce", android.util.Base64.encodeToString(nonce, android.util.Base64.NO_WRAP));
+		body.put("ciphertext", android.util.Base64.encodeToString(ciphertext, android.util.Base64.NO_WRAP));
 		return body;
 	}
 
-	private E2ECipher.Identity e2eIdentityForBackup() throws Exception {
+	private NativeE2E.Identity e2eIdentityForBackup() throws Exception {
 		String key = accountKey();
 		String address = accountAddress();
 		if (context == null || key.length() == 0 || address.length() == 0) {
 			return null;
 		}
-		E2ECipher.Identity local = localE2EIdentity();
-		String registered = "";
+		NativeE2E.Identity local = localE2EIdentity();
+		PeerE2EKey registeredKey = null;
 		try {
-			registered = fetchE2EKey(address).publicKey;
+			registeredKey = fetchE2EKey(address);
 		} catch (RuntimeException ex) {
 			if (ex.getMessage() == null || !ex.getMessage().contains("not registered")) {
 				throw ex;
 			}
 		}
+		if (registeredKey != null && registeredKey.version != 3) {
+			JSONObject reset = new JSONObject();
+			reset.put("confirm", "reset_e2e");
+			post("/e2e/reset", reset, 10000);
+			SessionStore.clearE2EIdentity(context, key);
+			local = null;
+			registeredKey = null;
+		}
+		String registered = registeredKey == null ? "" : registeredKey.publicKey;
 		if (registered.length() == 0) {
 			if (local == null) {
 				local = SessionStore.createE2EIdentity(context, key);
 			}
 			JSONObject body = new JSONObject();
+			body.put("version", 3);
 			body.put("public_key", local.publicKeyB64);
 			post("/e2e/key", body, 10000);
 			e2eIdentity = local;
@@ -1327,7 +1357,7 @@ final class MiniTaLib {
 		throw new SecurityException("E2E key mismatch; restore this account before changing cloud password");
 	}
 
-	private void uploadE2EBackupAsync(final E2ECipher.Identity identity, final String password) {
+	private void uploadE2EBackupAsync(final NativeE2E.Identity identity, final String password) {
 		Thread thread = new Thread(new Runnable() {
 			@Override
 			public void run() {
@@ -1341,13 +1371,16 @@ final class MiniTaLib {
 		thread.start();
 	}
 
-	private E2ECipher.Identity downloadE2EBackup(String password) throws Exception {
+	private NativeE2E.Identity downloadE2EBackup(String password) throws Exception {
 		try {
 			JSONObject raw = get("/e2e/backup", 10000).getJSONObject("backup");
-			return E2EKeyBackup.open(new E2EKeyBackup.Backup(
-					raw.optInt("version"), raw.optString("salt"), raw.optString("iv"),
-					raw.optString("ciphertext"), raw.optString("tag")
-			), password);
+			byte[] salt = android.util.Base64.decode(raw.optString("salt"), android.util.Base64.DEFAULT);
+			byte[] nonce = android.util.Base64.decode(raw.optString("nonce"), android.util.Base64.DEFAULT);
+			byte[] ciphertext = android.util.Base64.decode(raw.optString("ciphertext"), android.util.Base64.DEFAULT);
+			byte[] encoded = new byte[1 + salt.length + nonce.length + ciphertext.length]; encoded[0] = 2;
+			System.arraycopy(salt, 0, encoded, 1, salt.length); System.arraycopy(nonce, 0, encoded, 17, nonce.length);
+			System.arraycopy(ciphertext, 0, encoded, 41, ciphertext.length);
+			return NativeE2E.restore(context, accountKey(), password, new NativeE2E.Backup(raw.optInt("version"), encoded));
 		} catch (RuntimeException ex) {
 			if (ex.getMessage() != null && ex.getMessage().contains("not registered")) return null;
 			throw ex;
@@ -1360,12 +1393,15 @@ final class MiniTaLib {
 		if (user.id.length() == 0) {
 			throw new IOException("e2e user id is unavailable");
 		}
-		return new PeerE2EKey(user, response.getString("public_key"));
+		return new PeerE2EKey(user, response.optInt("version", 1), response.getString("public_key"));
 	}
 
 	private PeerE2EKey peerE2EKey(String peer) throws Exception {
 		String normalized = peer == null ? "" : peer.trim().toLowerCase(Locale.US);
 		PeerE2EKey result = fetchE2EKey(normalized);
+		if (result.version != 3) {
+			throw new RuntimeException("e2e public key not registered for MST5 E2E v3");
+		}
 		String stablePeer = result.user.id.toLowerCase(Locale.US);
 		String cached = peerE2EKeys.get(stablePeer);
 		String publicKey = result.publicKey;
@@ -1385,15 +1421,15 @@ final class MiniTaLib {
 		return result;
 	}
 
-	private E2ECipher.Session e2eSession(PeerE2EKey peer, String from, String to) throws Exception {
+	private NativeE2E.Session e2eSession(PeerE2EKey peer, String from, String to) throws Exception {
 		String cacheKey = peer.user.id + "\n" + from + "\n" + to;
 		synchronized (peerE2ESessions) {
-			E2ECipher.Session cached = peerE2ESessions.get(cacheKey);
+			NativeE2E.Session cached = peerE2ESessions.get(cacheKey);
 			if (cached != null) {
 				return cached;
 			}
 		}
-		E2ECipher.Session created = E2ECipher.session(
+		NativeE2E.Session created = NativeE2E.session(
 				e2eIdentity, peer.publicKey, from, to
 		);
 		synchronized (peerE2ESessions) {
@@ -1407,7 +1443,8 @@ final class MiniTaLib {
 			return "[encrypted: private key unavailable]";
 		}
 		try {
-			E2ECipher.Envelope envelope = new E2ECipher.Envelope(
+			if (raw.optInt("version") != 3) return "[legacy encrypted message]";
+			NativeE2E.Envelope envelope = new NativeE2E.Envelope(
 					raw.optInt("version"),
 					raw.optString("nonce"),
 					raw.optString("ciphertext"),
@@ -1419,9 +1456,9 @@ final class MiniTaLib {
 			User peerUser = sentByMe ? to : from;
 			String peerAddress = peerUser.id.length() > 0 ? peerUser.id : peerUser.login;
 			PeerE2EKey peer = peerE2EKey(peerAddress);
-			String fromContext = envelope.version == 2 ? from.id : from.login;
-			String toContext = envelope.version == 2 ? to.id : to.login;
-			return E2ECipher.open(
+			String fromContext = envelope.version == 3 ? from.id : from.login;
+			String toContext = envelope.version == 3 ? to.id : to.login;
+			return NativeE2E.open(
 					e2eSession(peer, fromContext, toContext),
 					fromContext,
 					toContext,
@@ -1434,10 +1471,12 @@ final class MiniTaLib {
 
 	private static final class PeerE2EKey {
 		final User user;
+		final int version;
 		final String publicKey;
 
-		PeerE2EKey(User user, String publicKey) {
+		PeerE2EKey(User user, int version, String publicKey) {
 			this.user = user;
+			this.version = version;
 			this.publicKey = publicKey;
 		}
 	}

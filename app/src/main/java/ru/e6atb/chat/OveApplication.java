@@ -8,7 +8,11 @@ public final class OveApplication extends Application {
 	@Override
 	public void onCreate() {
 		super.onCreate();
-		NativeMst5.initialize(this);
 		CrashReportStore.install(this);
+		NativeMst5.initialize(this);
+		try {
+			NativeMst5.installCrashHandler(CrashReportStore.nativeReportPath(this));
+		} catch (Exception ignored) {
+		}
 	}
 }

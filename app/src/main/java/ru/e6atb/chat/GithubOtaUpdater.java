@@ -153,6 +153,7 @@ final class GithubOtaUpdater {
 		for (String abi : abis) {
 			String value = abi == null ? "" : abi.trim().toLowerCase(Locale.US);
 			if (value.contains("arm64") || value.contains("aarch64")) return "arm64";
+			if (value.contains("x86_64") || value.contains("x86-64")) return "x86_64";
 			if (value.contains("armeabi-v7a") || value.contains("armv7")) return "armv7";
 			if (value.equals("armeabi") || value.contains("armv6")) return "armv6";
 		}
