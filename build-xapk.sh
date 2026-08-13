@@ -65,21 +65,30 @@ cp "${base}" "${stage}/base.apk"
 
 split_json="${temporary}/splits.json"
 printf '[]\n' > "${split_json}"
-while IFS= read -r split; do
-	id="$(basename "${split}" .apk)"
-	id="${id#base-}"
+split_ids=(armeabi_v7a arm64_v8a x86_64 ldpi mdpi tvdpi hdpi xhdpi xxhdpi xxxhdpi)
+for id in "${split_ids[@]}"; do
+	split="${temporary}/apks/splits/base-${id}.apk"
+	[[ -f "${split}" ]] || continue
 	name="config.${id}.apk"
 	cp "${split}" "${stage}/${name}"
 	tmp_json="${temporary}/splits-next.json"
 	jq --arg file "${name}" --arg id "config.${id}" \
 		'. + [{"file":$file,"id":$id}]' "${split_json}" > "${tmp_json}"
 	mv "${tmp_json}" "${split_json}"
-done < <(find "${temporary}/apks/splits" -type f -name 'base-*.apk' \
-	! -name 'base-master*.apk' ! -name '*_[0-9]*.apk' | sort)
-if [[ "$(jq 'length' "${split_json}")" -eq 0 ]]; then
-	echo "error: bundletool did not produce configuration split APKs" >&2
-	exit 1
-fi
+done
+for id in armeabi_v7a arm64_v8a x86_64; do
+	name="config.${id}.apk"
+	case "${id}" in
+		armeabi_v7a) abi="armeabi-v7a" ;;
+		arm64_v8a) abi="arm64-v8a" ;;
+		x86_64) abi="x86_64" ;;
+	esac
+	if [[ ! -f "${stage}/${name}" ]] ||
+		! unzip -Z1 "${stage}/${name}" | grep -qx "lib/${abi}/libmst5_android.so"; then
+		echo "error: bundletool did not produce a valid MST5 ${id} split" >&2
+		exit 1
+	fi
+done
 
 icon="$(find "${root}/app/build/generated/res/pngs/release" -type f -name 'ic_launcher.png' | sort | tail -n 1)"
 icon_name=""
