@@ -22,6 +22,7 @@ final class GithubOtaUpdater {
 	private static final String APK_MIME = "application/vnd.android.package-archive";
 	private static final int CONNECT_TIMEOUT_MS = 15000;
 	private static final int READ_TIMEOUT_MS = 30000;
+	private static Context applicationContext;
 
 	private GithubOtaUpdater() {
 	}
@@ -93,6 +94,7 @@ final class GithubOtaUpdater {
 
 	static File download(Context context, Update update) throws Exception {
 		if (context == null) throw new IOException("context is not available");
+		initialize(context);
 		if (update == null || update.apkUrl == null || update.apkUrl.length() == 0) {
 			throw new IOException("update URL is empty");
 		}
@@ -108,7 +110,13 @@ final class GithubOtaUpdater {
 		if (tmp.isFile() && !tmp.delete()) {
 			throw new IOException("old update temp file cannot be removed");
 		}
-		downloadToFile(update.apkUrl, tmp, update.apkSha256, update.apkSize);
+		if (Armv6OtaTls.isRequired()) {
+			long maxBytes = update.apkSize >= 0 ? update.apkSize : 256L * 1024L * 1024L;
+			Armv6OtaTls.download(context, update.apkUrl, tmp.getAbsolutePath(), maxBytes);
+			verifyFile(tmp, update.apkSha256, update.apkSize);
+		} else {
+			downloadToFile(update.apkUrl, tmp, update.apkSha256, update.apkSize);
+		}
 		if (target.isFile() && !target.delete()) {
 			throw new IOException("old update file cannot be removed");
 		}
@@ -202,6 +210,11 @@ final class GithubOtaUpdater {
 	}
 
 	private static String readUrl(String url) throws IOException {
+		if (Armv6OtaTls.isRequired()) {
+			Context context = applicationContext;
+			if (context == null) throw new IOException("OTA context is unavailable");
+			return new String(Armv6OtaTls.get(context, url), "UTF-8");
+		}
 		HttpURLConnection connection = open(url);
 		InputStream input = null;
 		try {
@@ -255,6 +268,34 @@ final class GithubOtaUpdater {
 			connection.disconnect();
 			if (!target.isFile() || target.length() == 0) target.delete();
 		}
+	}
+
+	private static void verifyFile(File target, String expectedSha256, long expectedSize) throws Exception {
+		if (!target.isFile()) throw new IOException("update file was not created");
+		if (expectedSize >= 0 && target.length() != expectedSize) {
+			target.delete();
+			throw new IOException("APK size mismatch");
+		}
+		if (expectedSha256 == null || expectedSha256.length() == 0) return;
+		MessageDigest digest = MessageDigest.getInstance("SHA-256");
+		InputStream input = new BufferedInputStream(new java.io.FileInputStream(target));
+		try {
+			byte[] buffer = new byte[64 * 1024];
+			int read;
+			while ((read = input.read(buffer)) >= 0) if (read > 0) digest.update(buffer, 0, read);
+		} finally {
+			input.close();
+		}
+		if (!hex(digest.digest()).equalsIgnoreCase(expectedSha256)) {
+			target.delete();
+			throw new IOException("APK checksum mismatch");
+		}
+	}
+
+	static void initialize(Context context) {
+		if (context == null) return;
+		Context application = context.getApplicationContext();
+		applicationContext = application == null ? context : application;
 	}
 
 	private static HttpURLConnection open(String url) throws IOException {

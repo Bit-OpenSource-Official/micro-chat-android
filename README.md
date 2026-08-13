@@ -72,7 +72,8 @@ Requirements:
 - JDK 17;
 - Android SDK platform 35 and build-tools 35.0.0;
 - Gradle 8.10.2 or a compatible Gradle 8 release;
-- `curl`, `jq`, `sha256sum`, and `tar` for downloading the latest MST5 release.
+- Android NDK r14b for the small ARMv6-only OTA TLS bridge;
+- `curl`, `jq`, `sha256sum`, `tar`, `unzip`, and `zip`.
 
 Build and test locally:
 
@@ -85,14 +86,21 @@ The release build uses R8/resource shrinking and must be signed. By default it
 loads the existing `micromsg.keystore`; that legacy filename and its signing
 identity are intentionally retained so installed clients can update in place.
 `make apk` first downloads the latest released `mst5-client` libraries for all
-ABIs and then builds the universal production APK without requiring an `.env`
-file. Platform-specific packages can be built with:
+ABIs, builds the ARMv6 OTA TLS bridge, and then builds the universal production
+APK without requiring an `.env` file. `mst5-client` itself is never compiled by
+the Android build. Platform-specific packages can be built with:
 
 ```bash
 make apk-armv6
 make apk-armv7
 make apk-arm64
+make apk-x86_64
 ```
+
+The universal and ARMv6 APKs contain a compact Mbed TLS 3.6 LTS client and a
+pinned Mozilla CA bundle. It is activated only on ARMv6 devices running Android
+4.4 or older and is restricted to GitHub OTA traffic. Other APKs continue to use
+the platform TLS implementation.
 
 Override the application version when needed:
 
@@ -100,11 +108,17 @@ Override the application version when needed:
 APP_VERSION_NAME=0.9.8 APP_VERSION_CODE=100055 ./build-apk.sh
 ```
 
-Prepare the universal APK, three architecture APKs, `update.json`, `SHA256SUMS`, and the release notes
-table used by GitHub Actions:
+Build an APKPure-compatible split XAPK for Android 5.0+:
 
 ```bash
-make release-apks VERSION=0.9.9 VERSION_CODE=100056
+make xapk VERSION=0.10.4 VERSION_CODE=100104
+```
+
+Prepare the universal APK, four architecture APKs, the XAPK, `update.json`,
+`SHA256SUMS`, and the release-notes table used by GitHub Actions:
+
+```bash
+make release-apks VERSION=0.10.4 VERSION_CODE=100104
 ```
 
 The output is:
@@ -132,16 +146,19 @@ release, runs the release Make targets, and publishes:
 
 - a GitHub Release tagged `vVERSION` and titled `OVE.rs VERSION`;
 - universal, ARMv6, ARMv7, and ARM64 signed APKs;
+- an x86_64 APK and an APKPure-compatible split XAPK for Android 5.0+;
 - a download table in the release description;
 - `update.json` with independent names, sizes, and SHA-256 hashes for every
   architecture, the exact downloaded MST5 release version (plus the universal
-  APK fields for legacy clients), and
-  `SHA256SUMS` for every APK.
+  APK fields for legacy clients), XAPK metadata for download pages, and
+  `SHA256SUMS` for every APK and the XAPK.
 
-The OTA client maps the device ABI to `armv6`, `armv7`, or `arm64`, then
+The OTA client maps the device ABI to `armv6`, `armv7`, `arm64`, or `x86_64`, then
 downloads only the matching APK. Automatic checks create an app notification;
 the update dialog opens only after the user taps that notification. A manual
-check in Settings opens the same dialog directly.
+check in Settings opens the same dialog directly. XAPK is a release-download
+artifact only; OTA deliberately remains architecture-specific APK so Android's
+built-in package installer can apply it directly.
 
 Publish the current commit of a clean local `main` as a remote release branch
 with one command:

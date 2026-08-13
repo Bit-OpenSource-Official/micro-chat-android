@@ -2,6 +2,7 @@
 build/
 app/build/
 app/src/main/assets/mst5-native/
+app/src/main/assets/armv6-ota-tls/
 release/
 
 *.apk

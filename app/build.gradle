@@ -40,11 +40,15 @@ def cryptServerPublicKey = providers.gradleProperty("cryptServerPublicKeyB64").o
     productionCryptServerPublicKey
 def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
     System.getenv("APP_VERSION_NAME") ?:
-    "0.10.3"
+    "0.10.4"
 def appVersionCode = (providers.gradleProperty("appVersionCode").orNull ?:
     System.getenv("APP_VERSION_CODE") ?:
-    "100103").toInteger()
+    "100104").toInteger()
 def mst5NativeAbi = providers.gradleProperty("mst5NativeAbi").orNull ?: "universal"
+def includeArmv6OtaTls = providers.gradleProperty("includeArmv6OtaTls").orNull ?:
+    (mst5NativeAbi == "universal" || mst5NativeAbi == "armeabi" ? "true" : "false")
+def packageMst5AsJniLibs = (providers.gradleProperty("packageMst5AsJniLibs").orNull ?: "false").toBoolean()
+def effectiveMinSdk = (providers.gradleProperty("minSdkOverride").orNull ?: "10").toInteger()
 def supportedMst5NativeAbis = ["universal", "armeabi", "armeabi-v7a", "arm64-v8a", "x86_64"]
 if (!supportedMst5NativeAbis.contains(mst5NativeAbi)) {
     throw new GradleException(
@@ -54,14 +58,24 @@ if (!supportedMst5NativeAbis.contains(mst5NativeAbi)) {
 def generatedMst5Assets = layout.buildDirectory.dir("generated/mst5-assets")
 def prepareMst5Assets = tasks.register("prepareMst5Assets", Sync) {
     inputs.property("mst5NativeAbi", mst5NativeAbi)
+    inputs.property("packageMst5AsJniLibs", packageMst5AsJniLibs)
     if (mst5NativeAbi == "universal") {
-        from("src/main/assets")
+        from("src/main/assets") {
+            if (packageMst5AsJniLibs) exclude "mst5-native/**"
+            if (!includeArmv6OtaTls.toBoolean()) exclude "armv6-ota-tls/**"
+        }
     } else {
         from("src/main/assets") {
             exclude "mst5-native/**"
+            exclude "armv6-ota-tls/**"
         }
         from("src/main/assets/mst5-native/${mst5NativeAbi}") {
             into "mst5-native/${mst5NativeAbi}"
+        }
+    }
+    if (includeArmv6OtaTls.toBoolean() && mst5NativeAbi != "universal") {
+        from("src/main/assets/armv6-ota-tls") {
+            into "armv6-ota-tls"
         }
     }
     into(generatedMst5Assets)
@@ -73,7 +87,24 @@ def prepareMst5Assets = tasks.register("prepareMst5Assets", Sync) {
                 throw new GradleException("Missing mst5-client library for ${abi}; run make native-libs")
             }
         }
+        if (includeArmv6OtaTls.toBoolean()) {
+            ["libove_ota_tls.so", "cacert.pem", "manifest.json"].each { name ->
+                if (!file("src/main/assets/armv6-ota-tls/${name}").isFile()) {
+                    throw new GradleException("Missing ARMv6 OTA TLS asset ${name}; run make armv6-ota-tls")
+                }
+            }
+        }
     }
+}
+def generatedMst5JniLibs = layout.buildDirectory.dir("generated/mst5-jni-libs")
+def prepareMst5JniLibs = tasks.register("prepareMst5JniLibs", Sync) {
+    inputs.property("packageMst5AsJniLibs", packageMst5AsJniLibs)
+    if (packageMst5AsJniLibs) {
+        ["armeabi-v7a", "arm64-v8a", "x86_64"].each { abi ->
+            from("src/main/assets/mst5-native/${abi}") { into abi }
+        }
+    }
+    into(generatedMst5JniLibs)
 }
 def productionGithubRepository = "Bit-OpenSource-Official/micro-chat-android"
 def githubRepository = providers.gradleProperty("githubRepository").orNull ?:
@@ -112,12 +143,19 @@ android {
     defaultConfig {
         applicationId "ru.e6atb.chat"
         // Support Android from version 2.3.6 (API level 10) upwards.
-        minSdk 10
+        minSdk effectiveMinSdk
         targetSdk 35
         versionCode appVersionCode
         versionName appVersionName
         buildConfigField "String", "CRYPT_SERVER_PUBLIC_KEY_B64", "\"${cryptServerPublicKey}\""
         buildConfigField "String", "GITHUB_REPOSITORY", "\"${javaString(githubRepository)}\""
+        buildConfigField "boolean", "MST5_PACKAGED_AS_JNI", packageMst5AsJniLibs.toString()
+    }
+
+    bundle {
+        abi { enableSplit = true }
+        density { enableSplit = true }
+        language { enableSplit = false }
     }
 
     buildFeatures {
@@ -126,6 +164,7 @@ android {
 
     sourceSets {
         main.assets.setSrcDirs([generatedMst5Assets.get().asFile])
+        main.jniLibs.setSrcDirs([generatedMst5JniLibs.get().asFile])
     }
 
     compileOptions {
@@ -159,6 +198,9 @@ android {
 tasks.configureEach { task ->
     if (task.name.matches("merge.*Assets") || task.name.toLowerCase().contains("lint")) {
         task.dependsOn(prepareMst5Assets)
+    }
+    if (task.name.matches("merge.*JniLibFolders") || task.name.toLowerCase().contains("lint")) {
+        task.dependsOn(prepareMst5JniLibs)
     }
 }
 

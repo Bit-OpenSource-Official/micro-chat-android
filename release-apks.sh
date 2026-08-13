@@ -30,35 +30,46 @@ build_apk() {
 	local abi="$1"
 	local suffix="$2"
 	local clean="$3"
+	local armv6_tls="$4"
 	APP_VERSION_NAME="${version}" \
 	APP_VERSION_CODE="${version_code}" \
 	MST5_NATIVE_ABI="${abi}" \
+	INCLUDE_ARMV6_OTA_TLS="${armv6_tls}" \
 	APK_OUTPUT="${release_dir}/ove-rs-${version}-${suffix}.apk" \
 	CLEAN_BUILD="${clean}" \
 		"${root}/build-apk.sh"
 }
 
-build_apk universal all 1
-build_apk armeabi armv6 0
-build_apk armeabi-v7a armv7 0
-build_apk arm64-v8a arm64 0
-build_apk x86_64 x86_64 0
+build_apk universal all 1 true
+build_apk armeabi armv6 0 true
+build_apk armeabi-v7a armv7 0 false
+build_apk arm64-v8a arm64 0 false
+build_apk x86_64 x86_64 0 false
+
+APP_VERSION_NAME="${version}" \
+APP_VERSION_CODE="${version_code}" \
+MST5_NATIVE_ABI=universal \
+INCLUDE_ARMV6_OTA_TLS=false \
+	"${root}/build-xapk.sh" "${release_dir}/ove-rs-${version}.xapk"
 
 universal_name="ove-rs-${version}-all.apk"
 armv6_name="ove-rs-${version}-armv6.apk"
 armv7_name="ove-rs-${version}-armv7.apk"
 arm64_name="ove-rs-${version}-arm64.apk"
 x86_64_name="ove-rs-${version}-x86_64.apk"
+xapk_name="ove-rs-${version}.xapk"
 universal_sha256="$(sha256sum "${release_dir}/${universal_name}" | awk '{print $1}')"
 armv6_sha256="$(sha256sum "${release_dir}/${armv6_name}" | awk '{print $1}')"
 armv7_sha256="$(sha256sum "${release_dir}/${armv7_name}" | awk '{print $1}')"
 arm64_sha256="$(sha256sum "${release_dir}/${arm64_name}" | awk '{print $1}')"
 x86_64_sha256="$(sha256sum "${release_dir}/${x86_64_name}" | awk '{print $1}')"
+xapk_sha256="$(sha256sum "${release_dir}/${xapk_name}" | awk '{print $1}')"
 universal_size="$(wc -c < "${release_dir}/${universal_name}")"
 armv6_size="$(wc -c < "${release_dir}/${armv6_name}")"
 armv7_size="$(wc -c < "${release_dir}/${armv7_name}")"
 arm64_size="$(wc -c < "${release_dir}/${arm64_name}")"
 x86_64_size="$(wc -c < "${release_dir}/${x86_64_name}")"
+xapk_size="$(wc -c < "${release_dir}/${xapk_name}")"
 
 cat > "${release_dir}/update.json" <<EOF
 {
@@ -66,6 +77,7 @@ cat > "${release_dir}/update.json" <<EOF
   "versionName": "${version}",
   "versionCode": ${version_code},
   "mst5Version": "${mst5_version}",
+  "xapk": {"name": "${xapk_name}", "size": ${xapk_size}, "sha256": "${xapk_sha256}", "minSdk": 21},
   "apkName": "${universal_name}",
   "apkSize": ${universal_size},
   "apkSha256": "${universal_sha256}",
@@ -86,6 +98,7 @@ EOF
 		"${armv7_name}" \
 		"${arm64_name}" > SHA256SUMS
 	sha256sum "${x86_64_name}" >> SHA256SUMS
+	sha256sum "${xapk_name}" >> SHA256SUMS
 )
 
 asset_url="https://github.com/${repository}/releases/download/${release_tag}"
@@ -103,6 +116,7 @@ cat > "${release_dir}/release-notes.md" <<EOF
 | ARMv7 | armeabi-v7a | $(size_of "${release_dir}/${armv7_name}") | [${armv7_name}](${asset_url}/${armv7_name}) |
 | ARM64 | arm64-v8a | $(size_of "${release_dir}/${arm64_name}") | [${arm64_name}](${asset_url}/${arm64_name}) |
 | x86_64 | x86_64 | $(size_of "${release_dir}/${x86_64_name}") | [${x86_64_name}](${asset_url}/${x86_64_name}) |
+| XAPK | Split APK, Android 5.0+, APKPure XAPK Installer | $(size_of "${release_dir}/${xapk_name}") | [${xapk_name}](${asset_url}/${xapk_name}) |
 
 Контрольные суммы: [SHA256SUMS](${asset_url}/SHA256SUMS).
 Для автоматического обновления приложение выбирает APK своей архитектуры.

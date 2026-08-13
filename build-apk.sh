@@ -13,9 +13,10 @@ Optional environment:
   ENV_FILE=./.env
   CRYPT_SERVER_PUBLIC_KEY_B64=...  Override the production transport pin.
   GRADLE_USER_HOME=/tmp/ove-android-gradle
-  APP_VERSION_NAME=0.10.3
-  APP_VERSION_CODE=100103
+  APP_VERSION_NAME=0.10.4
+  APP_VERSION_CODE=100104
   MST5_NATIVE_ABI=universal|armeabi|armeabi-v7a|arm64-v8a|x86_64
+  INCLUDE_ARMV6_OTA_TLS=true|false
   APK_OUTPUT=release/ove-rs.apk
   CLEAN_BUILD=1
 
@@ -35,9 +36,10 @@ fi
 cd "$ROOT"
 GRADLE_ARGS=(
 	:app:assembleRelease
-	-PappVersionName="${APP_VERSION_NAME:-0.10.3}"
-	-PappVersionCode="${APP_VERSION_CODE:-100103}"
+	-PappVersionName="${APP_VERSION_NAME:-0.10.4}"
+	-PappVersionCode="${APP_VERSION_CODE:-100104}"
 	-Pmst5NativeAbi="${MST5_NATIVE_ABI:-universal}"
+	-PincludeArmv6OtaTls="${INCLUDE_ARMV6_OTA_TLS:-false}"
 )
 if [[ "${CLEAN_BUILD:-1}" == "1" ]]; then
 	GRADLE_ARGS=(clean "${GRADLE_ARGS[@]}")

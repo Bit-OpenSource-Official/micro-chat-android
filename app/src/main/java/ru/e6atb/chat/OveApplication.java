@@ -8,6 +8,7 @@ public final class OveApplication extends Application {
 	@Override
 	public void onCreate() {
 		super.onCreate();
+		GithubOtaUpdater.initialize(this);
 		CrashReportStore.install(this);
 		NativeMst5.initialize(this);
 		try {

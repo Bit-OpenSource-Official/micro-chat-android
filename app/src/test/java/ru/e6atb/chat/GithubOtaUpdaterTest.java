@@ -70,6 +70,26 @@ public class GithubOtaUpdaterTest {
 	}
 
 	@Test
+	public void armv6TlsFallbackIsLimitedToLegacyArmv6() {
+		assertEquals(true, Armv6OtaTls.shouldUse(10, new String[] {"armeabi"}));
+		assertEquals(true, Armv6OtaTls.shouldUse(19, new String[] {"armv6"}));
+		assertEquals(false, Armv6OtaTls.shouldUse(20, new String[] {"armeabi"}));
+		assertEquals(false, Armv6OtaTls.shouldUse(19, new String[] {"armeabi-v7a", "armeabi"}));
+		assertEquals(false, Armv6OtaTls.shouldUse(19, new String[] {"armeabi", "armeabi-v7a"}));
+		assertEquals(false, Armv6OtaTls.shouldUse(19, new String[] {"x86"}));
+	}
+
+	@Test
+	public void armv6TlsAllowsOnlyGithubHttps() {
+		assertEquals(true, Armv6OtaTls.isAllowedUrl("https://api.github.com/repos/a/b/releases/latest"));
+		assertEquals(true, Armv6OtaTls.isAllowedUrl("https://release-assets.githubusercontent.com/file"));
+		assertEquals(false, Armv6OtaTls.isAllowedUrl("http://github.com/file"));
+		assertEquals(false, Armv6OtaTls.isAllowedUrl("https://github.com.evil.test/file"));
+		assertEquals(false, Armv6OtaTls.isAllowedUrl("https://user@github.com/file"));
+		assertEquals(false, Armv6OtaTls.isAllowedUrl("https://github.com:444/file"));
+	}
+
+	@Test
 	public void metadataAndGithubAssetSizesMustMatch() throws Exception {
 		GithubOtaUpdater.validateAssetSize(20, 20);
 		GithubOtaUpdater.validateAssetSize(-1, 20);

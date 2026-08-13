@@ -48,15 +48,19 @@ public final class NativeMst5 {
 		try {
 			Context context = rawContext.getApplicationContext();
 			if (context == null) context = rawContext;
-			String abi = supportedAbi(context);
+			String abi = supportedAbi(context, !ru.e6atb.chat.BuildConfig.MST5_PACKAGED_AS_JNI);
 			if (abi == null) throw new IOException("APK has no mst5-client library for this CPU");
-			File directory = nativeDirectory(context);
-			if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("cannot create native library directory");
-			File library = new File(directory, "libmst5_android_v2_" + ru.e6atb.chat.BuildConfig.VERSION_CODE + ".so");
-			if (!library.isFile() || library.length() == 0) {
-				copyAsset(context, "mst5-native/" + abi + "/libmst5_android.so", library);
+			if (ru.e6atb.chat.BuildConfig.MST5_PACKAGED_AS_JNI) {
+				System.loadLibrary("mst5_android");
+			} else {
+				File directory = nativeDirectory(context);
+				if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("cannot create native library directory");
+				File library = new File(directory, "libmst5_android_v2_" + ru.e6atb.chat.BuildConfig.VERSION_CODE + ".so");
+				if (!library.isFile() || library.length() == 0) {
+					copyAsset(context, "mst5-native/" + abi + "/libmst5_android.so", library);
+				}
+				System.load(library.getAbsolutePath());
 			}
-			System.load(library.getAbsolutePath());
 			if (nativeVersion() != 2) throw new IOException("incompatible mst5-client JNI bridge");
 			Log.i(TAG, "native mst5-client enabled for " + abi);
 		} catch (Throwable error) {
@@ -71,13 +75,13 @@ public final class NativeMst5 {
 		nativeInstallCrashHandler(path);
 	}
 
-	private static String supportedAbi(Context context) {
+	private static String supportedAbi(Context context, boolean requireAsset) {
 		String[] candidates = Build.VERSION.SDK_INT >= 21
 				? Api21.supportedAbis()
 				: new String[] {"armeabi"};
 		for (String abi : candidates) {
 			if (("arm64-v8a".equals(abi) || "armeabi-v7a".equals(abi) || "armeabi".equals(abi) || "x86_64".equals(abi))
-					&& assetExists(context, "mst5-native/" + abi + "/libmst5_android.so")) return abi;
+					&& (!requireAsset || assetExists(context, "mst5-native/" + abi + "/libmst5_android.so"))) return abi;
 		}
 		return null;
 	}
