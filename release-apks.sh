@@ -17,6 +17,13 @@ if [[ ! "${version_code}" =~ ^[1-9][0-9]*$ ]]; then
 	exit 2
 fi
 
+mst5_manifest="${root}/app/src/main/assets/mst5-native/manifest.json"
+if [[ ! -f "${mst5_manifest}" ]]; then
+	echo "MST5 release manifest is missing; run make native-libs" >&2
+	exit 2
+fi
+mst5_version="$(jq -er '.version | select(type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))' "${mst5_manifest}")"
+
 mkdir -p "${release_dir}"
 
 build_apk() {
@@ -58,6 +65,7 @@ cat > "${release_dir}/update.json" <<EOF
   "packageName": "ru.e6atb.chat",
   "versionName": "${version}",
   "versionCode": ${version_code},
+  "mst5Version": "${mst5_version}",
   "apkName": "${universal_name}",
   "apkSize": ${universal_size},
   "apkSha256": "${universal_sha256}",
@@ -98,6 +106,7 @@ cat > "${release_dir}/release-notes.md" <<EOF
 
 Контрольные суммы: [SHA256SUMS](${asset_url}/SHA256SUMS).
 Для автоматического обновления приложение выбирает APK своей архитектуры.
+MST5: готовые Android-библиотеки из [релиза v${mst5_version}](https://github.com/Bit-OpenSource-Official/mst5-client/releases/tag/v${mst5_version}); MST5 при сборке APK не компилируется.
 EOF
 
 echo "Release APKs and metadata written to ${release_dir}"

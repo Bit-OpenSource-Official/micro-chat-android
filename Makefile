@@ -19,7 +19,6 @@ endif
 
 RELEASE_VERSION := $(if $(VERSION),$(VERSION),$(word 1,$(POSITIONAL_RELEASE_ARGS)))
 
-MST5_CLIENT_DIR ?= ../mst5-client
 MST5_NATIVE_OUTPUT := $(CURDIR)/app/src/main/assets/mst5-native
 
 .PHONY: help release-branch test release-check native-libs require-native-libs apk apk-universal apk-armv6 apk-armv7 apk-arm64 apk-x86_64 release-apks
@@ -43,15 +42,14 @@ release-check: test
 	@gradle --no-daemon :app:lintVitalRelease
 
 native-libs:
-	@test -x "$(MST5_CLIENT_DIR)/android-jni/build-android.sh" || { echo "mst5-client checkout not found at $(MST5_CLIENT_DIR)" >&2; exit 2; }
-	@"$(MST5_CLIENT_DIR)/android-jni/build-android.sh" "$(MST5_NATIVE_OUTPUT)"
-	@"$(MST5_CLIENT_DIR)/android-jni/build-armv6.sh" "$(MST5_NATIVE_OUTPUT)"
+	@./fetch-mst5-native.sh
 
 require-native-libs:
 	@test -s "$(MST5_NATIVE_OUTPUT)/armeabi/libmst5_android.so"
 	@test -s "$(MST5_NATIVE_OUTPUT)/armeabi-v7a/libmst5_android.so"
 	@test -s "$(MST5_NATIVE_OUTPUT)/arm64-v8a/libmst5_android.so"
 	@test -s "$(MST5_NATIVE_OUTPUT)/x86_64/libmst5_android.so"
+	@jq -e '.abi == 1 and (.version | type == "string") and .target == "android"' "$(MST5_NATIVE_OUTPUT)/manifest.json" >/dev/null
 
 apk: apk-universal
 

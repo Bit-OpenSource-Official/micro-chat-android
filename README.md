@@ -42,14 +42,17 @@ media streams and voice streams are implemented exclusively by the Rust crate;
 there is no Java MST5/WebSocket fallback. Uploads and downloads cross JNI as file
 descriptors rather than full Java byte arrays.
 
-Native assets are generated and are not committed to this repository. Build all
-three ABIs from the public sibling `mst5-client` checkout with:
+Native assets are downloaded and are not committed to this repository. Install
+all four Android ABIs from the latest stable public `mst5-client` GitHub Release
+with:
 
 ```bash
-ANDROID_NDK_HOME=/opt/android-ndk-r26d \
-ANDROID_NDK_R14_HOME=/opt/android-ndk-r14b \
-  make native-libs
+make native-libs
 ```
+
+The command downloads the release's combined Android archive, verifies it
+against the published `SHA256SUMS`, and installs the ready-made JNI libraries.
+It never compiles `mst5-client` locally.
 
 Bot links use:
 
@@ -68,8 +71,8 @@ Requirements:
 
 - JDK 17;
 - Android SDK platform 35 and build-tools 35.0.0;
-- Gradle 8.10.2 or a compatible Gradle 8 release.
-- Rust nightly with `rust-src`, Android NDK r26d, and NDK r14b for ARMv6.
+- Gradle 8.10.2 or a compatible Gradle 8 release;
+- `curl`, `jq`, `sha256sum`, and `tar` for downloading the latest MST5 release.
 
 Build and test locally:
 
@@ -81,9 +84,9 @@ make apk
 The release build uses R8/resource shrinking and must be signed. By default it
 loads the existing `micromsg.keystore`; that legacy filename and its signing
 identity are intentionally retained so installed clients can update in place.
-`make apk` first builds `mst5-client` for all ABIs and then builds the universal
-production APK without requiring an `.env` file. Platform-specific packages can
-be built with:
+`make apk` first downloads the latest released `mst5-client` libraries for all
+ABIs and then builds the universal production APK without requiring an `.env`
+file. Platform-specific packages can be built with:
 
 ```bash
 make apk-armv6
@@ -124,13 +127,15 @@ docker rm ove-rs-apk
 
 Pushing a `release/VERSION` branch runs the `OVE.rs Android release` workflow.
 It uses the branch suffix as `versionName`, assigns a monotonically increasing
-`versionCode`, runs the release Make targets, and publishes:
+`versionCode`, downloads (without rebuilding) the latest stable MST5 Android
+release, runs the release Make targets, and publishes:
 
 - a GitHub Release tagged `vVERSION` and titled `OVE.rs VERSION`;
 - universal, ARMv6, ARMv7, and ARM64 signed APKs;
 - a download table in the release description;
 - `update.json` with independent names, sizes, and SHA-256 hashes for every
-  architecture (plus the universal APK fields for legacy clients), and
+  architecture, the exact downloaded MST5 release version (plus the universal
+  APK fields for legacy clients), and
   `SHA256SUMS` for every APK.
 
 The OTA client maps the device ABI to `armv6`, `armv7`, or `arm64`, then

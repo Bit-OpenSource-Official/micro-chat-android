@@ -21,13 +21,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Checkout public mst5-client
-        uses: actions/checkout@v4
-        with:
-          repository: Bit-OpenSource-Official/mst5-client
-          ref: main
-          path: mst5-client
-
       - name: Resolve release version
         id: version
         shell: bash
@@ -51,24 +44,8 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@nightly
-        with:
-          components: rust-src
-          targets: aarch64-linux-android,armv7-linux-androideabi,arm-linux-androideabi,x86_64-linux-android
-
       - name: Install Android SDK packages
-        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;26.3.11579264"
-
-      - name: Install legacy ARMv6 NDK
-        shell: bash
-        run: |
-          curl --fail --location --retry 3 \
-            --output "${RUNNER_TEMP}/android-ndk-r14b.zip" \
-            https://dl.google.com/android/repository/android-ndk-r14b-linux-x86_64.zip
-          unzip -q "${RUNNER_TEMP}/android-ndk-r14b.zip" -d "${RUNNER_TEMP}"
-          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/26.3.11579264" >> "${GITHUB_ENV}"
-          echo "ANDROID_NDK_R14_HOME=${RUNNER_TEMP}/android-ndk-r14b" >> "${GITHUB_ENV}"
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -96,9 +73,10 @@ jobs:
           echo "RELEASE_KEY_PASSWORD=${RELEASE_KEY_PASSWORD}" >> "${GITHUB_ENV}"
 
       - name: Check and build universal/platform APKs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           make native-libs release-check release-apks \
-            MST5_CLIENT_DIR=mst5-client \
             VERSION="${{ steps.version.outputs.name }}" \
             VERSION_CODE="${{ steps.version.outputs.code }}" \
             RELEASE_TAG="${{ steps.version.outputs.tag }}"
