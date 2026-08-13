@@ -147,8 +147,9 @@ make release-branch 0.9.9
 
 The command does not create or check out a local release branch. It pushes the
 current local `main` commit directly to `origin/release/0.9.9`, which starts the
-release workflow. Local `main` may be ahead of `origin/main`, but may not be
-behind or diverged from it.
+release workflow. If that branch already exists, it is updated only by a
+fast-forward, which makes retrying a failed release safe. Local `main` may be
+ahead of `origin/main`, but may not be behind or diverged from it.
 
 The client checks the repository's latest GitHub Release from Settings, verifies
 the package ID, file size, and checksum, then opens Android's package installer.

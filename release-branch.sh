@@ -6,6 +6,7 @@ usage() {
 Usage: ./release-branch.sh VERSION
 
 Pushes the current, up-to-date main commit to origin as release/VERSION.
+An existing release branch is updated only when this is a fast-forward.
 No local release branch is created. The push starts the GitHub release workflow.
 EOF
 }
@@ -54,11 +55,16 @@ if ! git merge-base --is-ancestor refs/remotes/origin/main refs/heads/main; then
 fi
 
 if git ls-remote --exit-code --heads origin "refs/heads/$branch" >/dev/null 2>&1; then
-	echo "error: remote branch origin/$branch already exists" >&2
-	exit 1
+	git fetch --quiet origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+	if ! git merge-base --is-ancestor "refs/remotes/origin/$branch" refs/heads/main; then
+		echo "error: origin/$branch cannot be fast-forwarded to the current main" >&2
+		exit 1
+	fi
+	echo "Updating existing origin/$branch from main..."
+else
+	echo "Publishing main as origin/$branch; this starts the GitHub release workflow..."
 fi
 
-echo "Publishing main as origin/$branch; this starts the GitHub release workflow..."
 git push origin "HEAD:refs/heads/$branch"
 
-echo "Remote release branch origin/$branch created. Local branch remains main."
+echo "Remote release branch origin/$branch is current. Local branch remains main."
