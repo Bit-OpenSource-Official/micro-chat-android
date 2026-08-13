@@ -1,6 +1,7 @@
 package ru.e6atb.chat;
 
 import android.content.Context;
+import android.os.Build;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -26,6 +27,11 @@ final class GithubOtaUpdater {
 	}
 
 	static Update findLatest(String repository, String packageName, String currentVersionName, int currentVersionCode) throws Exception {
+		return findLatest(repository, packageName, currentVersionName, currentVersionCode, deviceArchitecture());
+	}
+
+	static Update findLatest(String repository, String packageName, String currentVersionName, int currentVersionCode,
+			String architecture) throws Exception {
 		repository = repository == null ? "" : repository.trim();
 		if (repository.length() == 0 || repository.indexOf('/') <= 0) {
 			throw new IOException("GitHub repository is not configured");
@@ -37,8 +43,16 @@ final class GithubOtaUpdater {
 		if (metadataAsset != null) {
 			metadata = fetchJson(metadataAsset.optString("browser_download_url", ""));
 		}
-		String metadataApkName = metadata == null ? "" : metadata.optString("apkName", "").trim();
-		JSONObject apkAsset = findApkAsset(assets, metadataApkName);
+		JSONObject apkMetadata = findApkMetadata(metadata, architecture);
+		if (metadata != null && metadata.optJSONObject("apks") != null && apkMetadata == null) {
+			throw new IOException("release metadata has no APK for " + architecture);
+		}
+		String metadataApkName = apkMetadata == null ? "" : apkMetadata.optString("apkName", "").trim();
+		if (metadataApkName.length() > 0
+				&& !matchesArchitecture(metadataApkName.toLowerCase(Locale.US), architecture)) {
+			throw new IOException("release APK architecture mismatch: " + metadataApkName);
+		}
+		JSONObject apkAsset = findApkAsset(assets, metadataApkName, architecture);
 		if (apkAsset == null) {
 			if (metadataApkName.length() > 0) {
 				throw new IOException("release APK asset not found: " + metadataApkName);
@@ -67,8 +81,8 @@ final class GithubOtaUpdater {
 		update.apkName = apkAsset.optString("name", "update.apk");
 		update.apkUrl = apkAsset.optString("browser_download_url", "");
 		update.apkMime = APK_MIME;
-		update.apkSha256 = metadata == null ? "" : metadata.optString("apkSha256", "");
-		update.apkSize = metadata == null ? -1L : metadata.optLong("apkSize", -1L);
+		update.apkSha256 = apkMetadata == null ? "" : apkMetadata.optString("apkSha256", "");
+		update.apkSize = apkMetadata == null ? -1L : apkMetadata.optLong("apkSize", -1L);
 		long assetSize = apkAsset.optLong("size", -1L);
 		validateAssetSize(update.apkSize, assetSize);
 		if (update.apkUrl.length() == 0) {
@@ -104,7 +118,7 @@ final class GithubOtaUpdater {
 		return target;
 	}
 
-	static JSONObject findApkAsset(JSONArray assets, String expectedName) {
+	static JSONObject findApkAsset(JSONArray assets, String expectedName, String architecture) {
 		if (assets == null) return null;
 		expectedName = expectedName == null ? "" : expectedName.trim();
 		if (expectedName.length() > 0) {
@@ -114,18 +128,52 @@ final class GithubOtaUpdater {
 			}
 			return null;
 		}
-		JSONObject fallback = null;
 		for (int i = 0; i < assets.length(); i++) {
 			JSONObject asset = assets.optJSONObject(i);
 			if (asset == null) continue;
 			String name = asset.optString("name", "").toLowerCase(Locale.US);
 			if (!name.endsWith(".apk")) continue;
 			if (name.indexOf("debug") >= 0) continue;
-			if (fallback == null) fallback = asset;
-			if (name.endsWith("-all.apk") || name.equals("all.apk")
-					|| name.endsWith("-universal.apk") || name.equals("universal.apk")) return asset;
+			if (matchesArchitecture(name, architecture)) return asset;
 		}
-		return fallback;
+		return null;
+	}
+
+	static JSONObject findApkMetadata(JSONObject metadata, String architecture) {
+		if (metadata == null) return null;
+		JSONObject apks = metadata.optJSONObject("apks");
+		if (apks != null) return apks.optJSONObject(architecture == null ? "" : architecture);
+		// Read old single-APK metadata only when it names an APK for this architecture.
+		String name = metadata.optString("apkName", "").trim();
+		return matchesArchitecture(name.toLowerCase(Locale.US), architecture) ? metadata : null;
+	}
+
+	static String selectArchitecture(String[] abis) {
+		if (abis == null) return "";
+		for (String abi : abis) {
+			String value = abi == null ? "" : abi.trim().toLowerCase(Locale.US);
+			if (value.contains("arm64") || value.contains("aarch64")) return "arm64";
+			if (value.contains("armeabi-v7a") || value.contains("armv7")) return "armv7";
+			if (value.equals("armeabi") || value.contains("armv6")) return "armv6";
+		}
+		return "";
+	}
+
+	private static String deviceArchitecture() throws IOException {
+		String[] abis;
+		if (Build.VERSION.SDK_INT >= 21) {
+			abis = Build.SUPPORTED_ABIS;
+		} else {
+			abis = new String[] {Build.CPU_ABI, Build.CPU_ABI2};
+		}
+		String architecture = selectArchitecture(abis);
+		if (architecture.length() == 0) throw new IOException("unsupported update architecture");
+		return architecture;
+	}
+
+	private static boolean matchesArchitecture(String name, String architecture) {
+		if (name == null || architecture == null || architecture.length() == 0) return false;
+		return name.endsWith("-" + architecture.toLowerCase(Locale.US) + ".apk");
 	}
 
 	static void validateAssetSize(long metadataSize, long assetSize) throws IOException {

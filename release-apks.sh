@@ -31,15 +31,23 @@ build_apk() {
 		"${root}/build-apk.sh"
 }
 
-build_apk universal universal 1
+build_apk universal all 1
 build_apk armeabi armv6 0
 build_apk armeabi-v7a armv7 0
 build_apk arm64-v8a arm64 0
 
 universal_name="ove-rs-${version}-all.apk"
-universal_path="${release_dir}/${universal_name}"
-universal_sha256="$(sha256sum "${universal_path}" | awk '{print $1}')"
-universal_size="$(wc -c < "${universal_path}")"
+armv6_name="ove-rs-${version}-armv6.apk"
+armv7_name="ove-rs-${version}-armv7.apk"
+arm64_name="ove-rs-${version}-arm64.apk"
+universal_sha256="$(sha256sum "${release_dir}/${universal_name}" | awk '{print $1}')"
+armv6_sha256="$(sha256sum "${release_dir}/${armv6_name}" | awk '{print $1}')"
+armv7_sha256="$(sha256sum "${release_dir}/${armv7_name}" | awk '{print $1}')"
+arm64_sha256="$(sha256sum "${release_dir}/${arm64_name}" | awk '{print $1}')"
+universal_size="$(wc -c < "${release_dir}/${universal_name}")"
+armv6_size="$(wc -c < "${release_dir}/${armv6_name}")"
+armv7_size="$(wc -c < "${release_dir}/${armv7_name}")"
+arm64_size="$(wc -c < "${release_dir}/${arm64_name}")"
 
 cat > "${release_dir}/update.json" <<EOF
 {
@@ -48,7 +56,12 @@ cat > "${release_dir}/update.json" <<EOF
   "versionCode": ${version_code},
   "apkName": "${universal_name}",
   "apkSize": ${universal_size},
-  "apkSha256": "${universal_sha256}"
+  "apkSha256": "${universal_sha256}",
+  "apks": {
+    "armv6": {"apkName": "${armv6_name}", "apkSize": ${armv6_size}, "apkSha256": "${armv6_sha256}"},
+    "armv7": {"apkName": "${armv7_name}", "apkSize": ${armv7_size}, "apkSha256": "${armv7_sha256}"},
+    "arm64": {"apkName": "${arm64_name}", "apkSize": ${arm64_size}, "apkSha256": "${arm64_sha256}"}
+  }
 }
 EOF
 
@@ -56,9 +69,9 @@ EOF
 	cd "${release_dir}"
 	sha256sum \
 		"${universal_name}" \
-		"ove-rs-${version}-armv6.apk" \
-		"ove-rs-${version}-armv7.apk" \
-		"ove-rs-${version}-arm64.apk" > SHA256SUMS
+		"${armv6_name}" \
+		"${armv7_name}" \
+		"${arm64_name}" > SHA256SUMS
 )
 
 asset_url="https://github.com/${repository}/releases/download/${release_tag}"
@@ -71,13 +84,13 @@ cat > "${release_dir}/release-notes.md" <<EOF
 
 | Сборка | Совместимость | Размер | Скачать |
 |---|---|---:|---|
-| Универсальная | ARMv6, ARMv7 и ARM64 | $(size_of "${universal_path}") | [${universal_name}](${asset_url}/${universal_name}) |
-| ARMv6 | armeabi, Android 2.3+ | $(size_of "${release_dir}/ove-rs-${version}-armv6.apk") | [ove-rs-${version}-armv6.apk](${asset_url}/ove-rs-${version}-armv6.apk) |
-| ARMv7 | armeabi-v7a | $(size_of "${release_dir}/ove-rs-${version}-armv7.apk") | [ove-rs-${version}-armv7.apk](${asset_url}/ove-rs-${version}-armv7.apk) |
-| ARM64 | arm64-v8a | $(size_of "${release_dir}/ove-rs-${version}-arm64.apk") | [ove-rs-${version}-arm64.apk](${asset_url}/ove-rs-${version}-arm64.apk) |
+| Универсальная | ARMv6, ARMv7 и ARM64 | $(size_of "${release_dir}/${universal_name}") | [${universal_name}](${asset_url}/${universal_name}) |
+| ARMv6 | armeabi, Android 2.3+ | $(size_of "${release_dir}/${armv6_name}") | [${armv6_name}](${asset_url}/${armv6_name}) |
+| ARMv7 | armeabi-v7a | $(size_of "${release_dir}/${armv7_name}") | [${armv7_name}](${asset_url}/${armv7_name}) |
+| ARM64 | arm64-v8a | $(size_of "${release_dir}/${arm64_name}") | [${arm64_name}](${asset_url}/${arm64_name}) |
 
 Контрольные суммы: [SHA256SUMS](${asset_url}/SHA256SUMS).
-Для автоматического обновления используется универсальная сборка.
+Для автоматического обновления приложение выбирает APK своей архитектуры.
 EOF
 
 echo "Release APKs and metadata written to ${release_dir}"

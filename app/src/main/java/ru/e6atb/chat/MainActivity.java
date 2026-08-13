@@ -93,6 +93,7 @@ public final class MainActivity extends Activity {
 	public static final String DEFAULT_SERVER = "ms.ove.rs:8080";
 	public static final String ACTION_ACCEPT_CALL = "ru.e6atb.chat.ACCEPT_CALL";
 	public static final String ACTION_OPEN_CALL = "ru.e6atb.chat.OPEN_CALL";
+	public static final String ACTION_OPEN_UPDATE = "ru.e6atb.chat.OPEN_UPDATE";
 	public static final String EXTRA_PEER = "peer";
 	public static final String EXTRA_CALL = "call_peer";
 	public static final String EXTRA_CHAT = "chat_peer";
@@ -116,7 +117,9 @@ public final class MainActivity extends Activity {
 	private static final int REQ_CAMERA = 15;
 	private static final int REQ_QR_SCAN = 16;
 	private static final String CALL_NOTIFICATION_CHANNEL = "calls_visual";
+	private static final String UPDATE_NOTIFICATION_CHANNEL = "app_updates";
 	private static final int ACTIVE_CALL_NOTIFICATION_ID = 3;
+	private static final int UPDATE_NOTIFICATION_ID = 4;
 	private static final int MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
 	private static final int MAX_IMAGE_PREVIEW_PX = 1280;
 	private static final int USERNAME_RESERVATION_FEE_DSR = 20;
@@ -570,6 +573,12 @@ public final class MainActivity extends Activity {
 
 	private void handleIntent(Intent intent) {
 		if (intent == null) return;
+		if (ACTION_OPEN_UPDATE.equals(intent.getAction())) {
+			intent.setAction(null);
+			cancelGithubUpdateNotification();
+			checkGithubUpdate(true);
+			return;
+		}
 		if (requiresSession(intent) && ta == null) {
 			pendingSessionIntent = new Intent(intent);
 			return;
@@ -2175,11 +2184,16 @@ public final class MainActivity extends Activity {
 	}
 
 	private void checkGithubUpdate() {
+		checkGithubUpdate(true);
+	}
+
+	private void checkGithubUpdate(final boolean showOffer) {
 		final String repository = BuildConfig.GITHUB_REPOSITORY == null ? "" : BuildConfig.GITHUB_REPOSITORY.trim();
 		if (repository.length() == 0) {
 			status.setText(getString(R.string.status_update_not_configured));
 			return;
 		}
+		SessionStore.lastGithubUpdateCheckAt(this, System.currentTimeMillis());
 		status.setText(getString(R.string.status_update_checking));
 		run("github_update", new Task() {
 			@Override
@@ -2193,6 +2207,7 @@ public final class MainActivity extends Activity {
 					ui(new Runnable() {
 						@Override
 						public void run() {
+							cancelGithubUpdateNotification();
 							status.setText(getString(R.string.status_update_none));
 						}
 					});
@@ -2201,7 +2216,7 @@ public final class MainActivity extends Activity {
 				ui(new Runnable() {
 					@Override
 					public void run() {
-						downloadAndInstallGithubUpdate(update);
+						if (showOffer) showGithubUpdateOffer(update);
 					}
 				});
 			}
@@ -2224,12 +2239,20 @@ public final class MainActivity extends Activity {
 							getPackageName(),
 							BuildConfig.VERSION_NAME,
 							BuildConfig.VERSION_CODE);
-					if (update == null) return;
+					if (update == null) {
+						ui(new Runnable() {
+							@Override
+							public void run() {
+								cancelGithubUpdateNotification();
+							}
+						});
+						return;
+					}
 					ui(new Runnable() {
 						@Override
 						public void run() {
 							if (isFinishing()) return;
-							showGithubUpdateOffer(update);
+							postGithubUpdateNotification(update);
 						}
 					});
 				} catch (Exception ignored) {
@@ -2249,6 +2272,30 @@ public final class MainActivity extends Activity {
 						downloadAndInstallGithubUpdate(update);
 					}
 				});
+	}
+
+	private void postGithubUpdateNotification(GithubOtaUpdater.Update update) {
+		NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+		if (nm == null) return;
+		String version = updateVersionLabel(update);
+		String title = getString(R.string.update_available_title);
+		String text = getString(R.string.notification_update_available, version);
+		Intent open = new Intent(this, MainActivity.class);
+		open.setAction(ACTION_OPEN_UPDATE);
+		open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+		PendingIntent pending = PendingIntent.getActivity(this, UPDATE_NOTIFICATION_ID, open, pendingIntentFlags());
+		Notification notification = buildActivityNotification(
+				UPDATE_NOTIFICATION_CHANNEL, title, text, pending, false, android.R.drawable.stat_sys_download_done);
+		notification.flags |= Notification.FLAG_AUTO_CANCEL;
+		try {
+			nm.notify(UPDATE_NOTIFICATION_ID, notification);
+		} catch (SecurityException ignored) {
+		}
+	}
+
+	private void cancelGithubUpdateNotification() {
+		NotificationManager nm = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+		if (nm != null) nm.cancel(UPDATE_NOTIFICATION_ID);
 	}
 
 	private void downloadAndInstallGithubUpdate(final GithubOtaUpdater.Update update) {
@@ -5586,6 +5633,9 @@ public final class MainActivity extends Activity {
 			Object channel = constructor.newInstance(CALL_NOTIFICATION_CHANNEL, getString(R.string.notification_channel_calls), high);
 			makeNotificationChannelSilent(channelClass, channel);
 			method.invoke(nm, channel);
+			int normal = NotificationManager.class.getField("IMPORTANCE_DEFAULT").getInt(null);
+			Object updates = constructor.newInstance(UPDATE_NOTIFICATION_CHANNEL, getString(R.string.notification_channel_updates), normal);
+			method.invoke(nm, updates);
 		} catch (Exception ignored) {
 		}
 	}
@@ -5635,7 +5685,7 @@ public final class MainActivity extends Activity {
 	private Notification activeCallNotification(String title, String text, PendingIntent pending) {
 		Notification n;
 		if (Build.VERSION.SDK_INT >= 11) {
-			n = buildActivityNotification(CALL_NOTIFICATION_CHANNEL, title, text, pending, true);
+			n = buildActivityNotification(CALL_NOTIFICATION_CHANNEL, title, text, pending, true, android.R.drawable.ic_menu_call);
 		} else {
 			n = new Notification(android.R.drawable.ic_menu_call, text, System.currentTimeMillis());
 			setLatestEventInfoCompat(n, title, text, pending);
@@ -5644,7 +5694,8 @@ public final class MainActivity extends Activity {
 		return n;
 	}
 
-	private Notification buildActivityNotification(String channel, String title, String text, PendingIntent pending, boolean ongoing) {
+	private Notification buildActivityNotification(String channel, String title, String text, PendingIntent pending,
+			boolean ongoing, int icon) {
 		try {
 			Class<?> builderClass = Class.forName("android.app.Notification$Builder");
 			Object builder;
@@ -5655,7 +5706,7 @@ public final class MainActivity extends Activity {
 				Constructor<?> constructor = builderClass.getConstructor(android.content.Context.class);
 				builder = constructor.newInstance(this);
 			}
-			builderClass.getMethod("setSmallIcon", int.class).invoke(builder, android.R.drawable.ic_menu_call);
+			builderClass.getMethod("setSmallIcon", int.class).invoke(builder, icon);
 			builderClass.getMethod("setContentTitle", CharSequence.class).invoke(builder, title);
 			builderClass.getMethod("setContentText", CharSequence.class).invoke(builder, text);
 			builderClass.getMethod("setContentIntent", PendingIntent.class).invoke(builder, pending);
@@ -5666,7 +5717,7 @@ public final class MainActivity extends Activity {
 			}
 			return (Notification) builderClass.getMethod("getNotification").invoke(builder);
 		} catch (Exception e) {
-			Notification n = new Notification(android.R.drawable.ic_menu_call, text, System.currentTimeMillis());
+			Notification n = new Notification(icon, text, System.currentTimeMillis());
 			setLatestEventInfoCompat(n, title, text, pending);
 			return n;
 		}

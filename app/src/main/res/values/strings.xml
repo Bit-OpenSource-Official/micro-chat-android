@@ -192,6 +192,7 @@
 	<string name="status_update_install_error">update install error: %1$s</string>
 	<string name="update_available_title">Update available</string>
 	<string name="update_available_body">Current version: %1$s\nNew version: %2$s\nDownload and install now?</string>
+	<string name="notification_update_available">Version %1$s is ready. Tap to view the update.</string>
 	<string name="status_voice_connected">voice connected</string>
 	<string name="status_voice_connection_closed">voice: connection closed</string>
 	<string name="status_joining_voice_channel">joining voice channel...</string>
@@ -452,6 +453,7 @@
 	<string name="notification_channel_sync">Background sync</string>
 	<string name="notification_channel_messages">Messages</string>
 	<string name="notification_channel_calls">Calls</string>
+	<string name="notification_channel_updates">App updates</string>
 	<string name="channel_settings">Channel settings</string>
 	<string name="channel_settings_general">General</string>
 	<string name="channel_settings_discussion">Discussion</string>

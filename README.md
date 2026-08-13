@@ -97,7 +97,7 @@ Override the application version when needed:
 APP_VERSION_NAME=0.9.8 APP_VERSION_CODE=100055 ./build-apk.sh
 ```
 
-Prepare the same four APKs, `update.json`, `SHA256SUMS`, and the release notes
+Prepare the universal APK, three architecture APKs, `update.json`, `SHA256SUMS`, and the release notes
 table used by GitHub Actions:
 
 ```bash
@@ -129,7 +129,14 @@ It uses the branch suffix as `versionName`, assigns a monotonically increasing
 - a GitHub Release tagged `vVERSION` and titled `OVE.rs VERSION`;
 - universal, ARMv6, ARMv7, and ARM64 signed APKs;
 - a download table in the release description;
-- `update.json` for the universal APK and `SHA256SUMS` for every APK.
+- `update.json` with independent names, sizes, and SHA-256 hashes for every
+  architecture (plus the universal APK fields for legacy clients), and
+  `SHA256SUMS` for every APK.
+
+The OTA client maps the device ABI to `armv6`, `armv7`, or `arm64`, then
+downloads only the matching APK. Automatic checks create an app notification;
+the update dialog opens only after the user taps that notification. A manual
+check in Settings opens the same dialog directly.
 
 Publish the current commit of a clean local `main` as a remote release branch
 with one command:

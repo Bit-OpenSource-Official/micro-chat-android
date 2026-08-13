@@ -192,6 +192,7 @@
 	<string name="status_update_install_error">ошибка установки обновления: %1$s</string>
 	<string name="update_available_title">Доступно обновление</string>
 	<string name="update_available_body">Текущая версия: %1$s\nНовая версия: %2$s\nСкачать и установить сейчас?</string>
+	<string name="notification_update_available">Доступна версия %1$s. Нажмите, чтобы открыть обновление.</string>
 	<string name="status_voice_connected">голос подключен</string>
 	<string name="status_voice_connection_closed">голос: соединение закрыто</string>
 	<string name="status_joining_voice_channel">вхожу в голосовой канал...</string>
@@ -452,6 +453,7 @@
 	<string name="notification_channel_sync">Фоновая синхронизация</string>
 	<string name="notification_channel_messages">Сообщения</string>
 	<string name="notification_channel_calls">Звонки</string>
+	<string name="notification_channel_updates">Обновления приложения</string>
 	<string name="channel_settings">Настройки канала</string>
 	<string name="channel_settings_general">Основные</string>
 	<string name="channel_settings_discussion">Обсуждение</string>
