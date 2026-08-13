@@ -93,12 +93,8 @@ final class OutboxDispatcher {
 			try {
 				MiniTaLib.Message sent;
 				if ("media".equals(entry.kind) || "file".equals(entry.kind)) {
-					if (entry.preparedBody == null || entry.preparedBody.length() == 0) {
-						JSONObject prepared = client.prepareMessage(entry.peer, entry.text, entry.id, entry.room, entry.replyToMessageId);
-						if (entry.commentPostId > 0) prepared.put("comment_post_id", entry.commentPostId);
-						entry.preparedBody = prepared.toString();
-						OutboxStore.update(context, server, user, entry);
-					}
+					JSONObject prepared = client.prepareMessage(entry.peer, entry.text, entry.id, entry.room, entry.replyToMessageId);
+					if (entry.commentPostId > 0) prepared.put("comment_post_id", entry.commentPostId);
 					ArrayList<MiniTaLib.MessageMedia> media = new ArrayList<MiniTaLib.MessageMedia>();
 					for (final OutboxStore.Attachment attachment : entry.attachments) {
 						MiniTaLib.UploadSource source = null;
@@ -123,17 +119,13 @@ final class OutboxDispatcher {
 						media.add(new MiniTaLib.MessageMedia(attachment.clientId, attachment.fileId, attachment.name,
 								attachment.mime, attachment.size, source));
 					}
-					sent = client.sendMessageWithMedia(new JSONObject(entry.preparedBody), media, transfer,
+					sent = client.sendMessageWithMedia(prepared, media, transfer,
 							entry.maxDsrAmount).asOutgoing();
 				} else if (entry.commentPostId > 0) {
 					sent = client.sendChannelComment(entry.peer, entry.commentPostId, entry.text, entry.id, entry.replyToMessageId).asOutgoing();
 				} else {
-					if (entry.preparedBody == null || entry.preparedBody.length() == 0) {
-						JSONObject prepared = client.prepareMessage(entry.peer, entry.text, entry.id, entry.room, entry.replyToMessageId);
-						entry.preparedBody = prepared.toString();
-						OutboxStore.update(context, server, user, entry);
-					}
-					sent = client.sendPreparedMessage(new JSONObject(entry.preparedBody)).asOutgoing();
+					JSONObject prepared = client.prepareMessage(entry.peer, entry.text, entry.id, entry.room, entry.replyToMessageId);
+					sent = client.sendPreparedMessage(prepared).asOutgoing();
 				}
 				ChatCache.appendMessage(context, server, SessionStore.login(context),
 						OutboxStore.cachePeer(entry.peer, entry.commentPostId), sent);

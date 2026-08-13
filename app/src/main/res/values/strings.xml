@@ -283,6 +283,11 @@
 	<string name="settings_current_session">Current</string>
 	<string name="settings_other_device">Other device</string>
 	<string name="settings_logout_others">Log out others</string>
+	<string name="session_logout_device">Log out on this device</string>
+	<string name="session_details_id">Session ID: %1$s</string>
+	<string name="session_details_created">Created: %1$s</string>
+	<string name="session_details_last_seen">Last active: %1$s</string>
+	<string name="session_details_status">Status: %1$s</string>
 	<string name="settings_cloud_password_help">Password is used to restore E2E keys on other devices.</string>
 	<string name="settings_e2e_keys_help">Reset only if the key is lost or mismatched. Old E2E messages will not decrypt without an old key backup. Contacts may need to verify your new key. After reset, save the cloud password again to back up the new key.</string>
 	<string name="settings_reset_cloud_password">Reset cloud password</string>

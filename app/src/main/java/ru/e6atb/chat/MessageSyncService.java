@@ -17,6 +17,7 @@ import java.util.Set;
 import org.json.JSONObject;
 
 public final class MessageSyncService extends Service {
+	public static final String ACTION_SYNC_UPDATED = "ru.e6atb.chat.SYNC_UPDATED";
 	private static final String ACTION_REJECT_CALL = "ru.e6atb.chat.REJECT_CALL";
 	private static final String SYNC_CHANNEL = "sync";
 	private static final String MESSAGE_CHANNEL = "messages";
@@ -89,14 +90,8 @@ public final class MessageSyncService extends Service {
 			} catch (Exception ignored) {
 				// Keep the report on disk. The next pass retries it with the same idempotency key.
 			}
-			if (MainActivity.isForegroundPollingActive()) {
-				ta.close();
-				failures = 0;
-				sleepWhileRunning(5000);
-				continue;
-			}
 			OutboxDispatcher.dispatch(this, ta, null);
-			long after = SessionStore.backgroundLastUpdate(this);
+			long after = unifiedCursor();
 			try {
 				startForeground(FOREGROUND_ID, notification(
 						SYNC_CHANNEL,
@@ -151,9 +146,14 @@ public final class MessageSyncService extends Service {
 						OutboxStore.removeChannelComments(this, server, OutboxDispatcher.accountKey(this), userAddress(u.room));
 					}
 				}
+				SessionStore.backgroundLastUpdate(this, newestUpdate);
+				SessionStore.lastUpdate(this, newestUpdate);
 				if (newestUpdate > after) {
 					after = newestUpdate;
-					SessionStore.backgroundLastUpdate(this, after);
+					Intent updated = new Intent(ACTION_SYNC_UPDATED);
+					updated.setPackage(getPackageName());
+					updated.putExtra("cursor", after);
+					sendBroadcast(updated);
 				}
 				if (!SessionStore.notificationBootstrapComplete(this)) {
 					SessionStore.notificationBootstrapComplete(this, true);
@@ -170,6 +170,13 @@ public final class MessageSyncService extends Service {
 			}
 			ta.close();
 		}
+	}
+
+	private long unifiedCursor() {
+		long foreground = SessionStore.lastUpdate(this);
+		long background = SessionStore.backgroundLastUpdate(this);
+		if (foreground > 0 && background > 0) return Math.min(foreground, background);
+		return Math.max(foreground, background);
 	}
 
 	private static Set<Long> readMessageIds(List<MiniTaLib.Update> updates) {

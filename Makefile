@@ -59,7 +59,7 @@ require-native-libs:
 	@test -s "$(MST5_NATIVE_OUTPUT)/armeabi-v7a/libmst5_android.so"
 	@test -s "$(MST5_NATIVE_OUTPUT)/arm64-v8a/libmst5_android.so"
 	@test -s "$(MST5_NATIVE_OUTPUT)/x86_64/libmst5_android.so"
-	@jq -e '.abi == 1 and (.version | type == "string") and .target == "android"' "$(MST5_NATIVE_OUTPUT)/manifest.json" >/dev/null
+	@jq -e '.abi == 1 and .android_jni_abi == 3 and .version == "0.5.0" and .target == "android"' "$(MST5_NATIVE_OUTPUT)/manifest.json" >/dev/null
 
 apk: apk-universal
 

@@ -1,6 +1,7 @@
 package ru.e6atb.chat;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.DownloadManager;
 import android.app.Notification;
@@ -8,6 +9,10 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.ActivityNotFoundException;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Canvas;
@@ -85,7 +90,6 @@ import java.io.FileOutputStream;
 import org.json.JSONObject;
 
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.util.Base64;
 import android.widget.ImageView;
 
@@ -145,7 +149,6 @@ public final class MainActivity extends Activity {
 	private static final int INVITE_PRIVACY_EVERYONE_ID = 1301;
 	private static final int INVITE_PRIVACY_CONTACTS_ID = 1302;
 	private static final int INVITE_PRIVACY_NOBODY_ID = 1303;
-	private static volatile boolean foregroundPollingActive;
 
 	private int pad;
 	private int gap;
@@ -168,7 +171,14 @@ public final class MainActivity extends Activity {
 	private final Map < Long, Long > pendingPaidReactionDeltas = new HashMap < Long, Long > ();
 	private final Map < Long, PaidReactionBatch > paidReactionBatches = new HashMap < Long, PaidReactionBatch > ();
 	private final Set < Long > seenMessages = new HashSet < Long > ();
-	private final Map < String, Bitmap > imagePreviewCache = new HashMap < String, Bitmap > ();
+	private final android.util.LruCache<String, Bitmap> imagePreviewCache =
+			new android.util.LruCache<String, Bitmap>(32 * 1024 * 1024) {
+				@Override protected int sizeOf(String key, Bitmap value) {
+					if (value == null) return 0;
+					if (Build.VERSION.SDK_INT >= 19) return value.getAllocationByteCount();
+					return value.getRowBytes() * value.getHeight();
+				}
+			};
 	private final Map < String, String > imagePreviewErrors = new HashMap < String, String > ();
 	private final Set < String > imagePreviewLoading = new HashSet < String > ();
 	private final ArrayList < MiniTaLib.Chat > chatData = new ArrayList < MiniTaLib.Chat > ();
@@ -241,6 +251,17 @@ public final class MainActivity extends Activity {
 	private volatile boolean activityResumed;
 	private volatile int pollingGeneration;
 	private volatile long lastUpdate;
+	private boolean syncReceiverRegistered;
+	private final BroadcastReceiver syncReceiver = new BroadcastReceiver() {
+		@Override public void onReceive(Context context, Intent intent) {
+			if (intent == null || !MessageSyncService.ACTION_SYNC_UPDATED.equals(intent.getAction())) return;
+			lastUpdate = Math.max(lastUpdate, intent.getLongExtra("cursor", 0));
+			loadCachedChats();
+			if (page == Page.CHAT && currentPeer != null && currentPeer.length() > 0) {
+				loadCachedHistory(currentPeer);
+			}
+		}
+	};
 	private String myID = "";
 	private String myEmail = "";
 	private String myLogin = "";
@@ -436,6 +457,7 @@ public final class MainActivity extends Activity {
 	protected void onResume() {
 		super.onResume();
 		activityResumed = true;
+		registerSyncReceiver();
 		maybeOfferGithubUpdate();
 		if (ta != null) startPolling();
 	}
@@ -444,12 +466,14 @@ public final class MainActivity extends Activity {
 	protected void onPause() {
 		activityResumed = false;
 		stopPolling();
+		unregisterSyncReceiver();
 		super.onPause();
 	}
 
 	@Override
 	protected void onDestroy() {
 		stopPolling();
+		unregisterSyncReceiver();
 		main.removeCallbacks(emailCodeCooldownTick);
 		cancelActiveCallNotification();
 		dismissCallWindow();
@@ -466,8 +490,19 @@ public final class MainActivity extends Activity {
 		super.onDestroy();
 	}
 
-	static boolean isForegroundPollingActive() {
-		return foregroundPollingActive;
+
+	private void registerSyncReceiver() {
+		if (syncReceiverRegistered) return;
+		IntentFilter filter = new IntentFilter(MessageSyncService.ACTION_SYNC_UPDATED);
+		if (Build.VERSION.SDK_INT >= 33) registerReceiver(syncReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+		else registerReceiver(syncReceiver, filter);
+		syncReceiverRegistered = true;
+	}
+
+	private void unregisterSyncReceiver() {
+		if (!syncReceiverRegistered) return;
+		try { unregisterReceiver(syncReceiver); } catch (Exception ignored) {}
+		syncReceiverRegistered = false;
 	}
 
 	private LinearLayout shell() {
@@ -3134,12 +3169,63 @@ public final class MainActivity extends Activity {
 			return;
 		}
 		for (MiniTaLib.SessionInfo item : sessions) {
-			String text = (item.current ? getString(R.string.settings_current_session) : getString(R.string.settings_other_device)) +
+			final MiniTaLib.SessionInfo session = item;
+			String name = item.label.length() == 0
+					? (item.current ? getString(R.string.settings_current_session) : getString(R.string.settings_other_device))
+					: item.label;
+			String text = name + (item.current ? " · " + getString(R.string.settings_current_session) : "") +
 					"  " + formatMessageTime(item.lastSeen) +
 					"  #" + item.id;
-			accountSessionsView.addView(sessionRow(text, item.current ? blend(primary, Color.WHITE, 0.18f) : textColor));
+			TextView row = sessionRow(text, item.current ? blend(primary, Color.WHITE, 0.18f) : textColor);
+			row.setClickable(true);
+			row.setOnClickListener(new View.OnClickListener() {
+				@Override public void onClick(View v) { showSessionDetails(session); }
+			});
+			accountSessionsView.addView(row);
 		}
 		status.setText(getString(R.string.status_sessions_count, sessions.size()));
+	}
+
+	private void showSessionDetails(final MiniTaLib.SessionInfo session) {
+		String name = session.label.length() == 0
+				? (session.current ? getString(R.string.settings_current_session) : getString(R.string.settings_other_device))
+				: session.label;
+		String message = getString(R.string.session_details_id, session.id) + "\n"
+				+ getString(R.string.session_details_created, new Date(session.createdAt * 1000L).toString()) + "\n"
+				+ getString(R.string.session_details_last_seen, new Date(session.lastSeen * 1000L).toString()) + "\n"
+				+ getString(R.string.session_details_status,
+					session.current ? getString(R.string.settings_current_session) : getString(R.string.settings_other_device));
+		new AlertDialog.Builder(this)
+				.setTitle(name)
+				.setMessage(message)
+				.setNegativeButton(android.R.string.cancel, null)
+				.setPositiveButton(session.current ? R.string.settings_logout : R.string.session_logout_device,
+						new DialogInterface.OnClickListener() {
+							@Override public void onClick(DialogInterface dialog, int which) { revokeSession(session); }
+						})
+				.show();
+	}
+
+	private void revokeSession(final MiniTaLib.SessionInfo session) {
+		final MiniTaLib client = ta;
+		if (client == null) return;
+		run("revoke_session", new Task() {
+			@Override public void run() throws Exception {
+				client.revokeSession(session.id);
+				if (session.current) {
+					ui(new Runnable() {
+						@Override public void run() { clearSessionAndShowLogin(R.string.status_logged_out); }
+					});
+					return;
+				}
+				final List<MiniTaLib.SessionInfo> sessions = client.getSessions();
+				ui(new Runnable() {
+					@Override public void run() {
+						if (page == Page.SETTINGS_SESSIONS) renderSessions(sessions);
+					}
+				});
+			}
+		});
 	}
 
 	private TextView sessionRow(String value, int color) {
@@ -4550,22 +4636,14 @@ public final class MainActivity extends Activity {
 			return decodePreviewBitmap(new File(item.localPath), maxSide);
 		}
 		if (item.uri == null) return null;
-		InputStream probeInput = null;
-		InputStream decodeInput = null;
+		ParcelFileDescriptor descriptor = null;
 		try {
-			BitmapFactory.Options probe = new BitmapFactory.Options();
-			probe.inJustDecodeBounds = true;
-			probeInput = getContentResolver().openInputStream(item.uri);
-			BitmapFactory.decodeStream(probeInput, null, probe);
-			if (probe.outWidth <= 0 || probe.outHeight <= 0) return null;
-			BitmapFactory.Options options = previewOptions(probe.outWidth, probe.outHeight, maxSide);
-			decodeInput = getContentResolver().openInputStream(item.uri);
-			return BitmapFactory.decodeStream(decodeInput, null, options);
+			descriptor = getContentResolver().openFileDescriptor(item.uri, "r");
+			return rs.ove.crypt.proto.Mst5ImageDecoder.decode(descriptor, maxSide);
 		} catch (Exception ignored) {
 			return null;
 		} finally {
-			if (probeInput != null) try { probeInput.close(); } catch (Exception ignored) {}
-			if (decodeInput != null) try { decodeInput.close(); } catch (Exception ignored) {}
+			if (descriptor != null) try { descriptor.close(); } catch (Exception ignored) {}
 		}
 	}
 
@@ -4785,7 +4863,7 @@ public final class MainActivity extends Activity {
 		final String key = imageCacheKey(file);
 		if (key.length() == 0) return;
 		synchronized (imagePreviewLoading) {
-			if (imagePreviewCache.containsKey(key) || imagePreviewErrors.containsKey(key) || imagePreviewLoading.contains(key)) {
+			if (imagePreviewCache.get(key) != null || imagePreviewErrors.containsKey(key) || imagePreviewLoading.contains(key)) {
 				return;
 			}
 			imagePreviewLoading.add(key);
@@ -4833,21 +4911,15 @@ public final class MainActivity extends Activity {
 
 	private Bitmap decodePreviewBitmap(File file, int maxSide) {
 		if (file == null || !file.isFile() || file.length() == 0) return null;
-		BitmapFactory.Options probe = new BitmapFactory.Options();
-		probe.inJustDecodeBounds = true;
-		BitmapFactory.decodeFile(file.getAbsolutePath(), probe);
-		if (probe.outWidth <= 0 || probe.outHeight <= 0) return null;
-		return BitmapFactory.decodeFile(file.getAbsolutePath(), previewOptions(probe.outWidth, probe.outHeight, maxSide));
-	}
-
-	private BitmapFactory.Options previewOptions(int width, int height, int maxSide) {
-		int sample = 1;
-		while (width / sample > maxSide || height / sample > maxSide) {
-			sample *= 2;
+		ParcelFileDescriptor descriptor = null;
+		try {
+			descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
+			return rs.ove.crypt.proto.Mst5ImageDecoder.decode(descriptor, maxSide);
+		} catch (Exception ignored) {
+			return null;
+		} finally {
+			if (descriptor != null) try { descriptor.close(); } catch (Exception ignored) {}
 		}
-		BitmapFactory.Options opts = new BitmapFactory.Options();
-		opts.inSampleSize = sample;
-		return opts;
 	}
 
 	private void acceptIncomingCall(final String peerName) {
@@ -5002,72 +5074,14 @@ public final class MainActivity extends Activity {
 	}
 
 	private void startPolling() {
-		if (!activityResumed || ta == null || polling) return;
-		polling = true;
-		foregroundPollingActive = true;
-		final int generation = ++pollingGeneration;
-		io.execute(new Runnable() {
-			@Override
-			public void run() {
-				int failures = 0;
-				while (polling && generation == pollingGeneration && ta != null) {
-					try {
-						MiniTaLib client = ta;
-						if (client == null) break;
-						dispatchOutbox(client);
-						long newestUpdate = lastUpdate;
-						List<MiniTaLib.Update> updates = client.getUpdates(lastUpdate, 30);
-						if (!polling || generation != pollingGeneration || !activityResumed) {
-							break;
-						}
-						for (MiniTaLib.Update u: updates) {
-							if (u.id > newestUpdate) newestUpdate = u.id;
-
-							handleUpdate(u);
-						}
-						if (newestUpdate > lastUpdate) {
-							lastUpdate = newestUpdate;
-							SessionStore.lastUpdate(MainActivity.this, lastUpdate);
-						}
-						failures = 0;
-					} catch (final Exception e) {
-						if (!polling || generation != pollingGeneration || !activityResumed) {
-							break;
-						}
-						if (MiniTaLib.isInvalidTokenError(e)) {
-							ui(new Runnable() {
-								@Override
-								public void run() {
-									handleInvalidToken();
-								}
-							});
-							break;
-						}
-						final long retryDelay = pollRetryDelayMs(failures++);
-						ui(new Runnable() {
-							@Override
-							public void run() {
-								status.setText(getString(R.string.status_poll_retry, errorText(e), retryDelay / 1000));
-							}
-						});
-
-						if (!sleepPollingRetry(retryDelay, generation)) {
-							break;
-						}
-					}
-				}
-				if (generation == pollingGeneration) {
-					polling = false;
-					foregroundPollingActive = false;
-				}
-			}
-		});
+		if (!activityResumed || ta == null) return;
+		startSyncService();
+		loadCachedChats();
+		if (page == Page.CHAT) loadCachedHistory(currentPeer);
 	}
 
 	private void stopPolling() {
-		handoffForegroundOffsetToBackground();
 		polling = false;
-		foregroundPollingActive = false;
 		pollingGeneration++;
 	}
 
@@ -7714,7 +7728,7 @@ public final class MainActivity extends Activity {
 			try {
 				String base64Part = payload.substring(payload.indexOf(',') + 1);
 				byte[] data = Base64.decode(base64Part, Base64.DEFAULT);
-				Bitmap bmp = BitmapFactory.decodeByteArray(data, 0, data.length);
+				Bitmap bmp = rs.ove.crypt.proto.Mst5ImageDecoder.decode(data, MAX_IMAGE_PREVIEW_PX);
 				iv.setImageBitmap(bmp);
 			} catch (Exception e) {
 				return textView(getString(R.string.invalid_image), null);
@@ -7730,7 +7744,7 @@ public final class MainActivity extends Activity {
 				try {
 					String base64Part = payload.substring(payload.indexOf(',') + 1);
 					byte[] data = Base64.decode(base64Part, Base64.DEFAULT);
-					Bitmap bmp = BitmapFactory.decodeByteArray(data, 0, data.length);
+					Bitmap bmp = rs.ove.crypt.proto.Mst5ImageDecoder.decode(data, MAX_IMAGE_PREVIEW_PX);
 					iv.setImageBitmap(bmp);
 				} catch (Exception e) {
 					return fileLabel(getString(R.string.invalid_image));

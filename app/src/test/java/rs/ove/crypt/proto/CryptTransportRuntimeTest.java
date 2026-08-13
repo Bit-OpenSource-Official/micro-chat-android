@@ -22,7 +22,9 @@ public final class CryptTransportRuntimeTest {
 		Assume.assumeTrue(address != null && publicKey != null);
 		System.setProperty("rs.ove.crypt.server_public_key_b64", publicKey);
 		String login = "runtime_java_" + Long.toString(System.nanoTime(), 36);
-		byte[] body = ("{\"username\":\"" + login + "\",\"password\":\"secret\"}").getBytes("UTF-8");
+		JSONObject body = new JSONObject();
+		body.put("username", login);
+		body.put("password", "secret");
 		final CryptTcpClient client = new CryptTcpClient();
 		CryptTcpClient.Response response = client.request(
 				address,
@@ -32,9 +34,9 @@ public final class CryptTransportRuntimeTest {
 				body,
 				10000
 		);
-		assertEquals(new String(response.body(), "UTF-8"), 200, response.code());
-		assertTrue(new String(response.body(), "UTF-8").contains(login));
-		final String token = new JSONObject(new String(response.body(), "UTF-8")).getString("token");
+		assertEquals(String.valueOf(response.body()), 200, response.code());
+		assertTrue(String.valueOf(response.body()).contains(login));
+		final String token = ((JSONObject) response.body()).getString("token");
 		final CountDownLatch done = new CountDownLatch(8);
 		final Throwable[] failures = new Throwable[8];
 		for (int i = 0; i < failures.length; i++) {
@@ -67,9 +69,9 @@ public final class CryptTransportRuntimeTest {
 		JSONObject quoteBody = new JSONObject();
 		quoteBody.put("media", new org.json.JSONArray().put(mediaItem));
 		CryptTcpClient.Response quoted = client.request(address, token, "POST", "/media/quote",
-				quoteBody.toString().getBytes("UTF-8"), 10000);
-		assertEquals(new String(quoted.body(), "UTF-8"), 200, quoted.code());
-		long dsrRequired = new JSONObject(new String(quoted.body(), "UTF-8")).optLong("dsr_amount");
+				quoteBody, 10000);
+		assertEquals(String.valueOf(quoted.body()), 200, quoted.code());
+		long dsrRequired = ((JSONObject) quoted.body()).optLong("dsr_amount");
 		JSONObject initBody = new JSONObject();
 		initBody.put("to", login);
 		initBody.put("text", "runtime media");
@@ -77,9 +79,9 @@ public final class CryptTransportRuntimeTest {
 		initBody.put("max_dsr_amount", dsrRequired);
 		initBody.put("media", new org.json.JSONArray().put(mediaItem));
 		CryptTcpClient.Response initialized = client.request(address, token, "POST", "/messages/prepare",
-				initBody.toString().getBytes("UTF-8"), 10000);
+				initBody, 10000);
 		Assume.assumeTrue("runtime account needs a funded DSR wallet", initialized.code() == 200);
-		JSONObject operation = new JSONObject(new String(initialized.body(), "UTF-8"));
+		JSONObject operation = (JSONObject) initialized.body();
 		JSONObject upload = operation.getJSONArray("uploads").getJSONObject(0);
 		HttpURLConnection put = (HttpURLConnection)new URL(upload.getString("upload_url")).openConnection();
 		put.setRequestMethod("PUT");
@@ -94,13 +96,13 @@ public final class CryptTransportRuntimeTest {
 		JSONObject completeBody = new JSONObject();
 		completeBody.put("operation_id", operation.getString("operation_id"));
 		CryptTcpClient.Response completed = client.request(address, token, "POST", "/messages/commit",
-				completeBody.toString().getBytes("UTF-8"), 10000);
-		assertEquals(new String(completed.body(), "UTF-8"), 200, completed.code());
-		assertTrue(new String(completed.body(), "UTF-8").contains("runtime.bin"));
+				completeBody, 10000);
+		assertEquals(String.valueOf(completed.body()), 200, completed.code());
+		assertTrue(String.valueOf(completed.body()).contains("runtime.bin"));
 		CryptTcpClient.Response downloadTicket = client.request(address, token, "GET",
 				"/file/ticket?id=" + upload.getString("file_id"), null, 10000);
 		assertEquals(200, downloadTicket.code());
-		JSONObject download = new JSONObject(new String(downloadTicket.body(), "UTF-8"));
+		JSONObject download = (JSONObject) downloadTicket.body();
 		InputStream input = new URL(download.getString("download_url")).openStream();
 		ByteArrayOutputStream downloaded = new ByteArrayOutputStream();
 		int value;

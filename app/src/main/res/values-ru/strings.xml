@@ -283,6 +283,11 @@
 	<string name="settings_current_session">Текущая</string>
 	<string name="settings_other_device">Другое устройство</string>
 	<string name="settings_logout_others">Выйти на других</string>
+	<string name="session_logout_device">Выйти на этом устройстве</string>
+	<string name="session_details_id">ID сессии: %1$s</string>
+	<string name="session_details_created">Создана: %1$s</string>
+	<string name="session_details_last_seen">Последняя активность: %1$s</string>
+	<string name="session_details_status">Статус: %1$s</string>
 	<string name="settings_cloud_password_help">Пароль нужен для восстановления E2E-ключей на других устройствах.</string>
 	<string name="settings_e2e_keys_help">Сбрасывайте только если ключ потерян или в конфликте. Старые E2E-сообщения не расшифруются без backup старого ключа. Контактам может понадобиться проверить ваш новый ключ. После сброса снова сохраните cloud password, чтобы создать backup нового ключа.</string>
 	<string name="settings_reset_cloud_password">Сбросить облачный пароль</string>

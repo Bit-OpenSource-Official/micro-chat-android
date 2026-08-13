@@ -383,10 +383,8 @@ final class MiniTaLib {
 					text
 			);
 		} catch (RuntimeException e) {
-			String message = e.getMessage();
-			if (message == null
-					|| (!message.contains("e2e public key not registered")
-					&& !message.contains("user not found"))) {
+			if (!(e instanceof ApiException)
+					|| !"E2E_KEY_NOT_REGISTERED".equals(((ApiException) e).errorCode)) {
 				throw e;
 			}
 			return prepareMessage(to, text, clientMessageId, true, replyToMessageId);
@@ -518,19 +516,44 @@ final class MiniTaLib {
 		JSONArray uploads = prepared.optJSONArray("uploads");
 		long total = 0;
 		if (items != null) for (MessageMedia item : items) if (item.fileId.length() == 0) total += item.size;
-		long completed = 0;
-		for (int i = 0; uploads != null && i < uploads.length(); i++) {
-			JSONObject ticket = uploads.getJSONObject(i);
-			String clientId = ticket.getString("client_id");
-			MessageMedia source = null;
-			if (items != null) for (MessageMedia item : items) if (item.clientId.equals(clientId)) { source = item; break; }
-			if (source == null || source.source == null || ticket.optLong("size") != source.size) {
-				throw new IOException("server returned an invalid media ticket");
+		final long progressTotal = total;
+		ArrayList<ParcelFileDescriptor> descriptors = new ArrayList<ParcelFileDescriptor>();
+		ArrayList<Mst5MediaClient.Upload> batch = new ArrayList<Mst5MediaClient.Upload>();
+		try {
+			for (int i = 0; uploads != null && i < uploads.length(); i++) {
+				JSONObject ticket = uploads.getJSONObject(i);
+				String clientId = ticket.getString("client_id");
+				MessageMedia source = null;
+				if (items != null) for (MessageMedia item : items) if (item.clientId.equals(clientId)) { source = item; break; }
+				if (source == null || source.source == null || ticket.optLong("size") != source.size) {
+					throw new IOException("server returned an invalid media ticket");
+				}
+				ParcelFileDescriptor descriptor = source.source.openDescriptor();
+				if (descriptor == null) throw new IOException("media descriptor is not available");
+				descriptors.add(descriptor);
+				batch.add(new Mst5MediaClient.Upload(
+						ticket.getString("endpoint"), ticket.getString("server_public_key"),
+						ticket.getString("ticket"), ticket.getString("file_id"), source.size, descriptor));
 			}
-			directUpload(ticket.getString("endpoint"), ticket.getString("server_public_key"),
-					ticket.getString("ticket"), ticket.getString("file_id"), source.size,
-					source.source, transfer, completed, total);
-			completed += source.size;
+			Mst5MediaClient.uploadDescriptors(batch,
+					transfer == null ? null : new Mst5MediaClient.Observer() {
+						@Override public boolean isCancelled() { return transfer.isCancelled(); }
+						@Override public void onProgress(long completed, long ignored) {
+							transfer.progress(completed, progressTotal);
+						}
+					});
+		} catch (Exception error) {
+			try {
+				JSONObject cancel = new JSONObject();
+				cancel.put("operation_id", operationId);
+				post("/messages/cancel", cancel, 10000);
+			} catch (Exception ignored) {}
+			throw error;
+		} finally {
+			for (ParcelFileDescriptor descriptor : descriptors) {
+				try { descriptor.close(); } catch (Exception ignored) {}
+			}
+			if (transfer != null) transfer.clear();
 		}
 		JSONObject complete = new JSONObject();
 		complete.put("operation_id", operationId);
@@ -567,23 +590,6 @@ final class MiniTaLib {
 		body.put("to", to);
 		if (clientMessageId != null && clientMessageId.length() > 0) body.put("client_message_id", clientMessageId);
 		return message(post("/forward", body, 10000).getJSONObject("message"));
-	}
-
-	private static void directUpload(String endpoint, String serverPublicKey, String ticket, String fileId,
-	                                 long size, UploadSource source,
-	                                 TransferControl transfer, long progressBase, long progressTotal) throws Exception {
-		ParcelFileDescriptor descriptor = source.openDescriptor();
-		if (descriptor == null) throw new IOException("media descriptor is not available");
-		try {
-			Mst5MediaClient.uploadDescriptor(endpoint, serverPublicKey, ticket, fileId, size, descriptor,
-					transfer == null ? null : new Mst5MediaClient.Observer() {
-						public boolean isCancelled() { return transfer.isCancelled(); }
-						public void onProgress(long value, long ignored) { transfer.progress(progressBase + value, progressTotal); }
-					});
-		} finally {
-			try { descriptor.close(); } catch (Exception ignored) {}
-			if (transfer != null) transfer.clear();
-		}
 	}
 
 	Message editMessage(long id, String peer, String text, boolean plain) throws Exception {
@@ -799,6 +805,12 @@ final class MiniTaLib {
 		return out.optInt("revoked");
 	}
 
+	int revokeSession(String id) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("id", id == null ? "" : id);
+		return post("/sessions/revoke", body, 10000).optInt("revoked");
+	}
+
 	static final class VoiceAccess {
 		final String endpoint;
 		final String serverPublicKey;
@@ -855,12 +867,14 @@ final class MiniTaLib {
 	}
 
 	private JSONObject request(String method, String path, JSONObject body, int readTimeoutMs) throws Exception {
-		byte[] bodyBytes = body == null ? null : body.toString().getBytes("UTF-8");
-		CryptTcpClient.Response response = transport.request(baseUrl, token(), method, path, bodyBytes, readTimeoutMs);
-		String text = new String(response.body(), "UTF-8");
-		JSONObject out = text.length() == 0 ? new JSONObject() : new JSONObject(text);
+		CryptTcpClient.Response response = transport.request(baseUrl, token(), method, path, body, readTimeoutMs);
+		JSONObject out = response.body() instanceof JSONObject ? (JSONObject) response.body() : new JSONObject();
 		if (response.code() < 200 || response.code() >= 300) {
-			throw apiException(response.code(), out.optString("error", "TCP " + response.code()));
+			throw apiException(
+					response.code(),
+					out.optString("code", "APPLICATION_ERROR"),
+					out.optString("message", out.optString("error", "TCP " + response.code()))
+			);
 		}
 		return out;
 	}
@@ -883,7 +897,7 @@ final class MiniTaLib {
 		return false;
 	}
 
-	private RuntimeException apiException(int code, String message) {
+	private RuntimeException apiException(int code, String errorCode, String message) {
 		String text = message == null || message.length() == 0 ? "TCP " + code : message;
 		if (code == 401 && isCloudPasswordRequiredMessage(text)) {
 			return new RuntimeException(text);
@@ -891,7 +905,7 @@ final class MiniTaLib {
 		if (token().length() > 0 && (code == 401 || isInvalidTokenMessage(text))) {
 			return new InvalidTokenException(text);
 		}
-		return new ApiException(code, text);
+		return new ApiException(code, errorCode, text);
 	}
 
 	static boolean isCloudPasswordRequiredError(Throwable error) {
@@ -1701,9 +1715,11 @@ final class MiniTaLib {
 
 	static final class ApiException extends RuntimeException {
 		final int code;
-		ApiException(int code, String message) {
+		final String errorCode;
+		ApiException(int code, String errorCode, String message) {
 			super(message);
 			this.code = code;
+			this.errorCode = errorCode == null ? "" : errorCode;
 		}
 	}
 

@@ -386,7 +386,8 @@ final class OutboxStore {
 		entry.attempts = (int)number(cursor, "attempts");
 		entry.retryAt = number(cursor, "retry_at");
 		entry.error = string(cursor, "error");
-		entry.preparedBody = string(cursor, "prepared_body");
+		// v3 transport rebuilds a typed request with the same client message ID.
+		entry.preparedBody = "";
 		entry.commentPostId = number(cursor, "comment_post_id");
 		entry.replyToMessageId = number(cursor, "reply_to_message_id");
 		entry.mediaReservationId = string(cursor, "media_reservation_id");
@@ -478,7 +479,7 @@ final class OutboxStore {
 		entry.attempts = raw.optInt("attempts");
 		entry.retryAt = raw.optLong("retry_at");
 		entry.error = raw.optString("error");
-		entry.preparedBody = raw.optString("prepared_body");
+		entry.preparedBody = "";
 		entry.commentPostId = raw.optLong("comment_post_id");
 		entry.replyToMessageId = raw.optLong("reply_to_message_id");
 		entry.mediaReservationId = raw.optString("media_reservation_id");
