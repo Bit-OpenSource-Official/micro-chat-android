@@ -81,10 +81,11 @@ public final class MessageSyncService extends Service {
 				return;
 			}
 			String server = SessionStore.server(this, MainActivity.DEFAULT_SERVER);
+			String endpoint = SessionStore.transportEndpoint(this, MainActivity.DEFAULT_SERVER);
 			String token = SessionStore.token(this);
 			String userId = SessionStore.userId(this);
 			String login = SessionStore.login(this);
-			MiniTaLib ta = new MiniTaLib(this, server, token, userId, login);
+			MiniTaLib ta = new MiniTaLib(this, endpoint, token, userId, login);
 			try {
 				CrashReportDispatcher.dispatch(this, ta);
 			} catch (Exception ignored) {
@@ -216,7 +217,7 @@ public final class MessageSyncService extends Service {
 				try {
 					ta = new MiniTaLib(
 							MessageSyncService.this,
-							SessionStore.server(MessageSyncService.this, MainActivity.DEFAULT_SERVER),
+							SessionStore.transportEndpoint(MessageSyncService.this, MainActivity.DEFAULT_SERVER),
 							SessionStore.token(MessageSyncService.this),
 							SessionStore.userId(MessageSyncService.this),
 							SessionStore.login(MessageSyncService.this)

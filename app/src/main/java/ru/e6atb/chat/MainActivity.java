@@ -139,6 +139,9 @@ public final class MainActivity extends Activity {
 	private static final int LANGUAGE_SYSTEM_ID = 1001;
 	private static final int LANGUAGE_ENGLISH_ID = 1002;
 	private static final int LANGUAGE_RUSSIAN_ID = 1003;
+	private static final int PROTOCOL_AUTO_ID = 1011;
+	private static final int PROTOCOL_MST5_ID = 1012;
+	private static final int PROTOCOL_M5OH_ID = 1013;
 	private static final int MESSAGE_PRIVACY_EVERYONE_ID = 1101;
 	private static final int MESSAGE_PRIVACY_CHATS_ID = 1102;
 	private static final int MESSAGE_PRIVACY_NOBODY_ID = 1103;
@@ -246,6 +249,7 @@ public final class MainActivity extends Activity {
 	private CheckBox showStatusCheck;
 	private CheckBox useInsetsCheck;
 	private RadioGroup languageGroup;
+	private RadioGroup protocolGroup;
 	private RadioGroup messagePrivacyGroup;
 	private RadioGroup callPrivacyGroup;
 	private RadioGroup invitePrivacyGroup;
@@ -414,6 +418,7 @@ public final class MainActivity extends Activity {
 				|| page == Page.SETTINGS_LOGOUT
 				|| page == Page.SETTINGS_SERVER
 				|| page == Page.SETTINGS_LANGUAGE
+				|| page == Page.SETTINGS_PROTOCOL
 				|| page == Page.SETTINGS_INTERFACE;
 	}
 
@@ -566,7 +571,7 @@ public final class MainActivity extends Activity {
 			showLogin();
 			return;
 		}
-		final String url = SessionStore.server(this, DEFAULT_SERVER);
+		final String url = SessionStore.transportEndpoint(this, DEFAULT_SERVER);
 		final String token = SessionStore.token(this);
 		myID = SessionStore.userId(this);
 		myLogin = SessionStore.login(this);
@@ -2322,6 +2327,12 @@ public final class MainActivity extends Activity {
 				showSettingsLanguage();
 			}
 		}));
+		settings.addView(settingsRow(getString(R.string.settings_protocol), protocolLabel(SessionStore.transportProtocol(this)), new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				showSettingsProtocol();
+			}
+		}));
 		settings.addView(settingsRow(getString(R.string.settings_interface), SessionStore.showStatus(this) ? getString(R.string.settings_status_visible) : getString(R.string.settings_status_hidden), new View.OnClickListener() {
 			@Override
 			public void onClick(View v) {
@@ -3027,6 +3038,57 @@ public final class MainActivity extends Activity {
 		if (AppLocale.ENGLISH.equals(language)) return getString(R.string.language_english);
 		if (AppLocale.RUSSIAN.equals(language)) return getString(R.string.language_russian);
 		return getString(R.string.language_system);
+	}
+
+	private void showSettingsProtocol() {
+		LinearLayout box = settingsPage(getString(R.string.settings_protocol), Page.SETTINGS_PROTOCOL);
+		protocolGroup = new RadioGroup(this);
+		protocolGroup.setOrientation(RadioGroup.VERTICAL);
+		addLanguageOption(protocolGroup, PROTOCOL_AUTO_ID, getString(R.string.settings_protocol_auto));
+		addLanguageOption(protocolGroup, PROTOCOL_MST5_ID, getString(R.string.settings_protocol_mst5));
+		addLanguageOption(protocolGroup, PROTOCOL_M5OH_ID, getString(R.string.settings_protocol_m5oh));
+		protocolGroup.check(protocolId(SessionStore.transportProtocol(this)));
+		box.addView(spaced(protocolGroup));
+		box.addView(spaced(row(primaryButton(getString(R.string.action_save), new View.OnClickListener() {
+			@Override
+			public void onClick(View v) {
+				applyProtocol();
+				showSettings();
+			}
+		}))));
+	}
+
+	private int protocolId(String protocol) {
+		if (SessionStore.TRANSPORT_MST5.equals(protocol)) return PROTOCOL_MST5_ID;
+		if (SessionStore.TRANSPORT_M5OH.equals(protocol)) return PROTOCOL_M5OH_ID;
+		return PROTOCOL_AUTO_ID;
+	}
+
+	private String selectedProtocol() {
+		if (protocolGroup == null) return SessionStore.TRANSPORT_AUTO;
+		int checked = protocolGroup.getCheckedRadioButtonId();
+		if (checked == PROTOCOL_MST5_ID) return SessionStore.TRANSPORT_MST5;
+		if (checked == PROTOCOL_M5OH_ID) return SessionStore.TRANSPORT_M5OH;
+		return SessionStore.TRANSPORT_AUTO;
+	}
+
+	private String protocolLabel(String protocol) {
+		if (SessionStore.TRANSPORT_MST5.equals(protocol)) return getString(R.string.settings_protocol_mst5);
+		if (SessionStore.TRANSPORT_M5OH.equals(protocol)) return getString(R.string.settings_protocol_m5oh);
+		return getString(R.string.settings_protocol_auto);
+	}
+
+	private void applyProtocol() {
+		String protocol = selectedProtocol();
+		SessionStore.setTransportProtocol(this, protocol);
+		if (ta != null && !ta.token().isEmpty()) {
+			MiniTaLib previous = ta;
+			ta = new MiniTaLib(this, connectionServer(), previous.token(), myID, myLogin);
+			previous.close();
+			SessionStore.save(this, DEFAULT_SERVER, ta.token(), myID, myLogin);
+			startSyncService();
+		}
+		status.setText(getString(R.string.status_protocol_set));
 	}
 
 	private String normalizePrivacy(String value) {
@@ -7045,7 +7107,11 @@ public final class MainActivity extends Activity {
 	}
 
 	private String server() {
-		return SessionStore.server(this, DEFAULT_SERVER);
+		return connectionServer();
+	}
+
+	private String connectionServer() {
+		return SessionStore.transportEndpoint(this, DEFAULT_SERVER);
 	}
 
 	private EditText serverInput() {

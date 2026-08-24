@@ -24,6 +24,10 @@ final class SessionStore {
 	private static final String SHOW_STATUS = "show_status";
 	private static final String USE_INSETS = "use_insets";
 	private static final String LANGUAGE = "language";
+	private static final String TRANSPORT_PROTOCOL = "transport_protocol";
+	static final String TRANSPORT_AUTO = "auto";
+	static final String TRANSPORT_MST5 = "mst5";
+	static final String TRANSPORT_M5OH = "m5oh";
 	private static final String E2E_PEER_PREFIX = "e2e.peer.";
 
 	private SessionStore() {
@@ -75,6 +79,39 @@ final class SessionStore {
 			store(context, properties);
 		}
 		return fixed;
+	}
+
+	static String transportProtocol(Context context) {
+		String protocol = get(context, TRANSPORT_PROTOCOL, TRANSPORT_AUTO);
+		if (TRANSPORT_MST5.equals(protocol) || TRANSPORT_M5OH.equals(protocol)) return protocol;
+		return TRANSPORT_AUTO;
+	}
+
+	static void setTransportProtocol(Context context, String protocol) {
+		Properties p = load(context);
+		if (!TRANSPORT_MST5.equals(protocol) && !TRANSPORT_M5OH.equals(protocol)) {
+			protocol = TRANSPORT_AUTO;
+		}
+		p.setProperty(TRANSPORT_PROTOCOL, protocol);
+		store(context, p);
+	}
+
+	/**
+	 * Resolves the endpoint used for a connection without changing the stable
+	 * server key that scopes cached chats and queued messages.
+	 */
+	static String transportEndpoint(Context context, String fallback) {
+		String endpoint = server(context, fallback);
+		String protocol = transportProtocol(context);
+		if (TRANSPORT_AUTO.equals(protocol)) return endpoint;
+		String prefix = TRANSPORT_MST5.equals(protocol) ? "mst5://" : "m5oh://";
+		for (String candidate : endpoint.split(java.util.regex.Pattern.quote("|"))) {
+			if (candidate.trim().toLowerCase(java.util.Locale.US).startsWith(prefix)) {
+				return candidate.trim();
+			}
+		}
+		// A fallback without the requested transport is still usable.
+		return endpoint;
 	}
 
 	static String normalizeServer(String server) {

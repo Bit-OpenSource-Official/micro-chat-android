@@ -34,6 +34,7 @@ final class OutboxDispatcher {
 		if (client == null || !SessionStore.hasSession(rawContext)) return;
 		final Context context = rawContext.getApplicationContext();
 		final String server = SessionStore.server(context, MainActivity.DEFAULT_SERVER);
+		final String endpoint = SessionStore.transportEndpoint(context, MainActivity.DEFAULT_SERVER);
 		final String user = accountKey(context);
 		List<String> peers = OutboxStore.peersReady(context, server, user, System.currentTimeMillis());
 		for (final String peer : peers) {
@@ -45,7 +46,7 @@ final class OutboxDispatcher {
 				@Override public void run() {
 					MiniTaLib worker = new MiniTaLib(
 							context,
-							server,
+							endpoint,
 							SessionStore.token(context),
 							SessionStore.userId(context),
 							SessionStore.login(context)

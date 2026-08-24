@@ -101,6 +101,7 @@
 	<string name="status_microphone_denied">доступ к микрофону запрещен</string>
 	<string name="status_nodes_updated">ноды обновлены</string>
 	<string name="status_server_set">сервер сохранен</string>
+	<string name="status_protocol_set">протокол подключения сохранён</string>
 	<string name="status_language_set">язык сохранен</string>
 	<string name="status_invalid_token">Сессия истекла. Войдите снова.</string>
 	<string name="status_logged_out">вы вышли</string>
@@ -254,6 +255,10 @@
 	<string name="settings_privacy">Приватность</string>
 	<string name="settings_section_app">Приложение</string>
 	<string name="settings_server">Сервер</string>
+	<string name="settings_protocol">Протокол подключения</string>
+	<string name="settings_protocol_auto">Авто (MST5 → M5oH)</string>
+	<string name="settings_protocol_mst5">MST5</string>
+	<string name="settings_protocol_m5oh">M5oH</string>
 	<string name="settings_interface">Интерфейс</string>
 	<string name="settings_updates">Обновления</string>
 	<string name="settings_section_actions">Действия</string>
