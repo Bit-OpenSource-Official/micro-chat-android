@@ -40,10 +40,10 @@ def cryptServerPublicKey = providers.gradleProperty("cryptServerPublicKeyB64").o
     productionCryptServerPublicKey
 def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
     System.getenv("APP_VERSION_NAME") ?:
-    "0.10.4"
+    "0.11.0"
 def appVersionCode = (providers.gradleProperty("appVersionCode").orNull ?:
     System.getenv("APP_VERSION_CODE") ?:
-    "100104").toInteger()
+    "100110").toInteger()
 def mst5NativeAbi = providers.gradleProperty("mst5NativeAbi").orNull ?: "universal"
 def includeArmv6OtaTls = providers.gradleProperty("includeArmv6OtaTls").orNull ?:
     (mst5NativeAbi == "universal" || mst5NativeAbi == "armeabi" ? "true" : "false")

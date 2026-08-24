@@ -111,14 +111,14 @@ APP_VERSION_NAME=0.9.8 APP_VERSION_CODE=100055 ./build-apk.sh
 Build an APKPure-compatible split XAPK for Android 5.0+:
 
 ```bash
-make xapk VERSION=0.10.4 VERSION_CODE=100104
+make xapk VERSION=0.11.0 VERSION_CODE=100110
 ```
 
 Prepare the universal APK, four architecture APKs, the XAPK, `update.json`,
 `SHA256SUMS`, and the release-notes table used by GitHub Actions:
 
 ```bash
-make release-apks VERSION=0.10.4 VERSION_CODE=100104
+make release-apks VERSION=0.11.0 VERSION_CODE=100110
 ```
 
 The output is:
