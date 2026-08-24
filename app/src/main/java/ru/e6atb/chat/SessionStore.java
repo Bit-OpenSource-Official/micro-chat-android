@@ -67,15 +67,14 @@ final class SessionStore {
 
 	static String server(Context context, String fallback) {
 		Properties properties = load(context);
-		String s = normalizeServer(properties.getProperty(SERVER, fallback));
-		if ("danila.e6atb.ru:8080".equalsIgnoreCase(s)
-				|| "10.100.2.21:8080".equalsIgnoreCase(s)
-				|| "m.ove.rs:8080".equalsIgnoreCase(s)) {
-			s = normalizeServer(fallback);
-			properties.setProperty(SERVER, s);
+		// The production endpoint is fixed; this also migrates old arbitrary and
+		// legacy server choices without affecting the user's authentication token.
+		String fixed = normalizeServer(fallback);
+		if (!fixed.equals(normalizeServer(properties.getProperty(SERVER, "")))) {
+			properties.setProperty(SERVER, fixed);
 			store(context, properties);
 		}
-		return s == null || s.trim().length() == 0 ? normalizeServer(fallback) : s;
+		return fixed;
 	}
 
 	static String normalizeServer(String server) {

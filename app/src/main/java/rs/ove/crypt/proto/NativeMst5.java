@@ -155,7 +155,10 @@ public final class NativeMst5 {
 
 	static long open(String endpoint, String publicKeyB64) throws IOException {
 		requireAvailable();
-		long handle = nativeOpen(endpoint, publicKeyB64);
+		String maker = android.os.Build.MANUFACTURER == null ? "" : android.os.Build.MANUFACTURER.trim();
+		String model = android.os.Build.MODEL == null ? "" : android.os.Build.MODEL.trim();
+		String deviceModel = (maker + " " + model).trim();
+		long handle = nativeOpen(endpoint, publicKeyB64, deviceModel);
 		if (handle == 0) throw new IOException("native mst5-client did not open a connection");
 		Log.i(TAG, "native MST5 connection opened");
 		return handle;
@@ -219,6 +222,13 @@ public final class NativeMst5 {
 		if ("POST /sessions/revoke-others".equals(key)) return 26;
 		if ("POST /bots".equals(key)) return 27;
 		if ("POST /bots/token/reset".equals(key)) return 28;
+		if ("GET /bots/commands".equals(key)) return 79;
+		if ("GET /stickers/packs".equals(key)) return 80;
+		if ("GET /stickers/pack".equals(key)) return 81;
+		if ("POST /stickers/packs".equals(key)) return 82;
+		if ("POST /stickers/packs/purchase".equals(key)) return 83;
+		if ("POST /stickers/send".equals(key)) return 84;
+		if ("POST /stickers/packs/price".equals(key)) return 85;
 		if ("POST /e2e/key".equals(key)) return 29;
 		if ("GET /e2e/key".equals(key)) return 30;
 		if ("POST /e2e/backup".equals(key)) return 31;
@@ -349,7 +359,7 @@ public final class NativeMst5 {
 	}
 
 	private static native int nativeVersion();
-	private static native long nativeOpen(String endpoint, String publicKeyB64) throws IOException;
+	private static native long nativeOpen(String endpoint, String publicKeyB64, String deviceModel) throws IOException;
 	private static native void nativeClose(long handle) throws IOException;
 	private static native long nativeCall(long handle, String token, int kind, int opcode,
 	                                     int timeoutMs, ByteBuffer input, int inputLength,

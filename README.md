@@ -7,7 +7,7 @@ can be chosen in Settings.
 The production APK connects to:
 
 ```text
-ms.ove.rs:8080
+ms.ove.rs:8067
 ```
 
 ## Features

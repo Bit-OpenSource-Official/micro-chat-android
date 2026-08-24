@@ -429,6 +429,44 @@ final class MiniTaLib {
 		);
 	}
 
+	List<BotCommand> getBotCommands(String bot) throws Exception {
+		JSONArray values = get("/bots/commands?bot=" + enc(bot == null ? "" : bot.trim()), 10000)
+				.optJSONArray("commands");
+		ArrayList<BotCommand> result = new ArrayList<BotCommand>();
+		for (int index = 0; values != null && index < values.length(); index++) {
+			JSONObject value = values.optJSONObject(index);
+			if (value == null) continue;
+			String command = value.optString("command").trim();
+			if (command.length() > 0) result.add(new BotCommand(command, value.optString("description")));
+		}
+		return result;
+	}
+
+	List<StickerPack> getStickerPacks() throws Exception {
+		JSONArray values = get("/stickers/packs", 10000).optJSONArray("packs");
+		ArrayList<StickerPack> result = new ArrayList<StickerPack>();
+		for (int index = 0; values != null && index < values.length(); index++) {
+			JSONObject value = values.optJSONObject(index);
+			if (value != null) result.add(stickerPack(value));
+		}
+		return result;
+	}
+
+	StickerPack purchaseStickerPack(String id) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("id", id == null ? "" : id.trim());
+		return stickerPack(post("/stickers/packs/purchase", body, 20000).getJSONObject("pack"));
+	}
+
+	Message sendSticker(String to, String packId, String fileId, String clientMessageId) throws Exception {
+		JSONObject body = new JSONObject();
+		body.put("to", to == null ? "" : to.trim());
+		body.put("pack_id", packId == null ? "" : packId.trim());
+		body.put("file_id", fileId == null ? "" : fileId.trim());
+		body.put("client_message_id", clientMessageId == null ? "" : clientMessageId.trim());
+		return message(post("/stickers/send", body, 15000).getJSONObject("message"));
+	}
+
 	interface UploadSource {
 		InputStream open() throws Exception;
 		ParcelFileDescriptor openDescriptor() throws Exception;
@@ -794,6 +832,7 @@ final class MiniTaLib {
 					item.optLong("created_at"),
 					item.optLong("last_seen"),
 					item.optString("label"),
+					item.optString("device_model"),
 					item.optBoolean("current")
 			));
 		}
@@ -1131,6 +1170,20 @@ final class MiniTaLib {
 	private static Call call(JSONObject o) {
 		if (o == null) return null;
 		return new Call(user(o.optJSONObject("from")), user(o.optJSONObject("to")), o.optLong("date"));
+	}
+
+	private static StickerPack stickerPack(JSONObject o) {
+		if (o == null) return new StickerPack("", "", 0, false, new ArrayList<FileInfo>());
+		JSONArray raw = o.optJSONArray("stickers");
+		ArrayList<FileInfo> stickers = new ArrayList<FileInfo>();
+		for (int index = 0; raw != null && index < raw.length(); index++) {
+			FileInfo value = file(raw.optJSONObject(index));
+			if (value != null) stickers.add(value);
+		}
+		return new StickerPack(
+				o.optString("id"), o.optString("title"), o.optLong("price_dsr"),
+				o.optBoolean("owned"), stickers
+		);
 	}
 
 	private static FileInfo file(JSONObject o) {
@@ -1746,14 +1799,42 @@ final class MiniTaLib {
 		final long createdAt;
 		final long lastSeen;
 		final String label;
+		final String deviceModel;
 		final boolean current;
 
-		SessionInfo(String id, long createdAt, long lastSeen, String label, boolean current) {
+		SessionInfo(String id, long createdAt, long lastSeen, String label, String deviceModel, boolean current) {
 			this.id = id == null ? "" : id;
 			this.createdAt = createdAt;
 			this.lastSeen = lastSeen;
 			this.label = label == null ? "" : label;
+			this.deviceModel = deviceModel == null ? "" : deviceModel;
 			this.current = current;
+		}
+	}
+
+	static final class BotCommand {
+		final String command;
+		final String description;
+
+		BotCommand(String command, String description) {
+			this.command = command == null ? "" : command;
+			this.description = description == null ? "" : description;
+		}
+	}
+
+	static final class StickerPack {
+		final String id;
+		final String title;
+		final long priceDsr;
+		final boolean owned;
+		final List<FileInfo> stickers;
+
+		StickerPack(String id, String title, long priceDsr, boolean owned, List<FileInfo> stickers) {
+			this.id = id == null ? "" : id;
+			this.title = title == null ? "" : title;
+			this.priceDsr = Math.max(0, priceDsr);
+			this.owned = owned;
+			this.stickers = stickers == null ? new ArrayList<FileInfo>() : stickers;
 		}
 	}
 
