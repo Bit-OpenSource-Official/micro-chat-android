@@ -20,6 +20,7 @@ endif
 RELEASE_VERSION := $(if $(VERSION),$(VERSION),$(word 1,$(POSITIONAL_RELEASE_ARGS)))
 
 MST5_NATIVE_OUTPUT := $(CURDIR)/app/src/main/assets/mst5-native
+MST5_NATIVE_VERSION ?= 0.6.0
 
 .PHONY: help release-branch test release-check native-libs require-native-libs armv6-ota-tls require-armv6-ota-tls apk apk-universal apk-armv6 apk-armv7 apk-arm64 apk-x86_64 xapk release-apks
 
@@ -59,7 +60,7 @@ require-native-libs:
 	@test -s "$(MST5_NATIVE_OUTPUT)/armeabi-v7a/libmst5_android.so"
 	@test -s "$(MST5_NATIVE_OUTPUT)/arm64-v8a/libmst5_android.so"
 	@test -s "$(MST5_NATIVE_OUTPUT)/x86_64/libmst5_android.so"
-	@jq -e '.abi == 1 and .android_jni_abi == 3 and .version == "0.5.0" and .target == "android"' "$(MST5_NATIVE_OUTPUT)/manifest.json" >/dev/null
+	@jq -e --arg version "$(MST5_NATIVE_VERSION)" '.abi == 1 and .android_jni_abi == 3 and .version == $$version and .target == "android"' "$(MST5_NATIVE_OUTPUT)/manifest.json" >/dev/null
 
 apk: apk-universal
 
