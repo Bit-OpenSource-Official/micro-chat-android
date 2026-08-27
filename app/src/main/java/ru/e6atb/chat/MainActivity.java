@@ -1776,32 +1776,33 @@ public final class MainActivity extends Activity {
 
 		LinearLayout wallet = new LinearLayout(this);
 		wallet.setOrientation(LinearLayout.VERTICAL);
-		wallet.setPadding(0, 0, 0, gap);
+		wallet.setPadding(pad, pad, pad, gap);
 
 		wallet.addView(spaced(title(getString(R.string.wallet_title))));
 		LinearLayout asset = new LinearLayout(this);
 		asset.setOrientation(LinearLayout.HORIZONTAL);
 		asset.setGravity(Gravity.CENTER_VERTICAL);
 		asset.setPadding(pad, pad, pad, pad);
-		asset.setBackgroundDrawable(shape(surface, 0, elementRadius()));
+		asset.setBackgroundDrawable(shape(primary, 0, dp(18)));
 
 		ImageView icon = new ImageView(this);
 		icon.setImageResource(R.drawable.ic_dastars);
-		icon.setColorFilter(primary);
+		icon.setColorFilter(Color.WHITE);
 		LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(48), dp(48));
 		iconLp.setMargins(0, 0, pad, 0);
 		asset.addView(icon, iconLp);
 
 		LinearLayout info = new LinearLayout(this);
 		info.setOrientation(LinearLayout.VERTICAL);
-		TextView name = label("dastars");
-		name.setTextSize(18);
-		name.setTextColor(blend(primary, Color.WHITE, 0.18f));
+		TextView name = label("Balance");
+		name.setTextSize(13);
+		name.setTextColor(blend(Color.WHITE, primary, 0.15f));
 		TextView code = label("DSR");
-		code.setTextColor(muted);
-		code.setTextSize(14);
+		code.setTextColor(blend(Color.WHITE, primary, 0.15f));
+		code.setTextSize(15);
 		TextView balance = label("0 DSR");
 		balance.setTextSize(24);
+		balance.setTextColor(Color.WHITE);
 		walletBalanceView = balance;
 		info.addView(name, new LinearLayout.LayoutParams(-1, -2));
 		info.addView(code, new LinearLayout.LayoutParams(-1, -2));
@@ -1809,6 +1810,22 @@ public final class MainActivity extends Activity {
 		asset.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
 
 		wallet.addView(spaced(asset));
+		wallet.addView(spaced(row(
+				button(getString(R.string.wallet_buy_dastars), new View.OnClickListener() {
+					@Override public void onClick(View v) { openChatIfExists("dastarsbot", v, true); }
+				}),
+				button(getString(R.string.wallet_send_title), new View.OnClickListener() {
+					@Override public void onClick(View v) { if (walletTo != null) walletTo.requestFocus(); }
+				})
+		)));
+		wallet.addView(spaced(row(
+				button("Gift", new View.OnClickListener() {
+					@Override public void onClick(View v) { showDastarsTransferDialog(""); }
+				}),
+				button(getString(R.string.wallet_payment_history), new View.OnClickListener() {
+					@Override public void onClick(View v) { showWalletHistory(); }
+				})
+		)));
 		wallet.addView(spaced(title(getString(R.string.wallet_receive_title))));
 		walletReceiveView = label(getString(R.string.loading_short));
 		walletReceiveView.setTextColor(primary);
@@ -3421,15 +3438,19 @@ public final class MainActivity extends Activity {
 				+ "Device: " + (session.deviceModel.length() == 0 ? "Unknown" : session.deviceModel) + "\n"
 				+ getString(R.string.session_details_status,
 					session.current ? getString(R.string.settings_current_session) : getString(R.string.settings_other_device));
-		new AlertDialog.Builder(this)
-				.setTitle(name)
-				.setMessage(message)
-				.setNegativeButton(android.R.string.cancel, null)
-				.setPositiveButton(session.current ? R.string.settings_logout : R.string.session_logout_device,
-						new DialogInterface.OnClickListener() {
-							@Override public void onClick(DialogInterface dialog, int which) { revokeSession(session); }
-						})
-				.show();
+		TextView details = label(message);
+		details.setTextColor(muted);
+		details.setTextSize(14);
+		details.setPadding(0, gap / 2, 0, gap / 2);
+		// Session details deliberately use the same swipeable bottom sheet as
+		// message actions, rather than the platform alert dialog.
+		showContentDialog(
+				name,
+				details,
+				getString(session.current ? R.string.settings_logout : R.string.session_logout_device),
+				new Runnable() { @Override public void run() { revokeSession(session); } },
+				getString(R.string.action_cancel)
+		);
 	}
 
 	private void revokeSession(final MiniTaLib.SessionInfo session) {
@@ -7245,7 +7266,10 @@ public final class MainActivity extends Activity {
 		if (root == null) {
 			return;
 		}
-		root.setPadding(pad, pad, pad, pad);
+		// Pages own their horizontal rhythm.  The app shell only reserves the
+		// system bars; a global content gutter made every screen unnecessarily
+		// narrow and doubled the padding of cards and chat lists.
+		root.setPadding(0, 0, 0, 0);
 	}
 
 	private void installInsetsCompat(final View root) {
@@ -7276,12 +7300,7 @@ public final class MainActivity extends Activity {
 						    int right = getInset(insets, "getSystemWindowInsetRight");
 						    int bottom = getInset(insets, "getSystemWindowInsetBottom");
 
-						    root.setPadding(
-								    pad + left,
-								    pad + top,
-								    pad + right,
-								    pad + bottom
-						    );
+							root.setPadding(left, top, right, bottom);
 
 						    return insets;
 					    }
@@ -9428,8 +9447,14 @@ public final class MainActivity extends Activity {
 	private LinearLayout dialogBox() {
 		LinearLayout box = new LinearLayout(this);
 		box.setOrientation(LinearLayout.VERTICAL);
-		box.setPadding(pad, pad, pad, pad);
-		box.setBackgroundDrawable(shape(surface, 0, buttonRadius()));
+		box.setPadding(pad, gap / 2, pad, pad);
+		box.setBackgroundDrawable(shape(surface, 0, dp(20)));
+		View handle = new View(this);
+		handle.setBackgroundDrawable(shape(blend(muted, surface, 0.45f), 0, dp(2)));
+		LinearLayout.LayoutParams handleLp = new LinearLayout.LayoutParams(dp(36), dp(4));
+		handleLp.gravity = Gravity.CENTER_HORIZONTAL;
+		handleLp.setMargins(0, 0, 0, gap);
+		box.addView(handle, handleLp);
 		return box;
 	}
 
