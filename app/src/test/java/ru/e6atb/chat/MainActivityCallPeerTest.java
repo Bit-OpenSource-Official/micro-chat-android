@@ -8,10 +8,10 @@ import static org.junit.Assert.assertTrue;
 public final class MainActivityCallPeerTest {
 	@Test
 	public void callPeerFallsBackToPublicIdWhenUsernameIsEmpty() throws Exception {
-		MiniTaLib.User alice = new MiniTaLib.User("0000000000000001", "", "", "", false, false);
-		MiniTaLib.User me = new MiniTaLib.User("0000000000000002", "", "", "", false, false);
-		MiniTaLib.Call incoming = new MiniTaLib.Call(alice, me, 1);
-		MiniTaLib.Call outgoing = new MiniTaLib.Call(me, alice, 1);
+		MST5.User alice = new MST5.User("0000000000000001", "", "", "", false, false);
+		MST5.User me = new MST5.User("0000000000000002", "", "", "", false, false);
+		MST5.Call incoming = new MST5.Call(alice, me, 1);
+		MST5.Call outgoing = new MST5.Call(me, alice, 1);
 
 		assertEquals("0000000000000001", MainActivity.callPeerFor("0000000000000002", "", incoming));
 		assertEquals("0000000000000001", MainActivity.callPeerFor("0000000000000002", "", outgoing));

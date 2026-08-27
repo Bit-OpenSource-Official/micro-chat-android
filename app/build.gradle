@@ -1,5 +1,6 @@
 plugins {
     id "com.android.application"
+    id "org.jetbrains.kotlin.android"
 }
 
 def dotenv = [:]
@@ -40,10 +41,10 @@ def cryptServerPublicKey = providers.gradleProperty("cryptServerPublicKeyB64").o
     productionCryptServerPublicKey
 def appVersionName = providers.gradleProperty("appVersionName").orNull ?:
     System.getenv("APP_VERSION_NAME") ?:
-    "0.11.0"
+    "0.13.0"
 def appVersionCode = (providers.gradleProperty("appVersionCode").orNull ?:
     System.getenv("APP_VERSION_CODE") ?:
-    "100110").toInteger()
+    "100130").toInteger()
 def mst5NativeAbi = providers.gradleProperty("mst5NativeAbi").orNull ?: "universal"
 def includeArmv6OtaTls = providers.gradleProperty("includeArmv6OtaTls").orNull ?:
     (mst5NativeAbi == "universal" || mst5NativeAbi == "armeabi" ? "true" : "false")
@@ -141,7 +142,8 @@ android {
 
     defaultConfig {
         applicationId "ru.e6atb.chat"
-        // Support Android from version 2.3.6 (API level 10) upwards.
+        // Kotlin works with the existing View renderer on Android 2.3.6
+        // (API level 10) and newer.
         minSdk effectiveMinSdk
         targetSdk 35
         versionCode appVersionCode
@@ -169,6 +171,10 @@ android {
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = "1.8"
     }
 
     // ---------------------------------------------------------------------
