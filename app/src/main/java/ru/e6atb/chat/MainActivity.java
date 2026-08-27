@@ -170,6 +170,10 @@ public final class MainActivity extends Activity {
 	private int muted;
 	private int primary;
 	private int onPrimary;
+	private int border;
+	private int accentSurface;
+	private int danger;
+	private int success;
 
 	private final Handler main = new Handler(Looper.getMainLooper());
 	private final ExecutorService io = Executors.newFixedThreadPool(2);
@@ -222,9 +226,11 @@ public final class MainActivity extends Activity {
 	private EditText walletComment;
 	private TextView status;
 	private TextView walletBalanceView;
+	private TextView walletCodeView;
 	private TextView walletReceiveView;
 	private TextView walletInstructionView;
 	private LinearLayout walletHistoryView;
+	private LinearLayout walletRecentView;
 	private boolean hasWalletBalance;
 	private long walletBalance;
 	private String walletCode = "DSR";
@@ -533,13 +539,15 @@ public final class MainActivity extends Activity {
 		status = new TextView(this);
 		status.setText(getString(R.string.status_offline));
 		status.setTextColor(muted);
+		status.setTextSize(12);
 		status.setGravity(Gravity.CENTER_VERTICAL);
-		status.setPadding(gap, gap, gap, gap);
+		status.setPadding(pad, gap / 2, pad, gap / 2);
+		status.setBackgroundColor(surface);
 		content = new LinearLayout(this);
 		content.setOrientation(LinearLayout.VERTICAL);
-		content.setPadding(0, gap, 0, 0);
+		content.setPadding(0, 0, 0, 0);
 
-		root.addView(spaced(status));
+		root.addView(status, new LinearLayout.LayoutParams(-1, -2));
 		updateStatusVisibility();
 		root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
 		bottomNav = navRow(
@@ -569,7 +577,8 @@ public final class MainActivity extends Activity {
 			})
 		);
 		bottomNav.setVisibility(View.GONE);
-		root.addView(spaced(bottomNav));
+		bottomNav.setBackgroundDrawable(shape(surface, border, 0));
+		root.addView(bottomNav, new LinearLayout.LayoutParams(-1, -2));
 		return root;
 	}
 
@@ -812,6 +821,7 @@ public final class MainActivity extends Activity {
 		page = Page.LOGIN;
 		if (bottomNav != null) bottomNav.setVisibility(View.GONE);
 		content.removeAllViews();
+		content.setPadding(pad, pad, pad, pad);
 		main.removeCallbacks(emailCodeCooldownTick);
 		resendEmailCodeButton = null;
 		final String currentEmail = email == null ? "" : email.getText().toString().trim();
@@ -910,17 +920,19 @@ public final class MainActivity extends Activity {
 
 	private void showChats() {
 		page = Page.CHATS;
+		updateBottomNavSelection();
 		replyToMessage = null;
 		commentInputContainer = null;
 		if (bottomNav != null) bottomNav.setVisibility(View.VISIBLE);
 		content.removeAllViews();
+		content.setPadding(0, 0, 0, 0);
 		chatRows = adapter();
 		content.addView(chatsHeader());
 		chatSearch = input(getString(R.string.action_search), false);
 		chatSearch.setTextSize(14);
 		chatSearch.setSingleLine(true);
-		chatSearch.setPadding(pad, gap, pad, gap);
-		chatSearch.setBackgroundDrawable(shape(surface, 0, dp(22)));
+		chatSearch.setPadding(dp(14), gap, dp(14), gap);
+		chatSearch.setBackgroundDrawable(shape(surfaceHi, 0, dp(22)));
 		chatSearch.addTextChangedListener(new TextWatcher() {
 			@Override public void beforeTextChanged(CharSequence value, int start, int count, int after) {}
 			@Override public void onTextChanged(CharSequence value, int start, int before, int count) {
@@ -929,13 +941,13 @@ public final class MainActivity extends Activity {
 			@Override public void afterTextChanged(Editable value) {}
 		});
 		LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(-1, -2);
-		searchLp.setMargins(0, 0, 0, gap);
+		searchLp.setMargins(pad, 0, pad, gap);
 		content.addView(chatSearch, searchLp);
 		ListView list = new ListView(this);
 		list.setBackgroundColor(bg);
 		list.setCacheColorHint(bg);
 		styleList(list, false);
-		list.setDivider(new ColorDrawable(blend(surfaceHi, bg, 0.35f)));
+		list.setDivider(new ColorDrawable(border));
 		list.setDividerHeight(dp(1));
 		list.setAdapter(chatRows);
 		list.setOnItemClickListener(new AdapterView.OnItemClickListener() {
@@ -956,21 +968,21 @@ public final class MainActivity extends Activity {
 		LinearLayout header = new LinearLayout(this);
 		header.setOrientation(LinearLayout.HORIZONTAL);
 		header.setGravity(Gravity.CENTER_VERTICAL);
-		header.setPadding(gap, gap / 2, gap, gap / 2);
+		header.setPadding(pad, pad, pad, gap);
 		TextView heading = label(getString(R.string.nav_chats));
-		heading.setTextSize(24);
-		heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+		heading.setTextSize(22);
+		heading.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
 		header.addView(heading, new LinearLayout.LayoutParams(0, buttonMinHeight, 1));
 		Button refresh = button("↻", new View.OnClickListener() {
 			@Override public void onClick(View v) { loadChats(v, false); }
 		});
-		refresh.setTextSize(20);
+		refresh.setTextSize(18);
 		refresh.setContentDescription(getString(R.string.action_refresh));
 		header.addView(refresh, new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight));
 		Button add = primaryButton("+", new View.OnClickListener() {
 			@Override public void onClick(View v) { showAddChat(); }
 		});
-		add.setTextSize(24);
+		add.setTextSize(21);
 		add.setContentDescription(getString(R.string.screen_add_chat));
 		LinearLayout.LayoutParams addLp = new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight);
 		addLp.setMargins(gap, 0, 0, 0);
@@ -1056,9 +1068,12 @@ public final class MainActivity extends Activity {
 		if (currentPeer != null && !currentPeer.isEmpty()) cancelMessageNotification(currentPeer);
 		if (bottomNav != null) bottomNav.setVisibility(View.GONE);
 		content.removeAllViews();
+		content.setPadding(0, 0, 0, 0);
 		peer = input(getString(R.string.hint_username_or_id), false);
 		peer.setText(currentPeer);
 		text = input(getString(R.string.hint_message), false);
+		text.setBackgroundDrawable(shape(surface, 0, dp(22)));
+		text.setPadding(dp(14), buttonPadY, dp(14), buttonPadY);
 		text.setSingleLine(false);
 		text.setMinLines(1);
 		text.setMaxLines(3);
@@ -1101,12 +1116,13 @@ public final class MainActivity extends Activity {
 			}
 		});
 		callButton.setBackgroundDrawable(pressable(primary, blend(primary, Color.WHITE, 0.18f), 0, buttonRadius()));
+		callButton.setColorFilter(onPrimary);
 		updateCallButton();
-		content.addView(spaced(chatHeader()));
+		content.addView(chatHeader(), new LinearLayout.LayoutParams(-1, -2));
 		content.addView(messageList, fill());
 		chatInputContainer = new LinearLayout(this);
 		chatInputContainer.setOrientation(LinearLayout.VERTICAL);
-		content.addView(spaced(chatInputContainer));
+		content.addView(chatInputContainer, new LinearLayout.LayoutParams(-1, -2));
 		refreshChatInput();
 	}
 
@@ -1768,65 +1784,96 @@ public final class MainActivity extends Activity {
 
 	private void showWallet() {
 		page = Page.WALLET;
+		updateBottomNavSelection();
 		if (bottomNav != null) bottomNav.setVisibility(View.VISIBLE);
 		content.removeAllViews();
+		content.setPadding(0, 0, 0, 0);
 		walletHistoryView = null;
+		walletRecentView = null;
 
 		ScrollView scroll = pageScrollView();
 
 		LinearLayout wallet = new LinearLayout(this);
 		wallet.setOrientation(LinearLayout.VERTICAL);
-		wallet.setPadding(pad, pad, pad, gap);
+		wallet.setPadding(pad, pad, pad, dp(28));
 
-		wallet.addView(spaced(title(getString(R.string.wallet_title))));
-		LinearLayout asset = new LinearLayout(this);
-		asset.setOrientation(LinearLayout.HORIZONTAL);
-		asset.setGravity(Gravity.CENTER_VERTICAL);
-		asset.setPadding(pad, pad, pad, pad);
+		TextView heading = label(getString(R.string.wallet_title));
+		heading.setTextSize(22);
+		heading.setTextColor(textColor);
+		heading.setPadding(0, 0, 0, dp(14));
+		wallet.addView(heading, new LinearLayout.LayoutParams(-1, -2));
+
+		FrameLayout asset = new FrameLayout(this);
+		asset.setPadding(dp(18), dp(18), dp(18), dp(18));
 		asset.setBackgroundDrawable(shape(primary, 0, dp(18)));
-
-		ImageView icon = new ImageView(this);
-		icon.setImageResource(R.drawable.ic_dastars);
-		icon.setColorFilter(Color.WHITE);
-		LinearLayout.LayoutParams iconLp = new LinearLayout.LayoutParams(dp(48), dp(48));
-		iconLp.setMargins(0, 0, pad, 0);
-		asset.addView(icon, iconLp);
-
+		ImageView texture = new ImageView(this);
+		texture.setImageResource(R.drawable.ic_dastars);
+		texture.setColorFilter(Color.WHITE);
+		texture.setAlpha(0.14f);
+		FrameLayout.LayoutParams textureLp = new FrameLayout.LayoutParams(dp(126), dp(126), Gravity.RIGHT | Gravity.TOP);
+		textureLp.setMargins(0, dp(-28), dp(-30), 0);
+		asset.addView(texture, textureLp);
 		LinearLayout info = new LinearLayout(this);
 		info.setOrientation(LinearLayout.VERTICAL);
 		TextView name = label("Balance");
 		name.setTextSize(13);
 		name.setTextColor(blend(Color.WHITE, primary, 0.15f));
-		TextView code = label("DSR");
-		code.setTextColor(blend(Color.WHITE, primary, 0.15f));
-		code.setTextSize(15);
-		TextView balance = label("0 DSR");
-		balance.setTextSize(24);
-		balance.setTextColor(Color.WHITE);
-		walletBalanceView = balance;
 		info.addView(name, new LinearLayout.LayoutParams(-1, -2));
-		info.addView(code, new LinearLayout.LayoutParams(-1, -2));
-		info.addView(balance, new LinearLayout.LayoutParams(-1, -2));
-		asset.addView(info, new LinearLayout.LayoutParams(0, -2, 1));
+		LinearLayout amountLine = new LinearLayout(this);
+		amountLine.setGravity(Gravity.CENTER_VERTICAL);
+		ImageView icon = new ImageView(this);
+		icon.setImageResource(R.drawable.ic_dastars);
+		icon.setColorFilter(Color.WHITE);
+		amountLine.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
+		TextView balance = label("0");
+		balance.setTextSize(28);
+		balance.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
+		balance.setTextColor(Color.WHITE);
+		LinearLayout.LayoutParams balanceLp = new LinearLayout.LayoutParams(-2, -2);
+		balanceLp.setMargins(gap, 0, gap, 0);
+		amountLine.addView(balance, balanceLp);
+		TextView code = label("DSR");
+		code.setTextSize(15);
+		code.setTextColor(blend(Color.WHITE, primary, 0.15f));
+		amountLine.addView(code, new LinearLayout.LayoutParams(-2, -2));
+		walletBalanceView = balance;
+		walletCodeView = code;
+		info.addView(amountLine, new LinearLayout.LayoutParams(-1, -2));
+		TextView estimate = label("DaStars");
+		estimate.setTextSize(13);
+		estimate.setTextColor(blend(Color.WHITE, primary, 0.26f));
+		info.addView(estimate, new LinearLayout.LayoutParams(-1, -2));
+		asset.addView(info, new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_VERTICAL));
+		wallet.addView(asset, new LinearLayout.LayoutParams(-1, -2));
 
-		wallet.addView(spaced(asset));
-		wallet.addView(spaced(row(
-				button(getString(R.string.wallet_buy_dastars), new View.OnClickListener() {
-					@Override public void onClick(View v) { openChatIfExists("dastarsbot", v, true); }
-				}),
-				button(getString(R.string.wallet_send_title), new View.OnClickListener() {
-					@Override public void onClick(View v) { if (walletTo != null) walletTo.requestFocus(); }
-				})
-		)));
-		wallet.addView(spaced(row(
-				button("Gift", new View.OnClickListener() {
-					@Override public void onClick(View v) { showDastarsTransferDialog(""); }
-				}),
-				button(getString(R.string.wallet_payment_history), new View.OnClickListener() {
-					@Override public void onClick(View v) { showWalletHistory(); }
-				})
-		)));
-		wallet.addView(spaced(title(getString(R.string.wallet_receive_title))));
+		LinearLayout quickActions = new LinearLayout(this);
+		quickActions.setGravity(Gravity.CENTER);
+		quickActions.setPadding(0, pad, 0, gap);
+		quickActions.addView(walletQuickAction("+", getString(R.string.wallet_buy_dastars), new View.OnClickListener() {
+			@Override public void onClick(View v) { openChatIfExists("dastarsbot", v, true); }
+		}), new LinearLayout.LayoutParams(0, -2, 1));
+		quickActions.addView(walletQuickAction("↗", getString(R.string.wallet_send_title), new View.OnClickListener() {
+			@Override public void onClick(View v) { if (walletTo != null) walletTo.requestFocus(); }
+		}), new LinearLayout.LayoutParams(0, -2, 1));
+		quickActions.addView(walletQuickAction("★", "Gift", new View.OnClickListener() {
+			@Override public void onClick(View v) { showDastarsTransferDialog(""); }
+		}), new LinearLayout.LayoutParams(0, -2, 1));
+		quickActions.addView(walletQuickAction("↺", getString(R.string.wallet_payment_history), new View.OnClickListener() {
+			@Override public void onClick(View v) { showWalletHistory(); }
+		}), new LinearLayout.LayoutParams(0, -2, 1));
+		wallet.addView(quickActions, new LinearLayout.LayoutParams(-1, -2));
+
+		walletRecentView = new LinearLayout(this);
+		walletRecentView.setOrientation(LinearLayout.VERTICAL);
+		walletRecentView.setPadding(0, gap, 0, gap);
+		walletRecentView.setBackgroundDrawable(shape(Color.TRANSPARENT, border, 0));
+		walletRecentView.addView(walletHistoryRow(getString(R.string.loading_short), muted));
+		wallet.addView(walletRecentView, new LinearLayout.LayoutParams(-1, -2));
+
+		TextView receiveHeading = label(getString(R.string.wallet_receive_title));
+		receiveHeading.setTextSize(16);
+		receiveHeading.setPadding(0, pad, 0, gap);
+		wallet.addView(receiveHeading, new LinearLayout.LayoutParams(-1, -2));
 		walletReceiveView = label(getString(R.string.loading_short));
 		walletReceiveView.setTextColor(primary);
 		walletReceiveView.setTextSize(18);
@@ -1852,7 +1899,10 @@ public final class MainActivity extends Activity {
 			})
 		)));
 
-		wallet.addView(spaced(title(getString(R.string.wallet_send_title))));
+		TextView sendHeading = label(getString(R.string.wallet_send_title));
+		sendHeading.setTextSize(16);
+		sendHeading.setPadding(0, pad, 0, gap);
+		wallet.addView(sendHeading, new LinearLayout.LayoutParams(-1, -2));
 		walletTo = input(getString(R.string.wallet_to_hint), false);
 		walletAmount = input(getString(R.string.wallet_amount_hint), false);
 		walletComment = input(getString(R.string.wallet_comment_hint), false);
@@ -1882,6 +1932,31 @@ public final class MainActivity extends Activity {
 		loadWallet();
 	}
 
+	private View walletQuickAction(String glyph, String caption, View.OnClickListener listener) {
+		LinearLayout action = new LinearLayout(this);
+		action.setOrientation(LinearLayout.VERTICAL);
+		action.setGravity(Gravity.CENTER);
+		action.setPadding(gap / 2, 0, gap / 2, 0);
+		action.setOnClickListener(listener);
+		TextView icon = new TextView(this);
+		icon.setText(glyph);
+		icon.setTextColor(primary);
+		icon.setTextSize(21);
+		icon.setGravity(Gravity.CENTER);
+		icon.setBackgroundDrawable(pressable(surface, surfaceHi, 0, dp(14)));
+		action.addView(icon, new LinearLayout.LayoutParams(dp(44), dp(44)));
+		TextView text = label(caption);
+		text.setTextColor(muted);
+		text.setTextSize(11);
+		text.setGravity(Gravity.CENTER);
+		text.setSingleLine(true);
+		text.setEllipsize(TextUtils.TruncateAt.END);
+		LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(-1, -2);
+		textLp.setMargins(0, gap / 2, 0, 0);
+		action.addView(text, textLp);
+		return action;
+	}
+
 	private void loadWallet() {
 		final MiniTaLib c = ta;
 		if (c == null) {
@@ -1892,11 +1967,18 @@ public final class MainActivity extends Activity {
 			@Override
 			public void run() throws Exception {
 				final MiniTaLib.WalletInfo info = c.getWallet();
+				List<MiniTaLib.WalletTransaction> loadedRecent;
+				try {
+					loadedRecent = c.getWalletHistory(3);
+				} catch (Exception ignored) {
+					loadedRecent = new ArrayList<MiniTaLib.WalletTransaction>();
+				}
+				final List<MiniTaLib.WalletTransaction> recent = loadedRecent;
 				ui(new Runnable() {
 					@Override
 					public void run() {
 						if (page != Page.WALLET) return;
-						renderWallet(info);
+						renderWallet(info, recent);
 					}
 				});
 			}
@@ -1904,19 +1986,42 @@ public final class MainActivity extends Activity {
 	}
 
 	private void renderWallet(MiniTaLib.WalletInfo info) {
+		renderWallet(info, null);
+	}
+
+	private void renderWallet(MiniTaLib.WalletInfo info, List<MiniTaLib.WalletTransaction> recent) {
 		if (info != null) {
 			setCachedWalletInfo(info);
-			if (walletBalanceView != null) walletBalanceView.setText(info.balance + " " + info.code);
+			if (walletBalanceView != null) walletBalanceView.setText(String.valueOf(info.balance));
+			if (walletCodeView != null) walletCodeView.setText(info.code == null || info.code.length() == 0 ? "DSR" : info.code);
 			if (walletReceiveView != null) walletReceiveView.setText(info.receiveCode == null ? "" : info.receiveCode);
 			if (walletInstructionView != null) walletInstructionView.setText(info.instruction == null ? "" : info.instruction);
 		}
+		if (recent != null && walletRecentView != null) renderWalletRecent(recent, info == null ? 0 : info.userId);
 		status.setText(getString(R.string.status_wallet_updated));
+	}
+
+	private void renderWalletRecent(List<MiniTaLib.WalletTransaction> recent, long ownId) {
+		if (walletRecentView == null) return;
+		walletRecentView.removeAllViews();
+		if (recent == null || recent.isEmpty()) {
+			walletRecentView.addView(walletHistoryRow(getString(R.string.wallet_history_empty), muted));
+			return;
+		}
+		for (final MiniTaLib.WalletTransaction tx : recent) {
+			boolean incoming = tx.toUserId == ownId;
+			TextView item = walletHistoryRow(formatWalletHistoryRow(tx, incoming), incoming ? success : textColor, new View.OnClickListener() {
+				@Override public void onClick(View v) { showWalletTransactionDetails(tx); }
+			});
+			walletRecentView.addView(item);
+		}
 	}
 
 	private void showWalletHistory() {
 		page = Page.WALLET_HISTORY;
 		if (bottomNav != null) bottomNav.setVisibility(View.VISIBLE);
 		content.removeAllViews();
+		content.setPadding(0, 0, 0, 0);
 
 		ScrollView scroll = pageScrollView();
 		LinearLayout history = new LinearLayout(this);
@@ -2066,9 +2171,9 @@ public final class MainActivity extends Activity {
 	private TextView walletHistoryRow(String value, int color, View.OnClickListener listener) {
 		TextView row = label(value);
 		row.setTextColor(color);
-		row.setTextSize(15);
-		row.setPadding(pad, gap, pad, gap);
-		row.setBackgroundDrawable(listener == null ? shape(surface, 0, elementRadius()) : pressable(surface, surfaceHi, 0, elementRadius()));
+		row.setTextSize(14);
+		row.setPadding(dp(4), dp(12), dp(4), dp(12));
+		row.setBackgroundDrawable(listener == null ? shape(Color.TRANSPARENT, border, 0) : pressable(Color.TRANSPARENT, surfaceHi, border, 0));
 		if (listener != null) row.setOnClickListener(listener);
 		LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
 		lp.setMargins(0, 0, 0, gap / 2);
@@ -2141,6 +2246,7 @@ public final class MainActivity extends Activity {
 
 	private void showNodeStatus() {
 		page = Page.NODES;
+		updateBottomNavSelection();
 		if (bottomNav != null) bottomNav.setVisibility(View.VISIBLE);
 		content.removeAllViews();
 
@@ -2148,7 +2254,7 @@ public final class MainActivity extends Activity {
 
 		LinearLayout nodes = new LinearLayout(this);
 		nodes.setOrientation(LinearLayout.VERTICAL);
-		nodes.setPadding(0, 0, 0, gap);
+		nodes.setPadding(pad, pad, pad, dp(28));
 		nodes.addView(spaced(title(getString(R.string.nodes_title))));
 
 		nodeStatusListView = new LinearLayout(this);
@@ -2272,8 +2378,8 @@ public final class MainActivity extends Activity {
 		LinearLayout row = new LinearLayout(this);
 		row.setOrientation(LinearLayout.HORIZONTAL);
 		row.setGravity(Gravity.CENTER_VERTICAL);
-		row.setPadding(pad, gap, pad, gap);
-		row.setBackgroundDrawable(shape(surface, 0, elementRadius()));
+		row.setPadding(gap, dp(12), gap, dp(12));
+		row.setBackgroundDrawable(shape(Color.TRANSPARENT, border, 0));
 
 		LinearLayout labels = new LinearLayout(this);
 		labels.setOrientation(LinearLayout.VERTICAL);
@@ -2310,26 +2416,28 @@ public final class MainActivity extends Activity {
 	}
 
 	private int nodeStatusColor(String value) {
-		if ("online".equals(value)) return blend(primary, Color.WHITE, 0.18f);
+		if ("online".equals(value)) return success;
 		if ("partial".equals(value)
 				|| "not_generated".equals(value)
 				|| "local_only".equals(value)
 				|| "server_only".equals(value)
 				|| "check_failed".equals(value)) return Color.rgb(245, 166, 35);
-		return Color.rgb(231, 76, 60);
+		return danger;
 	}
 
 	private void showSettings() {
 		page = Page.SETTINGS;
+		updateBottomNavSelection();
 		if (bottomNav != null) bottomNav.setVisibility(View.VISIBLE);
 		content.removeAllViews();
+		content.setPadding(0, 0, 0, 0);
 		accountSessionsView = null;
 
 		ScrollView scroll = pageScrollView();
 
 		LinearLayout settings = new LinearLayout(this);
 		settings.setOrientation(LinearLayout.VERTICAL);
-		settings.setPadding(0, 0, 0, gap);
+		settings.setPadding(pad, pad, pad, dp(28));
 
 		settings.addView(spaced(title(getString(R.string.settings_title))));
 		settings.addView(spaced(settingsProfileHeader()));
@@ -2597,7 +2705,7 @@ public final class MainActivity extends Activity {
 		LinearLayout box = new LinearLayout(this);
 		box.setOrientation(LinearLayout.VERTICAL);
 		box.setPadding(pad, pad, pad, pad);
-		box.setBackgroundDrawable(shape(surface, 0, elementRadius()));
+		box.setBackgroundDrawable(shape(surface, border, elementRadius()));
 		TextView name = label(displayOwnUser());
 		name.setTextSize(18);
 		name.setTextColor(textColor);
@@ -2620,7 +2728,7 @@ public final class MainActivity extends Activity {
 		TextView section = label(value);
 		section.setTextColor(muted);
 		section.setTextSize(13);
-		section.setPadding(pad, gap, pad, gap / 2);
+		section.setPadding(0, pad, 0, gap / 2);
 		return section;
 	}
 
@@ -2628,8 +2736,8 @@ public final class MainActivity extends Activity {
 		LinearLayout row = new LinearLayout(this);
 		row.setOrientation(LinearLayout.HORIZONTAL);
 		row.setGravity(Gravity.CENTER_VERTICAL);
-		row.setPadding(pad, gap, pad, gap);
-		row.setBackgroundDrawable(pressable(surface, surfaceHi, 0, elementRadius()));
+		row.setPadding(gap, dp(12), gap, dp(12));
+		row.setBackgroundDrawable(pressable(Color.TRANSPARENT, surfaceHi, border, 0));
 		row.setOnClickListener(listener);
 
 		LinearLayout texts = new LinearLayout(this);
@@ -2686,13 +2794,14 @@ public final class MainActivity extends Activity {
 		page = pageValue;
 		if (bottomNav != null) bottomNav.setVisibility(View.VISIBLE);
 		content.removeAllViews();
+		content.setPadding(0, 0, 0, 0);
 		accountSessionsView = null;
 
 		ScrollView scroll = pageScrollView();
 
 		LinearLayout box = new LinearLayout(this);
 		box.setOrientation(LinearLayout.VERTICAL);
-		box.setPadding(0, 0, 0, gap);
+		box.setPadding(pad, pad, pad, dp(28));
 		ImageButton back = headerIconButton(R.drawable.ic_back, getString(R.string.action_back), new View.OnClickListener() {
 			@Override
 			public void onClick(View v) {
@@ -3479,8 +3588,8 @@ public final class MainActivity extends Activity {
 		TextView row = label(value);
 		row.setTextColor(color);
 		row.setTextSize(15);
-		row.setPadding(pad, gap, pad, gap);
-		row.setBackgroundDrawable(shape(surface, 0, elementRadius()));
+		row.setPadding(gap, dp(12), gap, dp(12));
+		row.setBackgroundDrawable(shape(Color.TRANSPARENT, border, 0));
 		LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
 		lp.setMargins(0, 0, 0, gap / 2);
 		row.setLayoutParams(lp);
@@ -6533,9 +6642,18 @@ public final class MainActivity extends Activity {
 	private void showMessageActionDialog(final MiniTaLib.Message message, final String[] actions, final ChoiceHandler handler) {
 		final Dialog dialog = new Dialog(this);
 		LinearLayout box = dialogBox();
-		TextView reactionTitle = label(getString(R.string.reaction_title));
-		reactionTitle.setTextColor(muted);
-		box.addView(spaced(reactionTitle));
+		TextView messageTitle = label(getString(R.string.system_detail_message));
+		messageTitle.setTextColor(textColor);
+		messageTitle.setTextSize(16);
+		box.addView(messageTitle, new LinearLayout.LayoutParams(-1, -2));
+		TextView preview = label(message.text == null ? "" : message.text);
+		preview.setTextColor(muted);
+		preview.setTextSize(13);
+		preview.setSingleLine(true);
+		preview.setEllipsize(TextUtils.TruncateAt.END);
+		LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(-1, -2);
+		previewLp.setMargins(0, dp(2), 0, gap);
+		box.addView(preview, previewLp);
 		android.widget.HorizontalScrollView scroll = new android.widget.HorizontalScrollView(this);
 		scroll.setHorizontalScrollBarEnabled(false);
 		LinearLayout row = new LinearLayout(this);
@@ -6572,14 +6690,20 @@ public final class MainActivity extends Activity {
 		box.addView(scroll, scrollLp);
 		for (int i = 0; i < actions.length; i++) {
 			final int which = i;
-			Button action = button(actions[i], new View.OnClickListener() {
+			Button action = sheetActionButton(actions[i], new View.OnClickListener() {
 				@Override public void onClick(View v) {
 					dialog.dismiss();
 					if (handler != null) handler.onChoice(which);
 				}
-			});
-			box.addView(spaced(action));
+			}, isDestructiveAction(actions[i]));
+			box.addView(action, new LinearLayout.LayoutParams(-1, -2));
 		}
+		Button cancel = button(getString(R.string.action_cancel), new View.OnClickListener() {
+			@Override public void onClick(View v) { dialog.dismiss(); }
+		});
+		LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(-1, -2);
+		cancelLp.setMargins(0, gap, 0, 0);
+		box.addView(cancel, cancelLp);
 		setScrollableDialogContent(dialog, box);
 		showStyledDialog(dialog);
 	}
@@ -7424,7 +7548,7 @@ public final class MainActivity extends Activity {
 		e.setHint(hint);
 		e.setTextColor(textColor);
 		e.setHintTextColor(muted);
-		e.setBackgroundDrawable(shape(surfaceHi, primary, elementRadius()));
+		e.setBackgroundDrawable(shape(surfaceHi, border, elementRadius()));
 		e.setPadding(buttonPadX, buttonPadY, buttonPadX, buttonPadY);
 		e.setMinHeight(buttonMinHeight);
 		e.setMinimumHeight(buttonMinHeight);
@@ -7639,6 +7763,7 @@ public final class MainActivity extends Activity {
 		icon.setBounds(0, 0, iconSize, iconSize);
 		b.setImageDrawable(icon);
 		b.setScaleType(ImageView.ScaleType.CENTER);
+		b.setColorFilter(muted);
 		b.setBackgroundDrawable(pressable(surface, surfaceHi, 0, radius));
 		b.setPadding(0, 0, 0, 0);
 		b.setMinimumWidth(buttonMinHeight);
@@ -7841,7 +7966,7 @@ public final class MainActivity extends Activity {
 				box.setOrientation(LinearLayout.HORIZONTAL);
 				box.setGravity(Gravity.CENTER_VERTICAL);
 				box.setPadding(pad, dp(10), pad, dp(10));
-				box.setBackgroundDrawable(pressable(surface, surfaceHi, 0, 0));
+				box.setBackgroundDrawable(pressable(bg, accentSurface, 0, 0));
 				TextView avatar = chatAvatar(row.chatTitle, dp(44));
 				box.addView(avatar, new LinearLayout.LayoutParams(dp(44), dp(44)));
 				LinearLayout details = new LinearLayout(MainActivity.this);
@@ -7853,7 +7978,7 @@ public final class MainActivity extends Activity {
 				title.setText(safeDisplayText(row.chatTitle));
 				title.setTextColor(textColor);
 				title.setTextSize(16);
-				title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+				title.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
 				title.setSingleLine(true);
 				title.setEllipsize(TextUtils.TruncateAt.END);
 				if (row.chatVerified) {
@@ -7873,7 +7998,7 @@ public final class MainActivity extends Activity {
 				TextView preview = new TextView(MainActivity.this);
 				preview.setText(safeDisplayText(row.chatPreview));
 				preview.setTextColor(muted);
-				preview.setTextSize(14);
+				preview.setTextSize(13);
 				preview.setSingleLine(true);
 				preview.setEllipsize(TextUtils.TruncateAt.END);
 				LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(-1, -2);
@@ -8168,11 +8293,11 @@ public final class MainActivity extends Activity {
 			return listItemFrame(box);
 		}
 
-		private View listItemFrame(View child) {
-			LinearLayout frame = new LinearLayout(MainActivity.this);
-			frame.setOrientation(LinearLayout.VERTICAL);
-			int vertical = gap / 2;
-			frame.setPadding(0, vertical, 0, vertical);
+			private View listItemFrame(View child) {
+				LinearLayout frame = new LinearLayout(MainActivity.this);
+				frame.setOrientation(LinearLayout.VERTICAL);
+				int vertical = gap / 2;
+				frame.setPadding(pad, vertical, pad, vertical);
 			frame.addView(child, new LinearLayout.LayoutParams(-1, -2));
 			return frame;
 		}
@@ -8186,15 +8311,15 @@ public final class MainActivity extends Activity {
 			return box;
 		}
 
-		private LinearLayout bubbleBox(boolean own) {
+			private LinearLayout bubbleBox(boolean own) {
 			BubbleLayout box = new BubbleLayout(MainActivity.this,
 					Math.max(dp(180), getResources().getDisplayMetrics().widthPixels * 78 / 100));
 			box.setOrientation(LinearLayout.VERTICAL);
 			int inset = Math.max(gap, pad / 2);
 			box.setPadding(inset, inset, inset, inset);
-			box.setBackgroundDrawable(shape(own ? blend(primary, surface, 0.38f) : surface, 0, dp(20)));
-			return box;
-		}
+				box.setBackgroundDrawable(messageBubble(own));
+				return box;
+			}
 
 		private TextView fileLabel(String value) {
 			TextView label = new TextView(MainActivity.this);
@@ -8392,8 +8517,8 @@ public final class MainActivity extends Activity {
 		LinearLayout r = new LinearLayout(this);
 		r.setOrientation(LinearLayout.HORIZONTAL);
 		r.setGravity(Gravity.CENTER_VERTICAL);
-		r.setPadding(gap, gap, gap, gap);
-		r.setBackgroundDrawable(shape(blend(surfaceHi, primary, 0.12f), 0, dp(20)));
+		r.setPadding(pad, dp(10), pad, dp(10));
+		r.setBackgroundDrawable(shape(accentSurface, 0, 0));
 
 		ImageButton back = headerIconButton(R.drawable.ic_back, getString(R.string.action_back), new View.OnClickListener() {
 			@Override
@@ -8413,7 +8538,7 @@ public final class MainActivity extends Activity {
 		r.addView(avatar, avatarLp);
 
 		LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(0, -1, 1);
-		currentPeerNameView = userNameRow(currentHeaderUser(), 18, true);
+		currentPeerNameView = userNameRow(currentHeaderUser(), 16, true);
 		currentPeerNameView.setClickable(true);
 		currentPeerNameView.setOnClickListener(new View.OnClickListener() {
 			@Override
@@ -8469,7 +8594,7 @@ public final class MainActivity extends Activity {
 		nameLine.setOrientation(LinearLayout.HORIZONTAL);
 		nameLine.setGravity(Gravity.CENTER_VERTICAL);
 		TextView name = new TextView(this);
-		name.setTextColor(blend(primary, Color.WHITE, 0.18f));
+		name.setTextColor(chatTitle ? textColor : blend(primary, Color.WHITE, 0.18f));
 		name.setTextSize(textSizeSp);
 		name.setSingleLine(true);
 		String titleText = chatTitle && currentPeerIsSelfChat()
@@ -8489,7 +8614,7 @@ public final class MainActivity extends Activity {
 		String subtitle = roomMemberCountLabel(user);
 		if (subtitle.length() > 0) {
 			TextView members = new TextView(this);
-			members.setTextColor(muted);
+			members.setTextColor(chatTitle ? blend(textColor, accentSurface, 0.35f) : muted);
 			members.setTextSize(12);
 			members.setSingleLine(true);
 			members.setText(subtitle);
@@ -9383,17 +9508,44 @@ public final class MainActivity extends Activity {
 		}
 		for (int i = 0; i < actions.length; i++) {
 			final int which = i;
-			Button action = button(actions[i], new View.OnClickListener() {
+			Button action = sheetActionButton(actions[i], new View.OnClickListener() {
 				@Override
 				public void onClick(View v) {
 					dialog.dismiss();
 					if (handler != null) handler.onChoice(which);
 				}
-			});
-			box.addView(spaced(action));
+			}, isDestructiveAction(actions[i]));
+			box.addView(action, new LinearLayout.LayoutParams(-1, -2));
 		}
+		Button cancel = button(getString(R.string.action_cancel), new View.OnClickListener() {
+			@Override public void onClick(View v) { dialog.dismiss(); }
+		});
+		LinearLayout.LayoutParams cancelLp = new LinearLayout.LayoutParams(-1, -2);
+		cancelLp.setMargins(0, gap, 0, 0);
+		box.addView(cancel, cancelLp);
 		setScrollableDialogContent(dialog, box);
 		showStyledDialog(dialog);
+	}
+
+	private Button sheetActionButton(String value, View.OnClickListener listener, boolean destructive) {
+		Button button = new Button(this);
+		button.setText(safeDisplayText(value));
+		button.setTextSize(15);
+		button.setGravity(Gravity.CENTER_VERTICAL | Gravity.LEFT);
+		button.setTextColor(destructive ? danger : textColor);
+		button.setPadding(gap, 0, gap, 0);
+		button.setMinWidth(0);
+		button.setMinimumWidth(0);
+		button.setMinHeight(dp(46));
+		button.setMinimumHeight(dp(46));
+		button.setBackgroundDrawable(pressable(Color.TRANSPARENT, surfaceHi, 0, dp(12)));
+		button.setOnClickListener(listener);
+		return button;
+	}
+
+	private boolean isDestructiveAction(String value) {
+		String action = value == null ? "" : value.toLowerCase(Locale.US);
+		return action.contains("delete") || action.contains("remove") || action.contains("удал") || action.contains("выйти");
 	}
 
 	private void showContentDialog(String titleText, View contentView, String primaryText, final Runnable primaryAction, String secondaryText) {
@@ -9447,7 +9599,7 @@ public final class MainActivity extends Activity {
 	private LinearLayout dialogBox() {
 		LinearLayout box = new LinearLayout(this);
 		box.setOrientation(LinearLayout.VERTICAL);
-		box.setPadding(pad, gap / 2, pad, pad);
+		box.setPadding(pad, gap / 2, pad, dp(14));
 		box.setBackgroundDrawable(shape(surface, 0, dp(20)));
 		View handle = new View(this);
 		handle.setBackgroundDrawable(shape(blend(muted, surface, 0.45f), 0, dp(2)));
@@ -9534,7 +9686,7 @@ public final class MainActivity extends Activity {
 		LinearLayout r = new LinearLayout(this);
 		r.setOrientation(LinearLayout.HORIZONTAL);
 		r.setGravity(Gravity.CENTER);
-		int height = dp(62);
+		int height = dp(64);
 		for (View b: buttons) {
 			LinearLayout item = new LinearLayout(this);
 			item.setOrientation(LinearLayout.VERTICAL);
@@ -9543,7 +9695,7 @@ public final class MainActivity extends Activity {
 			TextView caption = new TextView(this);
 			caption.setText(b.getContentDescription());
 			caption.setTextColor(muted);
-			caption.setTextSize(10);
+			caption.setTextSize(11);
 			caption.setSingleLine(true);
 			caption.setGravity(Gravity.CENTER);
 			item.addView(caption, new LinearLayout.LayoutParams(-1, -2));
@@ -9552,6 +9704,27 @@ public final class MainActivity extends Activity {
 			r.addView(item, lp);
 		}
 		return r;
+	}
+
+	private void updateBottomNavSelection() {
+		if (bottomNav == null) return;
+		int active = page == Page.CHATS ? 0
+				: page == Page.WALLET || page == Page.WALLET_HISTORY ? 1
+				: page == Page.NODES ? 2
+				: page == Page.SETTINGS ? 3 : -1;
+		for (int i = 0; i < bottomNav.getChildCount(); i++) {
+			View item = bottomNav.getChildAt(i);
+			if (!(item instanceof LinearLayout)) continue;
+			LinearLayout group = (LinearLayout)item;
+			boolean selected = i == active;
+			group.setBackgroundDrawable(shape(selected ? blend(primary, bg, 0.84f) : Color.TRANSPARENT, 0, dp(14)));
+			if (group.getChildCount() > 0 && group.getChildAt(0) instanceof ImageButton) {
+				((ImageButton)group.getChildAt(0)).setColorFilter(selected ? primary : muted);
+			}
+			if (group.getChildCount() > 1 && group.getChildAt(1) instanceof TextView) {
+				((TextView)group.getChildAt(1)).setTextColor(selected ? primary : muted);
+			}
+		}
 	}
 
 	private ScrollView pageScrollView() {
@@ -9565,6 +9738,8 @@ public final class MainActivity extends Activity {
 	private LinearLayout messageBar() {
 		LinearLayout outer = new LinearLayout(this);
 		outer.setOrientation(LinearLayout.VERTICAL);
+		outer.setPadding(pad, gap, pad, gap);
+		outer.setBackgroundDrawable(shape(bg, border, 0));
 		composerMediaBar = new LinearLayout(this);
 		composerMediaBar.setOrientation(LinearLayout.VERTICAL);
 		outer.addView(composerMediaBar, new LinearLayout.LayoutParams(-1, -2));
@@ -9751,6 +9926,20 @@ public final class MainActivity extends Activity {
 		return d;
 	}
 
+	/** Telegram-like message tails, while preserving the generous Material You radius. */
+	private Drawable messageBubble(boolean own) {
+		float large = dp(20);
+		float tail = dp(6);
+		GradientDrawable d = new GradientDrawable();
+		d.setColor(own ? primary : surface);
+		if (own) {
+			d.setCornerRadii(new float[] { large, large, large, large, tail, tail, large, large });
+		} else {
+			d.setCornerRadii(new float[] { large, large, large, large, large, large, tail, tail });
+		}
+		return d;
+	}
+
 	private Drawable pressable(int normal, int pressed, int stroke, int radius) {
 		StateListDrawable s = new StateListDrawable();
 		s.addState(new int[] {
@@ -9825,15 +10014,20 @@ public final class MainActivity extends Activity {
 	}
 
 	private void loadPalette() {
-		primary = systemColor("system_accent1_600", themeColorByName("colorAccent", Color.rgb(127, 180, 255)));
-		int neutral = systemColor("system_neutral1_900", Color.rgb(18, 18, 18));
-		int neutral2 = systemColor("system_neutral2_800", Color.rgb(31, 31, 31));
-		bg = blend(neutral, Color.BLACK, 0.35f);
-		surface = blend(neutral2, Color.BLACK, 0.20f);
-		surfaceHi = blend(surface, primary, 0.10f);
-		textColor = systemColor("system_neutral1_50", Color.rgb(238, 238, 238));
-		muted = systemColor("system_neutral2_200", Color.rgb(180, 180, 180));
-		onPrimary = contrast(primary);
+		// The mockups use a calm dark neutral base and let the system accent be the
+		// only strong colour.  Keeping the accent dynamic makes the client feel at
+		// home on Android 12+, while older devices get the same warm default.
+		primary = systemColor("system_accent1_600", themeColorByName("colorAccent", Color.rgb(201, 96, 59)));
+		bg = Color.rgb(24, 26, 24);
+		surface = Color.rgb(29, 31, 29);
+		surfaceHi = Color.rgb(20, 22, 20);
+		textColor = Color.rgb(244, 242, 239);
+		muted = Color.rgb(182, 179, 174);
+		border = Color.rgb(56, 58, 55);
+		accentSurface = blend(primary, bg, 0.72f);
+		danger = Color.rgb(238, 112, 112);
+		success = Color.rgb(90, 202, 126);
+		onPrimary = Color.WHITE;
 	}
 
 	private int systemColor(String name, int fallback) {
