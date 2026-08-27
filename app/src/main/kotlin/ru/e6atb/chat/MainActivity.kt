@@ -11168,9 +11168,9 @@ class MainActivity : Activity() {
 
     private fun blend(a: Int, b: Int, t: Float): Int {
         return Color.rgb(
-            (Color.red(a) * (1 - t) + Color.red(b) * t) as Int,
-            (Color.green(a) * (1 - t) + Color.green(b) * t) as Int,
-            (Color.blue(a) * (1 - t) + Color.blue(b) * t) as Int
+            (Color.red(a) * (1 - t) + Color.red(b) * t).toInt(),
+            (Color.green(a) * (1 - t) + Color.green(b) * t).toInt(),
+            (Color.blue(a) * (1 - t) + Color.blue(b) * t).toInt()
         )
     }
 
