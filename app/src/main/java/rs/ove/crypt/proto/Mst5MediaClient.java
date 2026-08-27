@@ -46,31 +46,32 @@ public final class Mst5MediaClient {
 
 	public static void uploadDescriptors(java.util.List<Upload> uploads, final Observer observer) throws Exception {
 		if (uploads == null || uploads.isEmpty()) return;
-		int count = uploads.size();
-		String[] endpoints = new String[count];
-		String[] publicKeys = new String[count];
-		String[] tickets = new String[count];
-		String[] fileIds = new String[count];
-		long[] sizes = new long[count];
-		int[] fds = new int[count];
-		for (int i = 0; i < count; i++) {
-			Upload upload = uploads.get(i);
-			if (upload == null || upload.source == null) throw new java.io.IOException("media descriptor is unavailable");
-			endpoints[i] = upload.endpoint;
-			publicKeys[i] = upload.publicKey;
-			tickets[i] = upload.ticket;
-			fileIds[i] = upload.fileId;
-			sizes[i] = upload.size;
-			fds[i] = upload.source.getFd();
+		// Keep each media transfer on its own authenticated connection.  The old
+		// parallel JNI batch could report 100% before every stream's final RESULT
+		// was consumed; on some Android devices that left the outbox retrying a
+		// successfully-written upload forever.  Sequential transfers preserve the
+		// streaming path and make the result acknowledgement part of each item.
+		long total = 0;
+		for (Upload upload : uploads) {
+			if (upload == null || upload.source == null || upload.size < 0) {
+				throw new java.io.IOException("media descriptor is unavailable");
+			}
+			if (Long.MAX_VALUE - total < upload.size) throw new java.io.IOException("media batch size overflow");
+			total += upload.size;
 		}
-		NativeMst5.Observer nativeObserver = adapt(observer);
-		if (nativeObserver == null) {
-			nativeObserver = new NativeMst5.Observer() {
-				@Override public boolean isCancelled() { return false; }
-				@Override public void onProgress(long completed, long total) {}
-			};
+		long completed = 0;
+		for (final Upload upload : uploads) {
+			final long base = completed;
+			final long progressTotal = total;
+			NativeMst5.upload(upload.endpoint, upload.publicKey, upload.ticket, upload.fileId,
+					upload.size, upload.source, new NativeMst5.Observer() {
+					@Override public boolean isCancelled() { return observer != null && observer.isCancelled(); }
+					@Override public void onProgress(long done, long ignored) {
+						if (observer != null) observer.onProgress(Math.min(progressTotal, base + Math.max(0, done)), progressTotal);
+					}
+				});
+			completed += upload.size;
 		}
-		NativeMst5.uploadBatch(endpoints, publicKeys, tickets, fileIds, sizes, fds, nativeObserver);
 	}
 
 	public static long downloadDescriptor(String endpoint, String publicKeyB64, String ticket,

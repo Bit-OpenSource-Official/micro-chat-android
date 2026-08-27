@@ -577,7 +577,7 @@ public final class MainActivity extends Activity {
 			})
 		);
 		bottomNav.setVisibility(View.GONE);
-		bottomNav.setBackgroundDrawable(shape(surface, border, 0));
+		bottomNav.setBackgroundDrawable(shape(surface, 0, 0));
 		root.addView(bottomNav, new LinearLayout.LayoutParams(-1, -2));
 		return root;
 	}
@@ -1853,10 +1853,14 @@ public final class MainActivity extends Activity {
 			@Override public void onClick(View v) { openChatIfExists("dastarsbot", v, true); }
 		}), new LinearLayout.LayoutParams(0, -2, 1));
 		quickActions.addView(walletQuickAction("↗", getString(R.string.wallet_send_title), new View.OnClickListener() {
-			@Override public void onClick(View v) { if (walletTo != null) walletTo.requestFocus(); }
-		}), new LinearLayout.LayoutParams(0, -2, 1));
-		quickActions.addView(walletQuickAction("★", "Gift", new View.OnClickListener() {
 			@Override public void onClick(View v) { showDastarsTransferDialog(""); }
+		}), new LinearLayout.LayoutParams(0, -2, 1));
+		quickActions.addView(walletQuickAction("↓", getString(R.string.wallet_receive_title), new View.OnClickListener() {
+			@Override public void onClick(View v) {
+				if (walletReceiveView != null && walletReceiveView.getText().length() > 0) {
+					copyToClipboard("dastars", walletReceiveView.getText().toString());
+				}
+			}
 		}), new LinearLayout.LayoutParams(0, -2, 1));
 		quickActions.addView(walletQuickAction("↺", getString(R.string.wallet_payment_history), new View.OnClickListener() {
 			@Override public void onClick(View v) { showWalletHistory(); }
@@ -1866,66 +1870,15 @@ public final class MainActivity extends Activity {
 		walletRecentView = new LinearLayout(this);
 		walletRecentView.setOrientation(LinearLayout.VERTICAL);
 		walletRecentView.setPadding(0, gap, 0, gap);
-		walletRecentView.setBackgroundDrawable(shape(Color.TRANSPARENT, border, 0));
+		walletRecentView.setBackgroundDrawable(shape(Color.TRANSPARENT, 0, 0));
 		walletRecentView.addView(walletHistoryRow(getString(R.string.loading_short), muted));
 		wallet.addView(walletRecentView, new LinearLayout.LayoutParams(-1, -2));
 
-		TextView receiveHeading = label(getString(R.string.wallet_receive_title));
-		receiveHeading.setTextSize(16);
-		receiveHeading.setPadding(0, pad, 0, gap);
-		wallet.addView(receiveHeading, new LinearLayout.LayoutParams(-1, -2));
-		walletReceiveView = label(getString(R.string.loading_short));
-		walletReceiveView.setTextColor(primary);
-		walletReceiveView.setTextSize(18);
-		walletReceiveView.setTypeface(Typeface.MONOSPACE);
-		wallet.addView(spaced(walletReceiveView));
+		// Keep the DSR address in memory for the Receive quick action.  The former
+		// receive and transfer forms duplicated the quick actions and made the page
+		// read like two wallets.
+		walletReceiveView = label("");
 		walletInstructionView = label("");
-		walletInstructionView.setTextColor(muted);
-		wallet.addView(spaced(walletInstructionView));
-		wallet.addView(spaced(row(
-			button(getString(R.string.wallet_copy_code), new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					if (walletReceiveView != null) copyToClipboard("dastars", walletReceiveView.getText().toString());
-				}
-			})
-		)));
-		wallet.addView(spaced(row(
-			primaryButton(getString(R.string.wallet_buy_dastars), new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					openChatIfExists("dastarsbot", v, true);
-				}
-			})
-		)));
-
-		TextView sendHeading = label(getString(R.string.wallet_send_title));
-		sendHeading.setTextSize(16);
-		sendHeading.setPadding(0, pad, 0, gap);
-		wallet.addView(sendHeading, new LinearLayout.LayoutParams(-1, -2));
-		walletTo = input(getString(R.string.wallet_to_hint), false);
-		walletAmount = input(getString(R.string.wallet_amount_hint), false);
-		walletComment = input(getString(R.string.wallet_comment_hint), false);
-		walletAmount.setInputType(InputType.TYPE_CLASS_NUMBER);
-		wallet.addView(spaced(walletTo));
-		wallet.addView(spaced(walletAmount));
-		wallet.addView(spaced(walletComment));
-		wallet.addView(spaced(row(
-			primaryButton(getString(R.string.wallet_send_dsr), new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					sendDastars(v);
-				}
-			})
-		)));
-		wallet.addView(spaced(row(
-			button(getString(R.string.wallet_payment_history), new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					showWalletHistory();
-				}
-			})
-		)));
 
 		scroll.addView(wallet, new ScrollView.LayoutParams(-1, -2));
 		content.addView(scroll, fill());
@@ -2378,8 +2331,11 @@ public final class MainActivity extends Activity {
 		LinearLayout row = new LinearLayout(this);
 		row.setOrientation(LinearLayout.HORIZONTAL);
 		row.setGravity(Gravity.CENTER_VERTICAL);
-		row.setPadding(gap, dp(12), gap, dp(12));
-		row.setBackgroundDrawable(shape(Color.TRANSPARENT, border, 0));
+		row.setPadding(pad, dp(10), pad, dp(10));
+		row.setBackgroundDrawable(shape(bg, 0, 0));
+		TextView avatar = chatAvatar(name, dp(44));
+		avatar.setTextSize(13);
+		row.addView(avatar, new LinearLayout.LayoutParams(dp(44), dp(44)));
 
 		LinearLayout labels = new LinearLayout(this);
 		labels.setOrientation(LinearLayout.VERTICAL);
@@ -2390,11 +2346,16 @@ public final class MainActivity extends Activity {
 		count.setTextColor(muted);
 		labels.addView(title, new LinearLayout.LayoutParams(-1, -2));
 		labels.addView(count, new LinearLayout.LayoutParams(-1, -2));
-		row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+		LinearLayout.LayoutParams labelsLp = new LinearLayout.LayoutParams(0, -2, 1);
+		labelsLp.setMargins(dp(12), 0, gap, 0);
+		row.addView(labels, labelsLp);
 
 		TextView badge = label(state);
-		badge.setTextColor(stateColor);
-		badge.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+		badge.setTextColor(contrast(stateColor));
+		badge.setTextSize(12);
+		badge.setGravity(Gravity.CENTER);
+		badge.setPadding(gap, dp(3), gap, dp(3));
+		badge.setBackgroundDrawable(shape(stateColor, 0, dp(12)));
 		row.addView(badge, new LinearLayout.LayoutParams(-2, -2));
 
 		LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
@@ -2703,18 +2664,46 @@ public final class MainActivity extends Activity {
 
 	private LinearLayout settingsProfileHeader() {
 		LinearLayout box = new LinearLayout(this);
-		box.setOrientation(LinearLayout.VERTICAL);
-		box.setPadding(pad, pad, pad, pad);
-		box.setBackgroundDrawable(shape(surface, border, elementRadius()));
+		box.setOrientation(LinearLayout.HORIZONTAL);
+		box.setGravity(Gravity.CENTER_VERTICAL);
+		box.setPadding(pad, dp(12), pad, dp(12));
+		box.setBackgroundDrawable(pressable(surface, accentSurface, border, elementRadius()));
+		box.setOnClickListener(new View.OnClickListener() {
+			@Override public void onClick(View v) { showSettingsProfile(); }
+		});
+		TextView avatar = chatAvatar(displayOwnUser(), dp(56));
+		box.addView(avatar, new LinearLayout.LayoutParams(dp(56), dp(56)));
+		LinearLayout details = new LinearLayout(this);
+		details.setOrientation(LinearLayout.VERTICAL);
+		LinearLayout nameLine = new LinearLayout(this);
+		nameLine.setGravity(Gravity.CENTER_VERTICAL);
 		TextView name = label(displayOwnUser());
 		name.setTextSize(18);
-		name.setTextColor(textColor);
-		box.addView(name, new LinearLayout.LayoutParams(-1, -2));
-		if (myID != null && myID.length() > 0) {
-			TextView id = clickableUserID(myID);
-			id.setTextColor(muted);
-			box.addView(id, new LinearLayout.LayoutParams(-1, -2));
+		name.setSingleLine(true);
+		nameLine.addView(name, new LinearLayout.LayoutParams(-2, -2));
+		if (myVerified) {
+			ImageView badge = new ImageView(this);
+			badge.setImageDrawable(verifiedDrawable(dp(18)));
+			LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(dp(18), dp(18));
+			badgeLp.setMargins(gap / 2, 0, 0, 0);
+			nameLine.addView(badge, badgeLp);
 		}
+		details.addView(nameLine, new LinearLayout.LayoutParams(-1, -2));
+		TextView identity = label(ownUserSettingsSubtitle());
+		identity.setTextColor(muted);
+		identity.setTextSize(13);
+		details.addView(identity, new LinearLayout.LayoutParams(-1, -2));
+		if (myDescription != null && myDescription.length() > 0) {
+			TextView description = label(myDescription);
+			description.setTextColor(muted);
+			description.setTextSize(13);
+			description.setSingleLine(true);
+			description.setEllipsize(TextUtils.TruncateAt.END);
+			details.addView(description, new LinearLayout.LayoutParams(-1, -2));
+		}
+		LinearLayout.LayoutParams detailsLp = new LinearLayout.LayoutParams(0, -2, 1);
+		detailsLp.setMargins(dp(12), 0, 0, 0);
+		box.addView(details, detailsLp);
 		return box;
 	}
 
@@ -2736,9 +2725,12 @@ public final class MainActivity extends Activity {
 		LinearLayout row = new LinearLayout(this);
 		row.setOrientation(LinearLayout.HORIZONTAL);
 		row.setGravity(Gravity.CENTER_VERTICAL);
-		row.setPadding(gap, dp(12), gap, dp(12));
-		row.setBackgroundDrawable(pressable(Color.TRANSPARENT, surfaceHi, border, 0));
+		row.setPadding(pad, dp(11), pad, dp(11));
+		row.setBackgroundDrawable(pressable(bg, accentSurface, 0, 0));
 		row.setOnClickListener(listener);
+		TextView avatar = chatAvatar(name, dp(38));
+		avatar.setTextSize(12);
+		row.addView(avatar, new LinearLayout.LayoutParams(dp(38), dp(38)));
 
 		LinearLayout texts = new LinearLayout(this);
 		texts.setOrientation(LinearLayout.VERTICAL);
@@ -2752,7 +2744,9 @@ public final class MainActivity extends Activity {
 			subtitle.setTextColor(muted);
 			texts.addView(subtitle, new LinearLayout.LayoutParams(-1, -2));
 		}
-		row.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+		LinearLayout.LayoutParams textsLp = new LinearLayout.LayoutParams(0, -2, 1);
+		textsLp.setMargins(dp(12), 0, 0, 0);
+		row.addView(texts, textsLp);
 
 		TextView arrow = label(">");
 		arrow.setTextColor(muted);
@@ -4161,7 +4155,8 @@ public final class MainActivity extends Activity {
 					title,
 					last,
 					chat.peer != null && chat.peer.verified,
-					chat.last == null ? 0 : chat.last.date
+					chat.last == null ? 0 : chat.last.date,
+					chat.unreadCount
 			));
 		}
 	}
@@ -4524,6 +4519,7 @@ public final class MainActivity extends Activity {
 			attachment.localPath = item.localPath == null ? "" : item.localPath;
 			attachment.sourceUri = item.uri == null ? "" : item.uri.toString();
 			attachment.size = item.size;
+			attachment.photo = item.photo;
 			attachments.add(attachment);
 		}
 		final OutboxStore.Entry entry = OutboxStore.enqueueMedia(
@@ -4810,6 +4806,8 @@ public final class MainActivity extends Activity {
 
 	private void showDastarsTransferDialog(String defaultRecipient) {
 		final String recipient = defaultRecipient == null ? "" : defaultRecipient.trim();
+		final EditText recipientField = recipient.length() == 0
+				? input(getString(R.string.wallet_to_hint), false) : null;
 		final EditText amountField = input(getString(R.string.wallet_amount_hint), false);
 		amountField.setInputType(InputType.TYPE_CLASS_NUMBER);
 		final EditText commentField = input(getString(R.string.wallet_comment_hint), false);
@@ -4820,7 +4818,8 @@ public final class MainActivity extends Activity {
 		recipientView.setTextColor(muted);
 		final TextView balanceView = label(walletBalanceLabel());
 		balanceView.setTextColor(blend(primary, Color.WHITE, 0.18f));
-		box.addView(spaced(recipientView));
+		if (recipientField == null) box.addView(spaced(recipientView));
+		else box.addView(spaced(recipientField));
 		box.addView(spaced(balanceView));
 		box.addView(spaced(amountField));
 		box.addView(spaced(commentField));
@@ -4828,7 +4827,8 @@ public final class MainActivity extends Activity {
 		showContentDialog(getString(R.string.payment_transfer_title), box, getString(R.string.action_send), new Runnable() {
 			@Override
 			public void run() {
-				transferDastars(recipient, amountField.getText().toString().trim(), commentField.getText().toString().trim());
+				String target = recipientField == null ? recipient : recipientField.getText().toString().trim();
+				transferDastars(target, amountField.getText().toString().trim(), commentField.getText().toString().trim());
 			}
 		}, getString(R.string.action_cancel));
 	}
@@ -4973,7 +4973,7 @@ public final class MainActivity extends Activity {
 							} });
 						}
 					}));
-					ui(new Runnable() { @Override public void run() { status.setText("Avatar sent for moderation (1 DSR)."); } });
+					ui(new Runnable() { @Override public void run() { status.setText(getString(R.string.status_avatar_updated)); } });
 				} finally { avatar.delete(); }
 			}
 		});
@@ -7974,6 +7974,9 @@ public final class MainActivity extends Activity {
 				LinearLayout top = new LinearLayout(MainActivity.this);
 				top.setOrientation(LinearLayout.HORIZONTAL);
 				top.setGravity(Gravity.CENTER_VERTICAL);
+				LinearLayout nameLine = new LinearLayout(MainActivity.this);
+				nameLine.setOrientation(LinearLayout.HORIZONTAL);
+				nameLine.setGravity(Gravity.CENTER_VERTICAL);
 				TextView title = new TextView(MainActivity.this);
 				title.setText(safeDisplayText(row.chatTitle));
 				title.setTextColor(textColor);
@@ -7981,13 +7984,17 @@ public final class MainActivity extends Activity {
 				title.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
 				title.setSingleLine(true);
 				title.setEllipsize(TextUtils.TruncateAt.END);
+				title.setMaxWidth(dp(170));
+				nameLine.addView(title, new LinearLayout.LayoutParams(-2, -2));
 				if (row.chatVerified) {
-					Drawable badge = verifiedDrawable(dp(16));
-					badge.setBounds(0, 0, dp(16), dp(16));
-					title.setCompoundDrawables(null, null, badge, null);
-					title.setCompoundDrawablePadding(gap / 2);
+					ImageView badge = new ImageView(MainActivity.this);
+					badge.setImageDrawable(verifiedDrawable(dp(16)));
+					badge.setContentDescription(getString(R.string.verified));
+					LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(dp(16), dp(16));
+					badgeLp.setMargins(gap / 2, 0, 0, 0);
+					nameLine.addView(badge, badgeLp);
 				}
-				top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+				top.addView(nameLine, new LinearLayout.LayoutParams(0, -2, 1));
 				TextView time = new TextView(MainActivity.this);
 				time.setText(formatMessageTime(row.chatDate));
 				time.setTextColor(row.chatDate > 0 ? primary : muted);
@@ -7995,6 +8002,8 @@ public final class MainActivity extends Activity {
 				time.setGravity(Gravity.RIGHT);
 				top.addView(time, new LinearLayout.LayoutParams(-2, -2));
 				details.addView(top, new LinearLayout.LayoutParams(-1, -2));
+				LinearLayout previewLine = new LinearLayout(MainActivity.this);
+				previewLine.setGravity(Gravity.CENTER_VERTICAL);
 				TextView preview = new TextView(MainActivity.this);
 				preview.setText(safeDisplayText(row.chatPreview));
 				preview.setTextColor(muted);
@@ -8003,7 +8012,22 @@ public final class MainActivity extends Activity {
 				preview.setEllipsize(TextUtils.TruncateAt.END);
 				LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(-1, -2);
 				previewLp.setMargins(0, dp(2), 0, 0);
-				details.addView(preview, previewLp);
+				previewLine.addView(preview, new LinearLayout.LayoutParams(0, -2, 1));
+				if (row.chatUnreadCount > 0) {
+					TextView unread = new TextView(MainActivity.this);
+					unread.setText(row.chatUnreadCount > 99 ? "99+" : String.valueOf(row.chatUnreadCount));
+					unread.setTextColor(onPrimary);
+					unread.setTextSize(11);
+					unread.setGravity(Gravity.CENTER);
+					unread.setMinWidth(dp(20));
+					unread.setMinHeight(dp(20));
+					unread.setPadding(dp(5), 0, dp(5), 0);
+					unread.setBackgroundDrawable(shape(primary, 0, dp(10)));
+					LinearLayout.LayoutParams unreadLp = new LinearLayout.LayoutParams(-2, dp(20));
+					unreadLp.setMargins(gap, 0, 0, 0);
+					previewLine.addView(unread, unreadLp);
+				}
+				details.addView(previewLine, previewLp);
 				LinearLayout.LayoutParams detailsLp = new LinearLayout.LayoutParams(0, -2, 1);
 				detailsLp.setMargins(dp(12), 0, 0, 0);
 				box.addView(details, detailsLp);
@@ -8021,7 +8045,14 @@ public final class MainActivity extends Activity {
 				LinearLayout box = bubbleBox(own);
 				installMessageLongPress(box, row.message);
 				if (!own || currentPeerIsRoom()) {
-					box.addView(userNameRow(messageAuthor(row.message), 14), new LinearLayout.LayoutParams(-1, -2));
+					LinearLayout author = userNameRow(messageAuthor(row.message), 14);
+					author.setClickable(true);
+					author.setBackgroundDrawable(pressable(Color.TRANSPARENT, blend(primary, surface, 0.84f), 0, dp(8)));
+					final MiniTaLib.User authorUser = messageAuthor(row.message);
+					author.setOnClickListener(new View.OnClickListener() {
+						@Override public void onClick(View v) { showUserProfile(authorUser); }
+					});
+					box.addView(author, new LinearLayout.LayoutParams(-1, -2));
 				}
 				addReplyReference(box, row.message);
 				if (row.imageData != null) {
@@ -8820,6 +8851,42 @@ public final class MainActivity extends Activity {
 					}
 				}))));
 			}
+		}
+		showContentDialog(profileTitle(user), box, getString(R.string.action_close), null, null);
+	}
+
+	/** Opens an identity card for a message author without changing the current chat. */
+	private void showUserProfile(final MiniTaLib.User user) {
+		if (user == null || user.id == null || user.id.length() == 0) {
+			status.setText(getString(R.string.status_id_not_loaded));
+			return;
+		}
+		if (currentPeerUser != null && user.id.equals(currentPeerUser.id)) {
+			showCurrentPeerProfile();
+			return;
+		}
+		LinearLayout box = new LinearLayout(this);
+		box.setOrientation(LinearLayout.VERTICAL);
+		box.setPadding(0, gap, 0, 0);
+		box.addView(spaced(userProfileRow(getString(R.string.profile_id), user.id, "user id")));
+		if (user.login != null && user.login.length() > 0) {
+			box.addView(spaced(userProfileRow(getString(R.string.profile_username), "@" + user.login, "username")));
+		}
+		if (user.nick != null && user.nick.length() > 0) {
+			box.addView(spaced(userProfileRow(getString(R.string.profile_name), user.nick, null)));
+		}
+		box.addView(spaced(userProfileRow(
+				getString(R.string.profile_description),
+				user.description == null || user.description.length() == 0
+						? getString(R.string.profile_description_empty) : user.description,
+				null
+		)));
+		box.addView(spaced(userProfileRow(
+				getString(R.string.profile_type),
+				user.bot ? getString(R.string.profile_bot) : getString(R.string.profile_user), null
+		)));
+		if (user.verified) {
+			box.addView(spaced(userProfileRow(getString(R.string.profile_verification), getString(R.string.profile_verified), null)));
 		}
 		showContentDialog(profileTitle(user), box, getString(R.string.action_close), null, null);
 	}
@@ -9691,6 +9758,9 @@ public final class MainActivity extends Activity {
 			LinearLayout item = new LinearLayout(this);
 			item.setOrientation(LinearLayout.VERTICAL);
 			item.setGravity(Gravity.CENTER);
+			// The item owns the selected-state surface.  Keeping the icon button
+			// transparent prevents the two overlapping active backgrounds.
+			b.setBackgroundDrawable(pressable(Color.TRANSPARENT, blend(primary, surface, 0.86f), 0, dp(14)));
 			item.addView(b, new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight));
 			TextView caption = new TextView(this);
 			caption.setText(b.getContentDescription());
@@ -9700,7 +9770,7 @@ public final class MainActivity extends Activity {
 			caption.setGravity(Gravity.CENTER);
 			item.addView(caption, new LinearLayout.LayoutParams(-1, -2));
 			LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, height, 1);
-			lp.setMargins(gap / 2, 0, gap / 2, 0);
+			lp.setMargins(gap, dp(4), gap, dp(4));
 			r.addView(item, lp);
 		}
 		return r;
@@ -10018,12 +10088,16 @@ public final class MainActivity extends Activity {
 		// only strong colour.  Keeping the accent dynamic makes the client feel at
 		// home on Android 12+, while older devices get the same warm default.
 		primary = systemColor("system_accent1_600", themeColorByName("colorAccent", Color.rgb(201, 96, 59)));
-		bg = Color.rgb(24, 26, 24);
-		surface = Color.rgb(29, 31, 29);
-		surfaceHi = Color.rgb(20, 22, 20);
-		textColor = Color.rgb(244, 242, 239);
-		muted = Color.rgb(182, 179, 174);
-		border = Color.rgb(56, 58, 55);
+		boolean dark = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+				== android.content.res.Configuration.UI_MODE_NIGHT_YES;
+		int systemBase = systemColor(dark ? "system_neutral1_900" : "system_neutral1_10",
+				dark ? Color.rgb(24, 26, 24) : Color.rgb(247, 247, 247));
+		bg = blend(systemBase, dark ? Color.BLACK : Color.WHITE, dark ? 0.16f : 0.08f);
+		surface = blend(systemBase, dark ? Color.WHITE : Color.BLACK, dark ? 0.06f : 0.025f);
+		surfaceHi = blend(systemBase, dark ? Color.BLACK : Color.WHITE, dark ? 0.28f : 0.15f);
+		textColor = dark ? Color.rgb(244, 242, 239) : Color.rgb(31, 31, 31);
+		muted = dark ? Color.rgb(182, 179, 174) : Color.rgb(104, 102, 100);
+		border = blend(systemBase, dark ? Color.WHITE : Color.BLACK, dark ? 0.18f : 0.13f);
 		accentSurface = blend(primary, bg, 0.72f);
 		danger = Color.rgb(238, 112, 112);
 		success = Color.rgb(90, 202, 126);

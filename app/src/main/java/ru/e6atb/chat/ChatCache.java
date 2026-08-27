@@ -289,16 +289,26 @@ final class ChatCache {
 	}
 
 	private static MiniTaLib.Message message(JSONObject raw) {
-		JSONObject file = raw.optJSONObject("file");
+		ArrayList<MiniTaLib.FileInfo> media = new ArrayList<MiniTaLib.FileInfo>();
+		JSONArray rawMedia = raw.optJSONArray("media");
+		if (rawMedia != null) for (int i = 0; i < rawMedia.length(); i++) {
+			JSONObject file = rawMedia.optJSONObject(i);
+			if (file != null && file.optString("id").length() > 0) {
+				media.add(new MiniTaLib.FileInfo(file.optString("id"), file.optString("name"),
+						file.optString("mime"), file.optLong("size")));
+			}
+		}
+		if (media.isEmpty()) {
+			JSONObject file = raw.optJSONObject("file");
+			if (file != null && file.optString("id").length() > 0) media.add(new MiniTaLib.FileInfo(
+					file.optString("id"), file.optString("name"), file.optString("mime"), file.optLong("size")));
+		}
 		return new MiniTaLib.Message(
 				raw.optLong("id"), raw.optString("chat_id"),
 					user(raw.optJSONObject("from")), user(raw.optJSONObject("to")),
 					raw.optString("text"), raw.optLong("date"),
 					raw.optLong("read_at"),
-					file == null ? null : new MiniTaLib.FileInfo(
-							file.optString("id"), file.optString("name"),
-							file.optString("mime"), file.optLong("size")
-				),
+					media,
 				buttons(raw.optJSONArray("buttons")),
 				raw.optBoolean("encrypted"),
 				raw.optBoolean("system"),

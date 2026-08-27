@@ -139,6 +139,7 @@
 	<string name="status_deleting_account">удаляю аккаунт...</string>
 	<string name="status_account_deleted">аккаунт удален</string>
 	<string name="status_sending">отправка...</string>
+	<string name="status_avatar_updated">аватар обновлён</string>
 	<string name="status_allow_microphone_call_again">разрешите микрофон и нажмите звонок еще раз</string>
 	<string name="status_allow_microphone_accept">разрешите микрофон, чтобы принять звонок</string>
 	<string name="status_allow_microphone_connect">разрешите микрофон, чтобы подключить звонок</string>

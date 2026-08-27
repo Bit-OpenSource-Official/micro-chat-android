@@ -118,7 +118,7 @@ final class OutboxDispatcher {
 							};
 						}
 						media.add(new MiniTaLib.MessageMedia(attachment.clientId, attachment.fileId, attachment.name,
-								attachment.mime, attachment.size, source));
+								attachment.mime, attachment.size, source, attachment.photo));
 					}
 					sent = client.sendMessageWithMedia(prepared, media, transfer,
 							entry.maxDsrAmount).asOutgoing();

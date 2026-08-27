@@ -1284,6 +1284,7 @@ final class MiniTaLib {
 				o.optString("id"),
 				o.optJSONObject("room") != null ? roomUser(o.optJSONObject("room")) : user(o.optJSONObject("peer")),
 				last == null ? null : message(last),
+				o.optInt("unread_count", 0),
 				banned,
 				o.optBoolean("banned_by_me", banned),
 				o.optBoolean("banned_me", false)
@@ -2065,18 +2066,24 @@ final class MiniTaLib {
 		final String id;
 		final User peer;
 		final Message last;
+		final int unreadCount;
 		final boolean banned;
 		final boolean bannedByMe;
 		final boolean bannedMe;
 
 		Chat(String id, User peer, Message last, boolean banned) {
-			this(id, peer, last, banned, banned, false);
+			this(id, peer, last, 0, banned, banned, false);
 		}
 
 		Chat(String id, User peer, Message last, boolean banned, boolean bannedByMe, boolean bannedMe) {
+			this(id, peer, last, 0, banned, bannedByMe, bannedMe);
+		}
+
+		Chat(String id, User peer, Message last, int unreadCount, boolean banned, boolean bannedByMe, boolean bannedMe) {
 			this.id = id;
 			this.peer = peer;
 			this.last = last;
+			this.unreadCount = Math.max(0, unreadCount);
 			this.banned = banned;
 			this.bannedByMe = bannedByMe;
 			this.bannedMe = bannedMe;

@@ -139,6 +139,7 @@
 	<string name="status_deleting_account">deleting account...</string>
 	<string name="status_account_deleted">account deleted</string>
 	<string name="status_sending">sending...</string>
+	<string name="status_avatar_updated">avatar updated</string>
 	<string name="status_allow_microphone_call_again">allow microphone and press Call again</string>
 	<string name="status_allow_microphone_accept">allow microphone to accept call</string>
 	<string name="status_allow_microphone_connect">allow microphone to connect call</string>

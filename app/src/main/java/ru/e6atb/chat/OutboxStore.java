@@ -46,6 +46,7 @@ final class OutboxStore {
 		String localPath;
 		String sourceUri;
 		long size;
+		boolean photo;
 
 		MiniTaLib.FileInfo fileInfo() { return new MiniTaLib.FileInfo(safe(fileId), safe(name), safe(mime), size); }
 	}
@@ -320,6 +321,7 @@ final class OutboxStore {
 			value.put("local_path", safe(attachment.localPath));
 			value.put("source_uri", safe(attachment.sourceUri));
 			value.put("size", attachment.size);
+			value.put("photo", attachment.photo ? 1 : 0);
 			database.insertOrThrow("outbox_media", null, value);
 		}
 	}
@@ -337,6 +339,7 @@ final class OutboxStore {
 				attachment.localPath = string(cursor, "local_path");
 				attachment.sourceUri = string(cursor, "source_uri");
 				attachment.size = number(cursor, "size");
+				attachment.photo = number(cursor, "photo") != 0;
 				entry.attachments.add(attachment);
 			}
 		} finally { cursor.close(); }
@@ -513,12 +516,12 @@ final class OutboxStore {
 	}
 
 	private static final class Helper extends SQLiteOpenHelper {
-		Helper(Context context) { super(context, "outbox-v2.db", null, 2); }
+		Helper(Context context) { super(context, "outbox-v2.db", null, 3); }
 
 		@Override public void onCreate(SQLiteDatabase db) {
 			db.execSQL("CREATE TABLE outbox (account TEXT NOT NULL,id TEXT NOT NULL,peer TEXT NOT NULL,room INTEGER NOT NULL,kind TEXT NOT NULL,text TEXT NOT NULL,name TEXT NOT NULL,mime TEXT NOT NULL,local_path TEXT NOT NULL,source_uri TEXT NOT NULL,size INTEGER NOT NULL,created_at INTEGER NOT NULL,state TEXT NOT NULL,attempts INTEGER NOT NULL,retry_at INTEGER NOT NULL,error TEXT NOT NULL,prepared_body TEXT NOT NULL,comment_post_id INTEGER NOT NULL,reply_to_message_id INTEGER NOT NULL,media_reservation_id TEXT NOT NULL,max_dsr_amount INTEGER NOT NULL,PRIMARY KEY(account,id))");
 			db.execSQL("CREATE INDEX outbox_ready ON outbox(account,peer,state,retry_at,created_at)");
-			db.execSQL("CREATE TABLE outbox_media (account TEXT NOT NULL,message_id TEXT NOT NULL,position INTEGER NOT NULL,client_id TEXT NOT NULL,file_id TEXT NOT NULL,name TEXT NOT NULL,mime TEXT NOT NULL,local_path TEXT NOT NULL,source_uri TEXT NOT NULL,size INTEGER NOT NULL,PRIMARY KEY(account,message_id,position))");
+			db.execSQL("CREATE TABLE outbox_media (account TEXT NOT NULL,message_id TEXT NOT NULL,position INTEGER NOT NULL,client_id TEXT NOT NULL,file_id TEXT NOT NULL,name TEXT NOT NULL,mime TEXT NOT NULL,local_path TEXT NOT NULL,source_uri TEXT NOT NULL,size INTEGER NOT NULL,photo INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(account,message_id,position))");
 			db.execSQL("CREATE INDEX outbox_media_message ON outbox_media(account,message_id,position)");
 		}
 
@@ -528,6 +531,9 @@ final class OutboxStore {
 				db.execSQL("CREATE INDEX IF NOT EXISTS outbox_media_message ON outbox_media(account,message_id,position)");
 				db.execSQL("INSERT OR IGNORE INTO outbox_media(account,message_id,position,client_id,file_id,name,mime,local_path,source_uri,size) SELECT account,id,0,'attachment-000001','',name,mime,local_path,source_uri,size FROM outbox WHERE kind='file' AND size>0");
 				db.execSQL("UPDATE outbox SET kind='media',text='' WHERE kind='file'");
+			}
+			if (oldVersion < 3) {
+				db.execSQL("ALTER TABLE outbox_media ADD COLUMN photo INTEGER NOT NULL DEFAULT 0");
 			}
 		}
 
