@@ -1,11 +1,12 @@
 package rs.ove.crypt.proto;
 
 import android.content.Context;
+import android.os.ParcelFileDescriptor;
 
 import java.io.File;
 import java.io.IOException;
 
-/** Opaque Android adapter for mst5-client E2E v3. Private keys remain in Rust. */
+/** Opaque Android adapter for mst5-client E2E v4. Private keys remain in Rust. */
 public final class NativeE2E {
 	private NativeE2E() {}
 
@@ -36,7 +37,7 @@ public final class NativeE2E {
 		return new Session(identity, peer, from, to);
 	}
 
-	public static Envelope sealV3(Session session, String from, String to, String text) throws IOException {
+	public static Envelope seal(Session session, String from, String to, String text) throws IOException {
 		byte[] encoded = NativeMst5.e2eSeal(session.identity.requireHandle(), session.peer, from, to,
 				(text == null ? "" : text).getBytes("UTF-8"));
 		return Envelope.decode(encoded);
@@ -44,6 +45,35 @@ public final class NativeE2E {
 
 	public static String open(Session session, String from, String to, Envelope envelope) throws IOException {
 		return new String(NativeMst5.e2eDecrypt(session.identity.requireHandle(), session.peer, from, to, envelope.encoded), "UTF-8");
+	}
+
+
+	/** Exact V2 media-node size: header plus authenticated 64 KiB chunks. */
+	public static long encryptedMediaSize(long plaintextSize) throws IOException {
+		if (plaintextSize < 0) throw new IOException("invalid E2E media size");
+		long chunks = (plaintextSize + 65535L) / 65536L;
+		try { return Math.addExact(plaintextSize, Math.addExact(32L, Math.multiplyExact(chunks, 20L))); }
+		catch (ArithmeticException error) { throw new IOException("E2E media size overflow", error); }
+	}
+
+	public static void uploadMedia(Session session, String endpoint, String publicKey, String ticket,
+	                               String fileId, long plaintextSize, ParcelFileDescriptor source,
+	                               Mst5MediaClient.Observer observer) throws Exception {
+		Mst5MediaClient.uploadE2EDescriptor(endpoint, publicKey, ticket, fileId, plaintextSize, source,
+				session.identity.requireHandle(), session.peer, session.from, session.to, observer);
+	}
+
+	public static long downloadMedia(Session session, String endpoint, String publicKey, String ticket,
+	                                 String fileId, long encryptedSize, ParcelFileDescriptor target,
+	                                 Mst5MediaClient.Observer observer) throws Exception {
+		return Mst5MediaClient.downloadE2EDescriptor(endpoint, publicKey, ticket, fileId, encryptedSize, target,
+				session.identity.requireHandle(), session.peer, session.from, session.to, observer);
+	}
+
+	public static byte[] downloadMediaBytes(Session session, String endpoint, String publicKey, String ticket,
+	                                        String fileId, long encryptedSize, int maxBytes) throws Exception {
+		return Mst5MediaClient.downloadE2EBytes(endpoint, publicKey, ticket, fileId, encryptedSize, maxBytes,
+				session.identity.requireHandle(), session.peer, session.from, session.to);
 	}
 
 	public static String fingerprint(String publicKey) throws IOException {
@@ -92,13 +122,13 @@ public final class NativeE2E {
 		}
 		public Envelope(int version, String nonce, String ciphertext, String ignoredTag) {
 			byte[] n = Base64Codec.decode(nonce); byte[] c = Base64Codec.decode(ciphertext);
-			if (version != 3 || n.length != 24 || c.length < 16) throw new IllegalArgumentException("invalid E2E v3 envelope");
+			if ((version != 3 && version != 4) || n.length != 24 || c.length < 16) throw new IllegalArgumentException("unsupported E2E envelope");
 			this.encoded = new byte[1 + n.length + c.length]; this.encoded[0] = (byte)version;
 			System.arraycopy(n, 0, encoded, 1, n.length); System.arraycopy(c, 0, encoded, 1 + n.length, c.length);
 			this.version = version; this.nonce = nonce; this.ciphertext = ciphertext; this.tag = "";
 		}
 		static Envelope decode(byte[] value) throws IOException {
-			if (value == null || value.length < 41 || value[0] != 3) throw new IOException("invalid E2E v3 envelope");
+			if (value == null || value.length < 41 || (value[0] != 3 && value[0] != 4)) throw new IOException("unsupported E2E envelope; update the application");
 			return new Envelope(value);
 		}
 	}

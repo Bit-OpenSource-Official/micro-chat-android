@@ -121,6 +121,7 @@ public final class MainActivity extends Activity {
 	private static final int REQ_PICK_FILE = 14;
 	private static final int REQ_CAMERA = 15;
 	private static final int REQ_QR_SCAN = 16;
+	private static final int REQ_PICK_AVATAR = 17;
 	private static final String CALL_NOTIFICATION_CHANNEL = "calls_visual";
 	private static final String UPDATE_NOTIFICATION_CHANNEL = "app_updates";
 	private static final int ACTIVE_CALL_NOTIFICATION_ID = 3;
@@ -326,6 +327,7 @@ public final class MainActivity extends Activity {
 		String fileId;
 		long size;
 		Bitmap preview;
+		boolean photo;
 	}
 	private final Runnable channelHistoryReload = new Runnable() {
 		@Override public void run() {
@@ -2691,6 +2693,9 @@ public final class MainActivity extends Activity {
 		box.addView(spaced(row(primaryButton(getString(R.string.settings_save_description), new View.OnClickListener() {
 			@Override public void onClick(View v) { saveOwnDescription(v); }
 		}))));
+		box.addView(spaced(row(primaryButton("Set public avatar — 1 DSR", new View.OnClickListener() {
+			@Override public void onClick(View v) { pickAvatar(); }
+		}))));
 	}
 
 	private void showSettingsSessions() {
@@ -4249,7 +4254,7 @@ public final class MainActivity extends Activity {
 			};
 			out.add(new MiniTaLib.MessageMedia(String.format(Locale.US, "attachment-%06d", index),
 					item.fileId == null ? "" : item.fileId,
-					item.name, item.mime, item.size, source));
+					item.name, item.mime, item.size, source, item.photo));
 		}
 		return out;
 	}
@@ -4588,6 +4593,14 @@ public final class MainActivity extends Activity {
 		startActivityForResult(Intent.createChooser(i, getString(R.string.chooser_select_picture)), REQ_PICK_IMAGE);
 	}
 
+	private void pickAvatar() {
+		Intent i = new Intent(Build.VERSION.SDK_INT >= 19 ? Intent.ACTION_OPEN_DOCUMENT : Intent.ACTION_GET_CONTENT);
+		i.setType("image/*");
+		i.addCategory(Intent.CATEGORY_OPENABLE);
+		if (Build.VERSION.SDK_INT >= 19) i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+		startActivityForResult(Intent.createChooser(i, "Select avatar"), REQ_PICK_AVATAR);
+	}
+
 	private void pickFile() {
 		Intent i = new Intent(Build.VERSION.SDK_INT >= 19 ? Intent.ACTION_OPEN_DOCUMENT : Intent.ACTION_GET_CONTENT);
 		i.setType("*/*");
@@ -4742,6 +4755,11 @@ public final class MainActivity extends Activity {
 			openOAuthDeviceRequest(data.getStringExtra(QrScannerActivity.EXTRA_RESULT));
 			return;
 		}
+		if (requestCode == REQ_PICK_AVATAR) {
+			Uri avatar = data.getData();
+			if (avatar != null) uploadAvatar(avatar);
+			return;
+		}
 		ArrayList<Uri> selected = new ArrayList<Uri>();
 		if (Build.VERSION.SDK_INT >= 16 && data.getClipData() != null) {
 			android.content.ClipData clips = data.getClipData();
@@ -4759,6 +4777,50 @@ public final class MainActivity extends Activity {
 			}
 			addComposerMedia(uri, requestCode == REQ_PICK_IMAGE);
 		}
+	}
+
+	private void uploadAvatar(final Uri uri) {
+		final MiniTaLib client = ta;
+		if (client == null) { status.setText(getString(R.string.status_sign_in_first)); return; }
+		status.setText("Preparing avatar…");
+		run("upload_avatar", new Task() {
+			@Override public void run() throws Exception {
+				final File avatar = cropAvatar(uri);
+				try {
+					client.uploadPublicAvatar(avatar, new MiniTaLib.TransferControl(new MiniTaLib.ProgressListener() {
+						@Override public void onProgress(final long done, final long total) {
+							ui(new Runnable() { @Override public void run() {
+								status.setText("Uploading avatar " + (total <= 0 ? "" : (done * 100 / total) + "%"));
+							} });
+						}
+					}));
+					ui(new Runnable() { @Override public void run() { status.setText("Avatar sent for moderation (1 DSR)."); } });
+				} finally { avatar.delete(); }
+			}
+		});
+	}
+
+	private File cropAvatar(Uri uri) throws Exception {
+		InputStream input = getContentResolver().openInputStream(uri);
+		if (input == null) throw new IOException("cannot open avatar image");
+		ByteArrayOutputStream original = new ByteArrayOutputStream();
+		try {
+			byte[] buffer = new byte[16 * 1024];
+			for (int read; (read = input.read(buffer)) >= 0;) {
+				if (original.size() + read > MAX_UPLOAD_BYTES) throw new IOException("avatar image is too large");
+				original.write(buffer, 0, read);
+			}
+		} finally { try { input.close(); } catch (Exception ignored) {} }
+		byte[] webp = rs.ove.crypt.proto.Mst5ImageDecoder.prepareWebp(original.toByteArray(), 256, true);
+		File output = File.createTempFile("mst5-avatar-", ".webp", getCacheDir());
+		FileOutputStream stream = new FileOutputStream(output);
+		try {
+			stream.write(webp);
+		} finally {
+			try { stream.close(); } catch (Exception ignored) {}
+		}
+		if (output.length() <= 0 || output.length() > 1_048_576L) { output.delete(); throw new IOException("avatar image is too large"); }
+		return output;
 	}
 
 	private void addComposerMedia(final Uri pickedUri, final boolean imageOnly) {
@@ -4785,6 +4847,7 @@ public final class MainActivity extends Activity {
 				item.localPath = localPath;
 				item.name = displayName;
 				item.mime = type;
+				item.photo = imageOnly;
 				item.size = detectedSize;
 				ui(new Runnable() { @Override public void run() {
 					if (composerMedia.size() < 10) composerMedia.add(item);
@@ -4979,6 +5042,7 @@ public final class MainActivity extends Activity {
 		if (local == null || !local.isFile() || local.length() <= 0) {
 			return false;
 		}
+		if (file != null && ta != null && ta.isEncryptedMediaFile(file.id)) return true;
 		return file == null || file.size <= 0 || local.length() >= file.size;
 	}
 
@@ -8442,6 +8506,20 @@ public final class MainActivity extends Activity {
 		LinearLayout box = new LinearLayout(this);
 		box.setOrientation(LinearLayout.VERTICAL);
 		box.setPadding(0, gap, 0, 0);
+		if (user.avatar != null && user.avatar.id.length() > 0) {
+			final ImageView avatarView = new ImageView(this);
+			avatarView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+			avatarView.setBackgroundDrawable(shape(surface, 0, dp(48)));
+			box.addView(spaced(avatarView), new LinearLayout.LayoutParams(dp(128), dp(128)));
+			final MiniTaLib.FileInfo avatar = user.avatar;
+			final MiniTaLib client = ta;
+			if (client != null) io.execute(new Runnable() { @Override public void run() {
+				try {
+					final Bitmap image = rs.ove.crypt.proto.Mst5ImageDecoder.decode(client.downloadFileBytes(avatar.id, 1_048_576), 256);
+					ui(new Runnable() { @Override public void run() { if (image != null) avatarView.setImageBitmap(image); } });
+				} catch (Exception ignored) {}
+			} });
+		}
 		box.addView(spaced(userProfileRow(getString(R.string.profile_id), user.id, "user id")));
 		if (user.roomKind != null && user.roomKind.length() > 0) {
 			box.addView(spaced(userProfileRow(getString(R.string.profile_type), roomKindLabel(user), null)));

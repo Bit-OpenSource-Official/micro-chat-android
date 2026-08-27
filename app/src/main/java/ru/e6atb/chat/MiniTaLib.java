@@ -14,6 +14,8 @@ import rs.ove.crypt.proto.NativeE2E;
 import java.net.URLEncoder;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.FileOutputStream;
+import java.io.FileInputStream;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,8 +26,10 @@ final class MiniTaLib {
 	private final String baseUrl;
 	private final CryptTcpClient transport = new CryptTcpClient();
 	private final Context context;
+	private final String transportProtocol;
 	private final HashMap<String, String> peerE2EKeys = new HashMap<String, String>();
 	private final HashMap<String, NativeE2E.Session> peerE2ESessions = new HashMap<String, NativeE2E.Session>();
+	private final HashMap<String, MediaE2EContext> encryptedMedia = new HashMap<String, MediaE2EContext>();
 	private String token;
 	private String userId;
 	private String login;
@@ -56,6 +60,8 @@ final class MiniTaLib {
 	MiniTaLib(Context context, String baseUrl, String token, String userId, String login) {
 		this.context = context == null ? null : context.getApplicationContext();
 		this.baseUrl = trimSlash(baseUrl);
+		this.transportProtocol = this.context == null
+				? SessionStore.TRANSPORT_AUTO : SessionStore.transportProtocol(this.context);
 		this.token = token;
 		this.userId = userId == null ? "" : userId;
 		this.login = login == null ? "" : login;
@@ -70,6 +76,10 @@ final class MiniTaLib {
 
 	String token() {
 		return token == null ? "" : token;
+	}
+
+	boolean isEncryptedMediaFile(String fileId) {
+		return fileId != null && encryptedMedia.containsKey(fileId);
 	}
 
 	void close() {
@@ -376,7 +386,7 @@ final class MiniTaLib {
 		NativeE2E.Envelope envelope;
 		try {
 			PeerE2EKey peer = peerE2EKey(to);
-			envelope = NativeE2E.sealV3(
+			envelope = NativeE2E.seal(
 					e2eSession(peer, accountAddress(), peer.user.id),
 					accountAddress(),
 					peer.user.id,
@@ -479,14 +489,20 @@ final class MiniTaLib {
 		final String mime;
 		final long size;
 		final UploadSource source;
+		final boolean photo;
 
 		MessageMedia(String clientId, String fileId, String name, String mime, long size, UploadSource source) {
+			this(clientId, fileId, name, mime, size, source, false);
+		}
+
+		MessageMedia(String clientId, String fileId, String name, String mime, long size, UploadSource source, boolean photo) {
 			this.clientId = clientId == null ? "" : clientId;
 			this.fileId = fileId == null ? "" : fileId;
 			this.name = name == null || name.length() == 0 ? "file" : name;
 			this.mime = mime == null || mime.length() == 0 ? "application/octet-stream" : mime;
 			this.size = size;
 			this.source = source;
+			this.photo = photo;
 		}
 
 		static MessageMedia existing(FileInfo file) {
@@ -534,17 +550,45 @@ final class MiniTaLib {
 
 	MediaQuote quoteMedia(List<MessageMedia> items) throws Exception {
 		JSONObject body = new JSONObject();
-		body.put("media", mediaRequest(items));
+		body.put("media", mediaRequest(items, false));
 		long size = 0;
 		if (items != null) for (MessageMedia item : items) if (item.fileId.length() == 0) size += item.size;
 		JSONObject out = post("/media/quote", body, 10000);
 		return new MediaQuote(out.optLong("size_bytes", size), out.optLong("dsr_amount", out.optLong("dsr_required")), out.optBoolean("free"));
 	}
 
+	FileInfo uploadPublicAvatar(File image, TransferControl transfer) throws Exception {
+		if (image == null || !image.isFile() || image.length() <= 0 || image.length() > 1_048_576L) {
+			throw new IOException("avatar image must be 1 MiB or smaller");
+		}
+		JSONObject request = new JSONObject();
+		request.put("name", "avatar.webp");
+		request.put("mime", "image/webp");
+		request.put("size", image.length());
+		JSONObject prepared = post("/avatars/prepare", request, 10000);
+		JSONObject upload = prepared.getJSONObject("upload");
+		ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(image, ParcelFileDescriptor.MODE_READ_ONLY);
+		try {
+			ArrayList<Mst5MediaClient.Upload> uploads = new ArrayList<Mst5MediaClient.Upload>();
+			uploads.add(new Mst5MediaClient.Upload(upload.getString("endpoint"), upload.getString("server_public_key"),
+					upload.getString("ticket"), upload.getString("file_id"), upload.getLong("size"), descriptor));
+			Mst5MediaClient.uploadDescriptors(uploads, transfer == null ? null : new Mst5MediaClient.Observer() {
+				@Override public boolean isCancelled() { return transfer.isCancelled(); }
+				@Override public void onProgress(long done, long total) { transfer.progress(done, total); }
+			});
+		} finally { try { descriptor.close(); } catch (Exception ignored) {} }
+		JSONObject complete = new JSONObject();
+		complete.put("file_id", upload.getString("file_id"));
+		return file(post("/avatars/commit", complete, 30000).getJSONObject("avatar"));
+	}
+
 	Message sendMessageWithMedia(JSONObject preparedBody, List<MessageMedia> items,
 	                            TransferControl transfer, long maxDsrAmount) throws Exception {
 		JSONObject body = new JSONObject(preparedBody == null ? "{}" : preparedBody.toString());
-		body.put("media", mediaRequest(items));
+		ArrayList<File> preparedPhotoFiles = new ArrayList<File>();
+		List<MessageMedia> uploadItems = preparePhotoUploads(items, preparedPhotoFiles);
+		final boolean encryptMedia = body.optJSONObject("e2e") != null;
+		body.put("media", mediaRequest(uploadItems, encryptMedia));
 		body.put("max_dsr_amount", Math.max(0, maxDsrAmount));
 		JSONObject prepared = post("/messages/prepare", body, 10000);
 		if (prepared.optBoolean("complete") && prepared.optJSONObject("message") != null) {
@@ -553,25 +597,41 @@ final class MiniTaLib {
 		String operationId = prepared.getString("operation_id");
 		JSONArray uploads = prepared.optJSONArray("uploads");
 		long total = 0;
-		if (items != null) for (MessageMedia item : items) if (item.fileId.length() == 0) total += item.size;
+		if (uploadItems != null) for (MessageMedia item : uploadItems) if (item.fileId.length() == 0) total += item.size;
 		final long progressTotal = total;
 		ArrayList<ParcelFileDescriptor> descriptors = new ArrayList<ParcelFileDescriptor>();
 		ArrayList<Mst5MediaClient.Upload> batch = new ArrayList<Mst5MediaClient.Upload>();
+		long encryptedCompleted = 0;
 		try {
 			for (int i = 0; uploads != null && i < uploads.length(); i++) {
 				JSONObject ticket = uploads.getJSONObject(i);
 				String clientId = ticket.getString("client_id");
 				MessageMedia source = null;
-				if (items != null) for (MessageMedia item : items) if (item.clientId.equals(clientId)) { source = item; break; }
-				if (source == null || source.source == null || ticket.optLong("size") != source.size) {
+				if (uploadItems != null) for (MessageMedia item : uploadItems) if (item.clientId.equals(clientId)) { source = item; break; }
+				long expectedSize = source == null ? -1 : (encryptMedia ? NativeE2E.encryptedMediaSize(source.size) : source.size);
+				if (source == null || source.source == null || ticket.optLong("size") != expectedSize) {
 					throw new IOException("server returned an invalid media ticket");
 				}
 				ParcelFileDescriptor descriptor = source.source.openDescriptor();
 				if (descriptor == null) throw new IOException("media descriptor is not available");
 				descriptors.add(descriptor);
-				batch.add(new Mst5MediaClient.Upload(
-						ticket.getString("endpoint"), ticket.getString("server_public_key"),
-						ticket.getString("ticket"), ticket.getString("file_id"), source.size, descriptor));
+				if (encryptMedia) {
+					String to = body.optString("to");
+					PeerE2EKey peer = peerE2EKey(to);
+					final long progressBase = encryptedCompleted;
+					final long sourceSize = source.size;
+					NativeE2E.uploadMedia(e2eSession(peer, accountAddress(), peer.user.id),
+							ticket.getString("endpoint"), ticket.getString("server_public_key"),
+							ticket.getString("ticket"), ticket.getString("file_id"), source.size, descriptor,
+							transfer == null ? null : new Mst5MediaClient.Observer() {
+								@Override public boolean isCancelled() { return transfer.isCancelled(); }
+								@Override public void onProgress(long done, long ignored) { transfer.progress(Math.min(progressTotal, progressBase + Math.min(sourceSize, done)), progressTotal); }
+							});
+					encryptedCompleted += source.size;
+				} else {
+					batch.add(new Mst5MediaClient.Upload(ticket.getString("endpoint"), ticket.getString("server_public_key"),
+							ticket.getString("ticket"), ticket.getString("file_id"), expectedSize, descriptor));
+				}
 			}
 			Mst5MediaClient.uploadDescriptors(batch,
 					transfer == null ? null : new Mst5MediaClient.Observer() {
@@ -591,11 +651,45 @@ final class MiniTaLib {
 			for (ParcelFileDescriptor descriptor : descriptors) {
 				try { descriptor.close(); } catch (Exception ignored) {}
 			}
+			for (File photo : preparedPhotoFiles) photo.delete();
 			if (transfer != null) transfer.clear();
 		}
 		JSONObject complete = new JSONObject();
 		complete.put("operation_id", operationId);
 		return message(post("/messages/commit", complete, 30000).getJSONObject("message"));
+	}
+
+	private List<MessageMedia> preparePhotoUploads(List<MessageMedia> items, List<File> temporary) throws Exception {
+		ArrayList<MessageMedia> prepared = new ArrayList<MessageMedia>();
+		if (items == null) return prepared;
+		for (final MessageMedia item : items) {
+			if (!item.photo || item.fileId.length() > 0 || item.source == null) {
+				prepared.add(item);
+				continue;
+			}
+			InputStream input = item.source.open();
+			if (input == null) throw new IOException("photo source is not available");
+			byte[] original;
+			try { original = readExactly(input, item.size); } finally { try { input.close(); } catch (Exception ignored) {} }
+			byte[] webp = rs.ove.crypt.proto.Mst5ImageDecoder.prepareWebp(original, 1920, false);
+			if (webp.length <= 0 || webp.length > (12 << 20)) throw new IOException("compressed photo is too large");
+			final File photo = File.createTempFile("mst5-photo-", ".webp", context == null ? null : context.getCacheDir());
+			FileOutputStream output = new FileOutputStream(photo);
+			try { output.write(webp); } finally { try { output.close(); } catch (Exception ignored) {} }
+			temporary.add(photo);
+			prepared.add(new MessageMedia(item.clientId, item.fileId, webpName(item.name), "image/webp", photo.length(), new UploadSource() {
+				@Override public InputStream open() throws Exception { return new FileInputStream(photo); }
+				@Override public ParcelFileDescriptor openDescriptor() throws Exception { return ParcelFileDescriptor.open(photo, ParcelFileDescriptor.MODE_READ_ONLY); }
+			}, true));
+		}
+		return prepared;
+	}
+
+	private static String webpName(String name) {
+		String value = name == null ? "photo" : name.trim();
+		int dot = value.lastIndexOf('.');
+		if (dot > 0) value = value.substring(0, dot);
+		return (value.length() == 0 ? "photo" : value) + ".webp";
 	}
 
 	JSONObject cancelMessageOperation(String clientMessageId) throws Exception {
@@ -604,7 +698,7 @@ final class MiniTaLib {
 		return post("/messages/cancel", body, 10000);
 	}
 
-	private static JSONArray mediaRequest(List<MessageMedia> items) throws Exception {
+	private static JSONArray mediaRequest(List<MessageMedia> items, boolean encryptMedia) throws Exception {
 		JSONArray media = new JSONArray();
 		if (items == null) return media;
 		for (MessageMedia item : items) {
@@ -615,11 +709,24 @@ final class MiniTaLib {
 				raw.put("client_id", item.clientId);
 				raw.put("name", item.name);
 				raw.put("mime", item.mime);
-				raw.put("size", item.size);
+				raw.put("size", encryptMedia ? NativeE2E.encryptedMediaSize(item.size) : item.size);
 			}
 			media.put(raw);
 		}
 		return media;
+	}
+
+	private static byte[] readExactly(InputStream input, long expected) throws IOException {
+		if (expected < 0 || expected > Integer.MAX_VALUE) throw new IOException("invalid media size");
+		byte[] out = new byte[(int)expected];
+		int offset = 0;
+		while (offset < out.length) {
+			int read = input.read(out, offset, out.length - offset);
+			if (read < 0) throw new IOException("media source was truncated");
+			offset += read;
+		}
+		if (input.read() >= 0) throw new IOException("media source size changed");
+		return out;
 	}
 
 	Message forwardMedia(long messageId, String to, String clientMessageId) throws Exception {
@@ -684,9 +791,14 @@ final class MiniTaLib {
 	byte[] downloadFileBytes(String fileID, int maxBytes) throws Exception {
 		JSONObject ticket = get("/file/ticket?id=" + enc(fileID), 10000);
 		long announced = ticket.optLong("size", -1);
+		MediaE2EContext e2e = encryptedMedia.get(fileID == null ? "" : fileID);
+		if (e2e != null) {
+			return NativeE2E.downloadMediaBytes(e2eSessionForMedia(e2e), ticket.getString("endpoint"),
+					ticket.getString("server_public_key"), ticket.getString("ticket"), ticket.getString("file_id"),
+					announced, maxBytes > 0 ? maxBytes : Integer.MAX_VALUE);
+		}
 		if (maxBytes > 0 && announced > maxBytes) throw new RuntimeException("file is too large");
-		return Mst5MediaClient.downloadBytes(
-				ticket.getString("endpoint"), ticket.getString("server_public_key"),
+		return Mst5MediaClient.downloadBytes(ticket.getString("endpoint"), ticket.getString("server_public_key"),
 				ticket.getString("ticket"), ticket.getString("file_id"), announced,
 				maxBytes > 0 ? maxBytes : Integer.MAX_VALUE);
 	}
@@ -701,13 +813,18 @@ final class MiniTaLib {
 			ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(temporary,
 					ParcelFileDescriptor.MODE_CREATE | ParcelFileDescriptor.MODE_TRUNCATE | ParcelFileDescriptor.MODE_WRITE_ONLY);
 			try {
-				Mst5MediaClient.downloadDescriptor(
-						ticket.getString("endpoint"), ticket.getString("server_public_key"),
-						ticket.getString("ticket"), ticket.getString("file_id"), announced, descriptor,
-						listener == null ? null : new Mst5MediaClient.Observer() {
-							public boolean isCancelled() { return false; }
-							public void onProgress(long completed, long total) { listener.onProgress(completed, total); }
-						});
+				MediaE2EContext e2e = encryptedMedia.get(fileID);
+				Mst5MediaClient.Observer observer = listener == null ? null : new Mst5MediaClient.Observer() {
+					public boolean isCancelled() { return false; }
+					public void onProgress(long completed, long total) { listener.onProgress(completed, total); }
+				};
+				if (e2e == null) {
+					Mst5MediaClient.downloadDescriptor(ticket.getString("endpoint"), ticket.getString("server_public_key"),
+							ticket.getString("ticket"), ticket.getString("file_id"), announced, descriptor, observer);
+				} else {
+					NativeE2E.downloadMedia(e2eSessionForMedia(e2e), ticket.getString("endpoint"), ticket.getString("server_public_key"),
+							ticket.getString("ticket"), ticket.getString("file_id"), announced, descriptor, observer);
+				}
 			} finally { try { descriptor.close(); } catch (Exception ignored) {} }
 			if (!temporary.renameTo(target)) {
 				target.delete();
@@ -717,6 +834,15 @@ final class MiniTaLib {
 			temporary.delete();
 			throw error;
 		}
+	}
+
+	private NativeE2E.Session e2eSessionForMedia(MediaE2EContext media) throws Exception {
+		if (e2eIdentity == null) throw new SecurityException("E2E private key is unavailable on this device");
+		boolean sentByMe = userId.length() > 0 ? userId.equals(media.from.id) : login.equals(media.from.login);
+		User peerUser = sentByMe ? media.to : media.from;
+		String peerAddress = peerUser.id.length() > 0 ? peerUser.id : peerUser.login;
+		PeerE2EKey peer = peerE2EKey(peerAddress);
+		return e2eSession(peer, media.from.id, media.to.id);
 	}
 
 	void sendCall(String to, String action) throws Exception {
@@ -906,7 +1032,7 @@ final class MiniTaLib {
 	}
 
 	private JSONObject request(String method, String path, JSONObject body, int readTimeoutMs) throws Exception {
-		CryptTcpClient.Response response = transport.request(baseUrl, token(), method, path, body, readTimeoutMs);
+		CryptTcpClient.Response response = transport.request(baseUrl, transportProtocol, token(), method, path, body, readTimeoutMs);
 		JSONObject out = response.body() instanceof JSONObject ? (JSONObject) response.body() : new JSONObject();
 		if (response.code() < 200 || response.code() >= 300) {
 			throw apiException(
@@ -1023,7 +1149,8 @@ final class MiniTaLib {
 				null,
 				o.optBoolean("can_manage"),
 				o.optBoolean("comments_enabled"),
-				o.optString("description")
+				o.optString("description"),
+				file(o.optJSONObject("avatar"))
 		);
 	}
 
@@ -1071,6 +1198,12 @@ final class MiniTaLib {
 		boolean system = o.optBoolean("system");
 		if (encrypted) {
 			text = decryptMessage(from, to, rawE2E);
+			ArrayList<FileInfo> protectedMedia = media(o.optJSONArray("media"));
+			for (FileInfo file : protectedMedia) {
+				if (file != null && file.id.length() > 0) {
+					encryptedMedia.put(file.id, new MediaE2EContext(from, to));
+				}
+			}
 		} else if (!system
 				&& !roomMessage
 				&& (o.optJSONArray("media") == null || o.optJSONArray("media").length() == 0)
@@ -1510,7 +1643,7 @@ final class MiniTaLib {
 			return "[encrypted: private key unavailable]";
 		}
 		try {
-			if (raw.optInt("version") != 3) return "[legacy encrypted message]";
+			if (raw.optInt("version") != 3 && raw.optInt("version") != 4) return "Обновите приложение";
 			NativeE2E.Envelope envelope = new NativeE2E.Envelope(
 					raw.optInt("version"),
 					raw.optString("nonce"),
@@ -1523,8 +1656,8 @@ final class MiniTaLib {
 			User peerUser = sentByMe ? to : from;
 			String peerAddress = peerUser.id.length() > 0 ? peerUser.id : peerUser.login;
 			PeerE2EKey peer = peerE2EKey(peerAddress);
-			String fromContext = envelope.version == 3 ? from.id : from.login;
-			String toContext = envelope.version == 3 ? to.id : to.login;
+			String fromContext = from.id;
+			String toContext = to.id;
 			return NativeE2E.open(
 					e2eSession(peer, fromContext, toContext),
 					fromContext,
@@ -1548,6 +1681,15 @@ final class MiniTaLib {
 		}
 	}
 
+	private static final class MediaE2EContext {
+		final User from;
+		final User to;
+		MediaE2EContext(User from, User to) {
+			this.from = from;
+			this.to = to;
+		}
+	}
+
 	static final class User {
 		final String id;
 		final String email;
@@ -1567,6 +1709,7 @@ final class MiniTaLib {
 		final List<User> memberUsers;
 		final boolean canManage;
 		final boolean commentsEnabled;
+		final FileInfo avatar;
 
 		User(String id, String email, String login, String nick, boolean verified, boolean bot) {
 			this(id, email, login, nick, verified, bot, 0);
@@ -1593,6 +1736,11 @@ final class MiniTaLib {
 		}
 
 		User(String id, String email, String login, String nick, boolean verified, boolean bot, long createdAt, String messagePrivacy, String callPrivacy, String invitePrivacy, String roomKind, String ownerId, int memberCount, int adminCount, List<User> memberUsers, boolean canManage, boolean commentsEnabled, String description) {
+			this(id, email, login, nick, verified, bot, createdAt, messagePrivacy, callPrivacy, invitePrivacy,
+					roomKind, ownerId, memberCount, adminCount, memberUsers, canManage, commentsEnabled, description, null);
+		}
+
+		User(String id, String email, String login, String nick, boolean verified, boolean bot, long createdAt, String messagePrivacy, String callPrivacy, String invitePrivacy, String roomKind, String ownerId, int memberCount, int adminCount, List<User> memberUsers, boolean canManage, boolean commentsEnabled, String description, FileInfo avatar) {
 			this.id = id == null ? "" : id;
 			this.email = email == null ? "" : email;
 			this.login = login == null ? "" : login;
@@ -1611,6 +1759,7 @@ final class MiniTaLib {
 			this.memberUsers = memberUsers == null ? new ArrayList<User>() : memberUsers;
 			this.canManage = canManage;
 			this.commentsEnabled = commentsEnabled;
+			this.avatar = avatar;
 		}
 	}
 

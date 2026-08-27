@@ -14,21 +14,30 @@ public final class CryptTcpClient {
 
 	private static final class SharedAccount {
 		final String endpoint;
+		final String transportMode;
 		final long handle;
 		int references;
 
-		SharedAccount(String endpoint, long handle) {
+		SharedAccount(String endpoint, String transportMode, long handle) {
 			this.endpoint = endpoint;
+			this.transportMode = transportMode;
 			this.handle = handle;
 		}
 	}
 
-	public Response request(String baseUrl, String token, String method, String path,
+	public Response request(String baseUrl, String transportMode, String token, String method, String path,
 	                        Object body, int timeoutMs) throws Exception {
-		long connection = connection(baseUrl);
+		long connection = connection(baseUrl, transportMode);
 		NativeMst5.Response response = NativeMst5.request(
 				connection, token, method, path, timeoutMs, body);
 		return new Response(response.code, Collections.<String, String>emptyMap(), response.payload);
+	}
+
+	/** Kept for callers compiled against the pre-v4 UI facade; protocol policy
+	 * still lives in mst5-client and defaults to Auto. */
+	public Response request(String baseUrl, String token, String method, String path,
+	                        Object body, int timeoutMs) throws Exception {
+		return request(baseUrl, "auto", token, method, path, body, timeoutMs);
 	}
 
 	public void close() {
@@ -36,7 +45,7 @@ public final class CryptTcpClient {
 			if (account == null) return;
 			account.references--;
 			if (account.references <= 0) {
-				ACCOUNTS.remove(account.endpoint);
+				ACCOUNTS.remove(account.endpoint + "\n" + account.transportMode);
 				NativeMst5.close(account.handle);
 			}
 			account = null;
@@ -49,15 +58,18 @@ public final class CryptTcpClient {
 		finally { super.finalize(); }
 	}
 
-	private long connection(String rawEndpoint) throws IOException {
+	private long connection(String rawEndpoint, String rawTransportMode) throws IOException {
 		String value = rawEndpoint == null ? "" : rawEndpoint.trim();
+		String transportMode = rawTransportMode == null ? "auto" : rawTransportMode.trim();
+		String accountKey = value + "\n" + transportMode;
 		synchronized (ACCOUNTS_LOCK) {
-			if (account != null && account.endpoint.equals(value)) return account.handle;
+			if (account != null && account.endpoint.equals(value) && account.transportMode.equals(transportMode)) return account.handle;
 			close();
-			SharedAccount shared = ACCOUNTS.get(value);
+			SharedAccount shared = ACCOUNTS.get(accountKey);
 			if (shared == null) {
-				shared = new SharedAccount(value, NativeMst5.open(value, CryptIdentity.serverPublicKeyBase64()));
-				ACCOUNTS.put(value, shared);
+				shared = new SharedAccount(value, transportMode,
+						NativeMst5.open(value, CryptIdentity.serverPublicKeyBase64(), transportMode));
+				ACCOUNTS.put(accountKey, shared);
 			}
 			shared.references++;
 			account = shared;

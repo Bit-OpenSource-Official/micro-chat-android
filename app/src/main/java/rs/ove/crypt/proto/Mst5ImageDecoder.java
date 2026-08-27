@@ -22,6 +22,11 @@ public final class Mst5ImageDecoder {
 		return decodeIntoBitmap(-1, encoded, maxSide);
 	}
 
+	/** Prepares a WebP photo in mst5-client. Square mode centre-crops an avatar. */
+	public static byte[] prepareWebp(byte[] encoded, int maxSide, boolean square) throws IOException {
+		return NativeMst5.prepareWebp(encoded, Math.max(1, maxSide), square);
+	}
+
 	private static Bitmap decodeIntoBitmap(int fd, byte[] encoded, int maxSide) throws IOException {
 		int safeSide = Math.max(1, maxSide);
 		long requestedPixels = Math.min(MAX_PIXELS, (long) safeSide * (long) safeSide);

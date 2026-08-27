@@ -5,6 +5,8 @@ import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -16,9 +18,6 @@ public final class NativeMst5 {
 	private static final String TAG = "MST5";
 	private static boolean initialized;
 	private static Throwable initializationError;
-	private static final ThreadLocal<ByteBuffer> RESPONSE_BUFFER = new ThreadLocal<ByteBuffer>() {
-		@Override protected ByteBuffer initialValue() { return ByteBuffer.allocateDirect(4 * 1024 * 1024); }
-	};
 
 	interface Observer {
 		boolean isCancelled();
@@ -59,13 +58,17 @@ public final class NativeMst5 {
 			} else {
 				File directory = nativeDirectory(context);
 				if (!directory.isDirectory() && !directory.mkdirs()) throw new IOException("cannot create native library directory");
-				File library = new File(directory, "libmst5_android_v3_" + ru.e6atb.chat.BuildConfig.VERSION_CODE + ".so");
+				File library = new File(directory, "libmst5_android_v7_" + ru.e6atb.chat.BuildConfig.VERSION_CODE + ".so");
 				if (!library.isFile() || library.length() == 0) {
 					copyAsset(context, "mst5-native/" + abi + "/libmst5_android.so", library);
 				}
 				System.load(library.getAbsolutePath());
 			}
-			if (nativeVersion() != 3) throw new IOException("incompatible mst5-client JNI bridge");
+			if (nativeVersion() != 7) throw new IOException("incompatible mst5-client JNI bridge");
+			File sessionDirectory = context.getFilesDir();
+			if (sessionDirectory == null || !nativeOpenSessionStore(sessionDirectory.getAbsolutePath())) {
+				throw new IOException("cannot initialize native messenger session storage");
+			}
 			Log.i(TAG, "native mst5-client enabled for " + abi);
 		} catch (Throwable error) {
 			initializationError = error;
@@ -77,6 +80,20 @@ public final class NativeMst5 {
 	public static void installCrashHandler(String path) throws IOException {
 		requireAvailable();
 		nativeInstallCrashHandler(path);
+	}
+
+	/** Platform adapter for the persistent Rust-owned messenger session. */
+	public static String sessionSnapshot() throws IOException {
+		requireAvailable();
+		return nativeSessionSnapshot();
+	}
+
+	/** Platform adapter for the persistent Rust-owned messenger session. */
+	public static void replaceSession(String valuesJson) throws IOException {
+		requireAvailable();
+		if (!nativeReplaceSession(valuesJson == null ? "{}" : valuesJson)) {
+			throw new IOException("native messenger session store rejected update");
+		}
 	}
 
 	private static String supportedAbi(Context context, boolean requireAsset) {
@@ -153,15 +170,20 @@ public final class NativeMst5 {
 		throw new IllegalStateException("required native mst5-client is unavailable", initializationError);
 	}
 
-	static long open(String endpoint, String publicKeyB64) throws IOException {
+	static long open(String endpoint, String publicKeyB64, String transportMode) throws IOException {
 		requireAvailable();
 		String maker = android.os.Build.MANUFACTURER == null ? "" : android.os.Build.MANUFACTURER.trim();
 		String model = android.os.Build.MODEL == null ? "" : android.os.Build.MODEL.trim();
 		String deviceModel = (maker + " " + model).trim();
-		long handle = nativeOpen(endpoint, publicKeyB64, deviceModel);
+		long handle = nativeOpen(endpoint, publicKeyB64, deviceModel,
+				transportMode == null ? "auto" : transportMode);
 		if (handle == 0) throw new IOException("native mst5-client did not open a connection");
 		Log.i(TAG, "native MST5 connection opened");
 		return handle;
+	}
+
+	static long open(String endpoint, String publicKeyB64) throws IOException {
+		return open(endpoint, publicKeyB64, "auto");
 	}
 
 	static void close(long handle) {
@@ -171,100 +193,20 @@ public final class NativeMst5 {
 
 	static Response request(long handle, String token, String method, String path,
 	                        int timeoutMs, Object body) throws IOException {
-		String requestMethod = method == null ? "GET" : method.toUpperCase(java.util.Locale.US);
-		String requestPath = path == null ? "/" : path;
-		byte[] cbor = CborCodec.encodeRequest(requestMethod, requestPath, body);
-		ByteBuffer input = ByteBuffer.allocateDirect(Math.max(1, cbor.length));
-		input.put(cbor).flip();
-		ByteBuffer output = RESPONSE_BUFFER.get();
-		output.clear();
-		long packed = nativeCall(handle, token == null ? "" : token,
-				"GET".equals(requestMethod) ? 3 : 2, opcode(requestMethod, requestPath),
-				timeoutMs > 0 ? timeoutMs : 10000, input, cbor.length, output);
-		if (packed < 0) throw new IOException("native MST5 request failed");
-		int kind = (int) ((packed >>> 48) & 0xff);
-		int code = (int) ((packed >>> 32) & 0xffff);
-		int length = (int) (packed & 0xffffffffL);
-		if (length < 0 || length > output.capacity()) throw new IOException("invalid native MST5 response length");
-		return new Response(kind, code, CborCodec.decodeValue(output, length));
-	}
-
-	private static int opcode(String method, String rawPath) throws IOException {
-		String path = rawPath;
-		int query = path.indexOf('?');
-		if (query >= 0) path = path.substring(0, query);
-		String key = method + " " + path;
-		if ("POST /register".equals(key)) return 1;
-		if ("POST /login".equals(key)) return 2;
-		if ("POST /auth/email/start".equals(key)) return 3;
-		if ("POST /auth/email/verify".equals(key)) return 4;
-		if ("GET /me".equals(key)) return 5;
-		if ("POST /account/delete".equals(key)) return 6;
-		if ("POST /username".equals(key)) return 7;
-		if ("POST /name".equals(key)) return 8;
-		if ("POST /privacy".equals(key)) return 9;
-		if ("GET /contacts".equals(key)) return 10;
-		if ("POST /contacts/add".equals(key)) return 11;
-		if ("POST /contacts/delete".equals(key)) return 12;
-		if ("POST /groups".equals(key)) return 13;
-		if ("POST /channels".equals(key)) return 14;
-		if ("POST /chats/title".equals(key)) return 15;
-		if ("POST /channels/username".equals(key)) return 16;
-		if ("POST /channels/comments/settings".equals(key)) return 17;
-		if ("POST /channels/comments/send".equals(key)) return 18;
-		if ("GET /channels/comments".equals(key)) return 19;
-		if ("POST /chats/members/add".equals(key)) return 20;
-		if ("POST /chats/members/remove".equals(key)) return 21;
-		if ("POST /cloud-password".equals(key)) return 22;
-		if ("POST /cloud-password/reset".equals(key)) return 23;
-		if ("GET /sessions".equals(key)) return 24;
-		if ("POST /sessions/revoke".equals(key)) return 25;
-		if ("POST /sessions/revoke-others".equals(key)) return 26;
-		if ("POST /bots".equals(key)) return 27;
-		if ("POST /bots/token/reset".equals(key)) return 28;
-		if ("GET /bots/commands".equals(key)) return 79;
-		if ("GET /stickers/packs".equals(key)) return 80;
-		if ("GET /stickers/pack".equals(key)) return 81;
-		if ("POST /stickers/packs".equals(key)) return 82;
-		if ("POST /stickers/packs/purchase".equals(key)) return 83;
-		if ("POST /stickers/send".equals(key)) return 84;
-		if ("POST /stickers/packs/price".equals(key)) return 85;
-		if ("POST /e2e/key".equals(key)) return 29;
-		if ("GET /e2e/key".equals(key)) return 30;
-		if ("POST /e2e/backup".equals(key)) return 31;
-		if ("GET /e2e/backup".equals(key)) return 32;
-		if ("POST /e2e/reset".equals(key)) return 33;
-		if ("GET /wallet".equals(key)) return 34;
-		if ("POST /wallet/send".equals(key)) return 35;
-		if ("GET /wallet/history".equals(key)) return 36;
-		if ("POST /call".equals(key)) return 37;
-		if ("POST /voice-ticket".equals(key)) return 38;
-		if ("GET /voice/participants".equals(key)) return 39;
-		if ("POST /send".equals(key)) return 40;
-		if ("POST /edit".equals(key)) return 41;
-		if ("POST /callback".equals(key)) return 42;
-		if ("POST /reactions".equals(key)) return 43;
-		if ("POST /reactions/paid".equals(key)) return 44;
-		if ("POST /read".equals(key)) return 45;
-		if ("POST /delete".equals(key)) return 46;
-		if ("POST /favorite".equals(key)) return 47;
-		if ("GET /nodes/status".equals(key)) return 50;
-		if ("GET /chats".equals(key)) return 51;
-		if ("POST /chats/delete".equals(key)) return 52;
-		if ("POST /users/ban".equals(key)) return 53;
-		if ("POST /users/unban".equals(key)) return 54;
-		if ("GET /history".equals(key)) return 55;
-		if ("GET /updates".equals(key)) return 56;
-		if ("GET /oauth/device/request".equals(key)) return 60;
-		if ("POST /oauth/device/decision".equals(key)) return 61;
-		if ("GET /file/ticket".equals(key)) return 65;
-		if ("POST /forward".equals(key)) return 69;
-		if ("POST /media/quote".equals(key)) return 70;
-		if ("POST /messages/prepare".equals(key)) return 71;
-		if ("POST /messages/commit".equals(key)) return 72;
-		if ("POST /messages/cancel".equals(key)) return 73;
-		if ("POST /profiles/description".equals(key)) return 74;
-		throw new IOException("unsupported MST5 operation " + key);
+		try {
+			JSONObject command = new JSONObject();
+			command.put("token", token == null ? "" : token);
+			command.put("method", method == null ? "GET" : method);
+			command.put("path", path == null ? "/" : path);
+			command.put("timeout_ms", timeoutMs > 0 ? timeoutMs : 10000);
+			command.put("body", body == null ? new JSONObject() : body);
+			JSONObject response = new JSONObject(nativeCommandJson(handle, command.toString()));
+			return new Response(response.optInt("kind"), response.getInt("code"), response.opt("body"));
+		} catch (IOException error) {
+			throw error;
+		} catch (Exception error) {
+			throw new IOException("invalid native MST5 JSON response", error);
+		}
 	}
 
 	static void upload(String endpoint, String publicKeyB64, String ticket, String fileId,
@@ -273,6 +215,15 @@ public final class NativeMst5 {
 		if (descriptor == null) throw new IOException("media descriptor is unavailable");
 		int fd = descriptor.getFd();
 		nativeUpload(endpoint, publicKeyB64, ticket, fileId, size, fd, observer);
+	}
+
+	static void uploadE2E(String endpoint, String publicKeyB64, String ticket, String fileId,
+	                      long plaintextSize, ParcelFileDescriptor descriptor, long identityHandle,
+	                      byte[] peer, String from, String to, Observer observer) throws IOException {
+		requireAvailable();
+		if (descriptor == null) throw new IOException("media descriptor is unavailable");
+		nativeUploadE2E(endpoint, publicKeyB64, ticket, fileId, plaintextSize, descriptor.getFd(),
+				identityHandle, peer, from, to, observer);
 	}
 
 	static void uploadBatch(String[] endpoints, String[] publicKeys, String[] tickets,
@@ -287,6 +238,23 @@ public final class NativeMst5 {
 		if (descriptor == null) throw new IOException("media descriptor is unavailable");
 		int fd = descriptor.getFd();
 		return nativeDownload(endpoint, publicKeyB64, ticket, fileId, expectedSize, fd, observer);
+	}
+
+	static long downloadE2E(String endpoint, String publicKeyB64, String ticket, String fileId,
+	                        long encryptedSize, ParcelFileDescriptor descriptor, long identityHandle,
+	                        byte[] peer, String from, String to, Observer observer) throws IOException {
+		requireAvailable();
+		if (descriptor == null) throw new IOException("media descriptor is unavailable");
+		return nativeDownloadE2E(endpoint, publicKeyB64, ticket, fileId, encryptedSize, descriptor.getFd(),
+				identityHandle, peer, from, to, observer);
+	}
+
+	static byte[] downloadE2EBytes(String endpoint, String publicKeyB64, String ticket, String fileId,
+	                               long encryptedSize, int maxBytes, long identityHandle, byte[] peer,
+	                               String from, String to) throws IOException {
+		requireAvailable();
+		return nativeDownloadE2EBytes(endpoint, publicKeyB64, ticket, fileId, encryptedSize, maxBytes,
+				identityHandle, peer, from, to);
 	}
 
 	static byte[] downloadBytes(String endpoint, String publicKeyB64, String ticket, String fileId,
@@ -306,6 +274,11 @@ public final class NativeMst5 {
 		ByteBuffer input = ByteBuffer.allocateDirect(encoded.length);
 		input.put(encoded).flip();
 		return nativeDecodeImage(input, encoded.length, maxSide, maxPixels, output);
+	}
+
+	static byte[] prepareWebp(byte[] encoded, int maxSide, boolean square) throws IOException {
+		if (encoded == null || encoded.length == 0) throw new IOException("image input is empty");
+		return nativePrepareWebp(encoded, maxSide, square);
 	}
 
 	public static long openVoice(String endpoint, String publicKeyB64, String ticket) throws IOException {
@@ -359,22 +332,37 @@ public final class NativeMst5 {
 	}
 
 	private static native int nativeVersion();
-	private static native long nativeOpen(String endpoint, String publicKeyB64, String deviceModel) throws IOException;
+	private static native boolean nativeOpenSessionStore(String root) throws IOException;
+	private static native String nativeSessionSnapshot() throws IOException;
+	private static native boolean nativeReplaceSession(String valuesJson) throws IOException;
+	private static native long nativeOpen(String endpoint, String publicKeyB64, String deviceModel,
+	                                     String transportMode) throws IOException;
 	private static native void nativeClose(long handle) throws IOException;
+	private static native String nativeCommandJson(long handle, String command) throws IOException;
 	private static native long nativeCall(long handle, String token, int kind, int opcode,
 	                                     int timeoutMs, ByteBuffer input, int inputLength,
 	                                     ByteBuffer output) throws IOException;
 	private static native long nativeDecodeImageFd(int fd, int maxSide, long maxPixels,
 	                                              ByteBuffer output) throws IOException;
 	private static native long nativeDecodeImage(ByteBuffer input, int inputLength, int maxSide,
-	                                            long maxPixels, ByteBuffer output) throws IOException;
+			long maxPixels, ByteBuffer output) throws IOException;
+	private static native byte[] nativePrepareWebp(byte[] input, int maxSide, boolean square) throws IOException;
 	private static native boolean nativeUpload(String endpoint, String publicKeyB64, String ticket,
 	                                           String fileId, long size, int fd, Observer observer) throws IOException;
+	private static native boolean nativeUploadE2E(String endpoint, String publicKeyB64, String ticket,
+	                                              String fileId, long plaintextSize, int fd, long identityHandle,
+	                                              byte[] peer, String from, String to, Observer observer) throws IOException;
 	private static native boolean nativeUploadBatch(String[] endpoints, String[] publicKeys,
 	                                                String[] tickets, String[] fileIds, long[] sizes,
 	                                                int[] fds, Observer observer) throws IOException;
 	private static native long nativeDownload(String endpoint, String publicKeyB64, String ticket,
 	                                          String fileId, long expectedSize, int fd, Observer observer) throws IOException;
+	private static native long nativeDownloadE2E(String endpoint, String publicKeyB64, String ticket,
+	                                             String fileId, long encryptedSize, int fd, long identityHandle,
+	                                             byte[] peer, String from, String to, Observer observer) throws IOException;
+	private static native byte[] nativeDownloadE2EBytes(String endpoint, String publicKeyB64, String ticket,
+	                                                    String fileId, long encryptedSize, int maxBytes,
+	                                                    long identityHandle, byte[] peer, String from, String to) throws IOException;
 	private static native byte[] nativeDownloadBytes(String endpoint, String publicKeyB64, String ticket,
 	                                                String fileId, long expectedSize, int maxBytes) throws IOException;
 	private static native long nativeVoiceOpen(String endpoint, String publicKeyB64, String ticket) throws IOException;

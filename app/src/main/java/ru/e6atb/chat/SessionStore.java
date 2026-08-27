@@ -2,6 +2,8 @@ package ru.e6atb.chat;
 
 import android.content.Context;
 
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -9,6 +11,7 @@ import java.security.MessageDigest;
 import java.util.Properties;
 
 import rs.ove.crypt.proto.NativeE2E;
+import rs.ove.crypt.proto.NativeMst5;
 
 final class SessionStore {
 	private static final String FILE_NAME = "e6atb.session.properties";
@@ -97,21 +100,12 @@ final class SessionStore {
 	}
 
 	/**
-	 * Resolves the endpoint used for a connection without changing the stable
-	 * server key that scopes cached chats and queued messages.
+	 * Returns the stable endpoint chain.  Native mst5-client receives this
+	 * chain together with {@link #transportProtocol(Context)} and performs the
+	 * actual Auto/MST5/M5oH selection, including MST5-first fallback.
 	 */
 	static String transportEndpoint(Context context, String fallback) {
-		String endpoint = server(context, fallback);
-		String protocol = transportProtocol(context);
-		if (TRANSPORT_AUTO.equals(protocol)) return endpoint;
-		String prefix = TRANSPORT_MST5.equals(protocol) ? "mst5://" : "m5oh://";
-		for (String candidate : endpoint.split(java.util.regex.Pattern.quote("|"))) {
-			if (candidate.trim().toLowerCase(java.util.Locale.US).startsWith(prefix)) {
-				return candidate.trim();
-			}
-		}
-		// A fallback without the requested transport is still usable.
-		return endpoint;
+		return server(context, fallback);
 	}
 
 	static String normalizeServer(String server) {
@@ -295,6 +289,22 @@ final class SessionStore {
 	}
 
 	private static synchronized Properties load(Context context) {
+		try {
+			JSONObject snapshot = new JSONObject(NativeMst5.sessionSnapshot());
+			if (snapshot.optBoolean("exists", false)) {
+				return properties(snapshot.optJSONObject("values"));
+			}
+			Properties legacy = loadLegacy(context);
+			if (!legacy.isEmpty()) store(context, legacy);
+			return legacy;
+		} catch (Exception ignored) {
+			// A pre-v4 native library or an early process bootstrap can still read
+			// the old file. The next normal launch imports it into Rust storage.
+			return loadLegacy(context);
+		}
+	}
+
+	private static synchronized Properties loadLegacy(Context context) {
 		Properties p = new Properties();
 		File f = file(context);
 		if (f == null || !f.exists()) {
@@ -314,6 +324,17 @@ final class SessionStore {
 	}
 
 	private static synchronized void store(Context context, Properties p) {
+		try {
+			NativeMst5.replaceSession(propertiesJson(p).toString());
+			return;
+		} catch (Exception ignored) {
+			// Keep the legacy fallback only for a failed early bootstrap. Normal
+			// sessions are stored atomically by mst5-client.
+		}
+		storeLegacy(context, p);
+	}
+
+	private static synchronized void storeLegacy(Context context, Properties p) {
 		File f = file(context);
 		if (f == null) {
 			return;
@@ -333,6 +354,24 @@ final class SessionStore {
 		} finally {
 			closeQuietly(out);
 		}
+	}
+
+	private static Properties properties(JSONObject values) {
+		Properties out = new Properties();
+		if (values == null) return out;
+		java.util.Iterator<String> keys = values.keys();
+		while (keys.hasNext()) {
+			String key = keys.next();
+			Object value = values.opt(key);
+			if (value != null && value != JSONObject.NULL) out.setProperty(key, String.valueOf(value));
+		}
+		return out;
+	}
+
+	private static JSONObject propertiesJson(Properties values) throws Exception {
+		JSONObject out = new JSONObject();
+		for (String key : values.stringPropertyNames()) out.put(key, values.getProperty(key, ""));
+		return out;
 	}
 
 	private static File file(Context context) {

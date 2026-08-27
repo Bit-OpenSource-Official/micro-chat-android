@@ -81,7 +81,7 @@ if [[ ! -f "${manifest}" || -L "${manifest}" ]]; then
 	exit 1
 fi
 jq -e --arg version "${version}" \
-	'.abi == 1 and .android_jni_abi == 3 and .version == $version and .target == "android"' \
+	'.abi == 1 and .android_jni_abi == 6 and .version == $version and .target == "android"' \
 	"${manifest}" >/dev/null
 
 for abi in armeabi armeabi-v7a arm64-v8a x86_64; do

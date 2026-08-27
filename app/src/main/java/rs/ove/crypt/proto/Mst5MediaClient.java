@@ -36,6 +36,14 @@ public final class Mst5MediaClient {
 		NativeMst5.upload(endpoint, publicKeyB64, ticket, fileId, size, source, adapt(observer));
 	}
 
+	public static void uploadE2EDescriptor(String endpoint, String publicKeyB64, String ticket,
+	                                      String fileId, long plaintextSize, ParcelFileDescriptor source,
+	                                      long identityHandle, byte[] peer, String from, String to,
+	                                      final Observer observer) throws Exception {
+		NativeMst5.uploadE2E(endpoint, publicKeyB64, ticket, fileId, plaintextSize, source,
+				identityHandle, peer, from, to, adapt(observer));
+	}
+
 	public static void uploadDescriptors(java.util.List<Upload> uploads, final Observer observer) throws Exception {
 		if (uploads == null || uploads.isEmpty()) return;
 		int count = uploads.size();
@@ -69,6 +77,21 @@ public final class Mst5MediaClient {
 	                                     String fileId, long expectedSize, ParcelFileDescriptor target,
 	                                     final Observer observer) throws Exception {
 		return NativeMst5.download(endpoint, publicKeyB64, ticket, fileId, expectedSize, target, adapt(observer));
+	}
+
+	public static long downloadE2EDescriptor(String endpoint, String publicKeyB64, String ticket,
+	                                        String fileId, long encryptedSize, ParcelFileDescriptor target,
+	                                        long identityHandle, byte[] peer, String from, String to,
+	                                        final Observer observer) throws Exception {
+		return NativeMst5.downloadE2E(endpoint, publicKeyB64, ticket, fileId, encryptedSize, target,
+				identityHandle, peer, from, to, adapt(observer));
+	}
+
+	public static byte[] downloadE2EBytes(String endpoint, String publicKeyB64, String ticket,
+	                                    String fileId, long encryptedSize, int maxBytes, long identityHandle,
+	                                    byte[] peer, String from, String to) throws Exception {
+		return NativeMst5.downloadE2EBytes(endpoint, publicKeyB64, ticket, fileId, encryptedSize,
+				maxBytes, identityHandle, peer, from, to);
 	}
 
 	public static byte[] downloadBytes(String endpoint, String publicKeyB64, String ticket,
