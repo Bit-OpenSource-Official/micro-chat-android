@@ -86,6 +86,7 @@
 	<string name="screen_server">Сервер</string>
 	<string name="screen_account">Аккаунт</string>
 	<string name="screen_add_chat">Добавить чат</string>
+	<string name="action_search">Поиск</string>
 	<string name="hint_server">сервер</string>
 	<string name="hint_email">email</string>
 	<string name="hint_cloud_password">облачный пароль</string>

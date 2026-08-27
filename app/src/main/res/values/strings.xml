@@ -86,6 +86,7 @@
 	<string name="screen_server">Server</string>
 	<string name="screen_account">Account</string>
 	<string name="screen_add_chat">Add chat</string>
+	<string name="action_search">Search</string>
 	<string name="hint_server">server</string>
 	<string name="hint_email">email</string>
 	<string name="hint_cloud_password">cloud password</string>

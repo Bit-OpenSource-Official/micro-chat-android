@@ -37,6 +37,8 @@ import android.os.ParcelFileDescriptor;
 import android.provider.Settings;
 import android.text.InputType;
 import android.text.Spanned;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.text.TextUtils;
 import android.text.method.LinkMovementMethod;
 import android.util.TypedValue;
@@ -65,6 +67,7 @@ import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.ProgressBar;
+import android.widget.FrameLayout;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -187,6 +190,7 @@ public final class MainActivity extends Activity {
 	private final Map < String, String > imagePreviewErrors = new HashMap < String, String > ();
 	private final Set < String > imagePreviewLoading = new HashSet < String > ();
 	private final ArrayList < MiniTaLib.Chat > chatData = new ArrayList < MiniTaLib.Chat > ();
+	private final ArrayList < MiniTaLib.Chat > visibleChatData = new ArrayList < MiniTaLib.Chat > ();
 	private final ArrayList<ComposerMedia> composerMedia = new ArrayList<ComposerMedia>();
 	private final ArrayList<MiniTaLib.BotCommand> botCommands = new ArrayList<MiniTaLib.BotCommand>();
 	private String botCommandsPeer = "";
@@ -209,6 +213,7 @@ public final class MainActivity extends Activity {
 	private EditText accountDeleteCode;
 	private EditText contactAddress;
 	private EditText peer;
+	private EditText chatSearch;
 	private EditText text;
 	private LinearLayout composerMediaBar;
 	private boolean composerSending;
@@ -910,38 +915,70 @@ public final class MainActivity extends Activity {
 		if (bottomNav != null) bottomNav.setVisibility(View.VISIBLE);
 		content.removeAllViews();
 		chatRows = adapter();
+		content.addView(chatsHeader());
+		chatSearch = input(getString(R.string.action_search), false);
+		chatSearch.setTextSize(14);
+		chatSearch.setSingleLine(true);
+		chatSearch.setPadding(pad, gap, pad, gap);
+		chatSearch.setBackgroundDrawable(shape(surface, 0, dp(22)));
+		chatSearch.addTextChangedListener(new TextWatcher() {
+			@Override public void beforeTextChanged(CharSequence value, int start, int count, int after) {}
+			@Override public void onTextChanged(CharSequence value, int start, int before, int count) {
+				renderChatRows(value == null ? "" : value.toString());
+			}
+			@Override public void afterTextChanged(Editable value) {}
+		});
+		LinearLayout.LayoutParams searchLp = new LinearLayout.LayoutParams(-1, -2);
+		searchLp.setMargins(0, 0, 0, gap);
+		content.addView(chatSearch, searchLp);
 		ListView list = new ListView(this);
 		list.setBackgroundColor(bg);
 		list.setCacheColorHint(bg);
 		styleList(list, false);
+		list.setDivider(new ColorDrawable(blend(surfaceHi, bg, 0.35f)));
+		list.setDividerHeight(dp(1));
 		list.setAdapter(chatRows);
 		list.setOnItemClickListener(new AdapterView.OnItemClickListener() {
 			@Override
 			public void onItemClick(AdapterView < ? > p, View v, int pos, long id) {
-				MiniTaLib.Chat chat = chatData.get(pos);
+				if (pos < 0 || pos >= visibleChatData.size()) return;
+				MiniTaLib.Chat chat = visibleChatData.get(pos);
 				String chatPeer = resolvedPeerName(chat.peer, chat.id);
 				openChatImmediately(chatPeer, chat.peer, chat.banned, chat.bannedByMe, chat.bannedMe, null);
 			}
 		});
 		loadCachedChats();
-		content.addView(spaced(row(
-			button(getString(R.string.action_refresh), new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					loadChats(v, false);
-				}
-			})
-		)));
 		content.addView(list, fill());
-		content.addView(spaced(row(
-			primaryButton(getString(R.string.screen_add_chat), new View.OnClickListener() {
-				@Override
-				public void onClick(View v) {
-					showAddChat();
-				}
-			})
-		)));
 		loadChats();
+	}
+
+	private LinearLayout chatsHeader() {
+		LinearLayout header = new LinearLayout(this);
+		header.setOrientation(LinearLayout.HORIZONTAL);
+		header.setGravity(Gravity.CENTER_VERTICAL);
+		header.setPadding(gap, gap / 2, gap, gap / 2);
+		TextView heading = label(getString(R.string.nav_chats));
+		heading.setTextSize(24);
+		heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+		header.addView(heading, new LinearLayout.LayoutParams(0, buttonMinHeight, 1));
+		Button refresh = button("↻", new View.OnClickListener() {
+			@Override public void onClick(View v) { loadChats(v, false); }
+		});
+		refresh.setTextSize(20);
+		refresh.setContentDescription(getString(R.string.action_refresh));
+		header.addView(refresh, new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight));
+		Button add = primaryButton("+", new View.OnClickListener() {
+			@Override public void onClick(View v) { showAddChat(); }
+		});
+		add.setTextSize(24);
+		add.setContentDescription(getString(R.string.screen_add_chat));
+		LinearLayout.LayoutParams addLp = new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight);
+		addLp.setMargins(gap, 0, 0, 0);
+		header.addView(add, addLp);
+		LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+		lp.setMargins(0, 0, 0, gap / 2);
+		header.setLayoutParams(lp);
+		return header;
 	}
 
 	private void showAddChat() {
@@ -3970,21 +4007,33 @@ public final class MainActivity extends Activity {
 		if (chats == null || chatRows == null) return;
 		chatData.clear();
 		chatData.addAll(chats);
+		renderChatRows(chatSearch == null ? "" : chatSearch.getText().toString());
+		status.setText(getString(R.string.status_chats_count, chats.size(), source));
+	}
+
+	private void renderChatRows(String query) {
+		if (chatRows == null) return;
+		String filter = query == null ? "" : query.trim().toLowerCase(Locale.US);
+		visibleChatData.clear();
 		chatRows.clear();
-		for (MiniTaLib.Chat chat : chats) {
+		for (MiniTaLib.Chat chat : chatData) {
 			if (chat.peer != null && chat.peer.login != null && chat.peer.login.equals(currentPeer)) {
 				currentPeerBanned = chat.banned;
 				currentPeerBannedByMe = chat.bannedByMe;
 				currentPeerBannedMe = chat.bannedMe;
 			}
 			String last = chat.last == null ? "" : chatLastText(chat.last);
+			String title = chatPeerTitle(chat.peer);
+			if (filter.length() > 0 && !title.toLowerCase(Locale.US).contains(filter)
+					&& !last.toLowerCase(Locale.US).contains(filter)) continue;
+			visibleChatData.add(chat);
 			chatRows.add(MessageRow.chat(
-					chatPeerTitle(chat.peer),
+					title,
 					last,
-					chat.peer != null && chat.peer.verified
+					chat.peer != null && chat.peer.verified,
+					chat.last == null ? 0 : chat.last.date
 			));
 		}
-		status.setText(getString(R.string.status_chats_count, chats.size(), source));
 	}
 
 	private void loadHistory() {
@@ -7465,7 +7514,7 @@ public final class MainActivity extends Activity {
 	}
 
 	private int elementRadius() {
-		return dp(8);
+		return dp(18);
 	}
 
 	private void setButtonRequestBusy(View button, boolean busy) {
@@ -7606,6 +7655,36 @@ public final class MainActivity extends Activity {
 		return new MessageAdapter();
 	}
 
+	private TextView chatAvatar(String value, int size) {
+		TextView avatar = new TextView(this);
+		String safe = safeDisplayText(value).trim();
+		String initials = safe.length() == 0 ? "?" : safe.substring(0, 1).toUpperCase(Locale.US);
+		int tint = blend(primary, Color.rgb(72, 96, 150), (safe.hashCode() & 3) * 0.12f);
+		avatar.setText(initials);
+		avatar.setTextColor(onPrimary);
+		avatar.setTextSize(15);
+		avatar.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+		avatar.setGravity(Gravity.CENTER);
+		avatar.setBackgroundDrawable(shape(tint, 0, size / 2));
+		avatar.setContentDescription(safe);
+		return avatar;
+	}
+
+	private static final class BubbleLayout extends LinearLayout {
+		private final int maxBubbleWidth;
+
+		BubbleLayout(Context context, int maxBubbleWidth) {
+			super(context);
+			this.maxBubbleWidth = maxBubbleWidth;
+		}
+
+		@Override protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+			int available = MeasureSpec.getSize(widthMeasureSpec);
+			int cap = available > 0 ? Math.min(available, maxBubbleWidth) : maxBubbleWidth;
+			super.onMeasure(MeasureSpec.makeMeasureSpec(cap, MeasureSpec.AT_MOST), heightMeasureSpec);
+		}
+	}
+
 	private PaymentSliderView paymentSlider(String hint) {
 		return paymentSlider(hint, false);
 	}
@@ -7739,71 +7818,67 @@ public final class MainActivity extends Activity {
 			}
 
 			private View chatPreviewView(MessageRow row, View convertView) {
-				LinearLayout box;
-				TextView title;
-				TextView preview;
-				if (convertView instanceof LinearLayout && convertView.getTag() instanceof ChatPreviewHolder) {
-					box = (LinearLayout) convertView;
-					ChatPreviewHolder holder = (ChatPreviewHolder) box.getTag();
-					title = holder.title;
-					preview = holder.preview;
-				} else {
-					box = new LinearLayout(MainActivity.this);
-					box.setOrientation(LinearLayout.VERTICAL);
-					box.setPadding(pad, gap, pad, gap);
-					box.setBackgroundDrawable(shape(surface, 0, elementRadius()));
-
-					title = new TextView(MainActivity.this);
-					title.setTextColor(textColor);
-					title.setTextSize(16);
-					title.setTypeface(Typeface.DEFAULT_BOLD);
-					title.setSingleLine(true);
-					title.setEllipsize(TextUtils.TruncateAt.END);
-					title.setMaxWidth(Math.max(
-							dp(120),
-							getResources().getDisplayMetrics().widthPixels - pad * 4
-					));
-					box.addView(title, new LinearLayout.LayoutParams(-2, -2));
-
-					preview = new TextView(MainActivity.this);
-					preview.setTextColor(muted);
-					preview.setTextSize(14);
-					preview.setMaxLines(2);
-					preview.setEllipsize(TextUtils.TruncateAt.END);
-					LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(-1, -2);
-					previewLp.setMargins(0, gap / 3, 0, 0);
-					box.addView(preview, previewLp);
-
-					box.setTag(new ChatPreviewHolder(title, preview));
-				}
+				LinearLayout box = new LinearLayout(MainActivity.this);
+				box.setOrientation(LinearLayout.HORIZONTAL);
+				box.setGravity(Gravity.CENTER_VERTICAL);
+				box.setPadding(pad, dp(10), pad, dp(10));
+				box.setBackgroundDrawable(pressable(surface, surfaceHi, 0, 0));
+				TextView avatar = chatAvatar(row.chatTitle, dp(44));
+				box.addView(avatar, new LinearLayout.LayoutParams(dp(44), dp(44)));
+				LinearLayout details = new LinearLayout(MainActivity.this);
+				details.setOrientation(LinearLayout.VERTICAL);
+				LinearLayout top = new LinearLayout(MainActivity.this);
+				top.setOrientation(LinearLayout.HORIZONTAL);
+				top.setGravity(Gravity.CENTER_VERTICAL);
+				TextView title = new TextView(MainActivity.this);
 				title.setText(safeDisplayText(row.chatTitle));
+				title.setTextColor(textColor);
+				title.setTextSize(16);
+				title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+				title.setSingleLine(true);
+				title.setEllipsize(TextUtils.TruncateAt.END);
 				if (row.chatVerified) {
-					Drawable badge = verifiedDrawable(dp(18));
-					badge.setBounds(0, 0, dp(18), dp(18));
+					Drawable badge = verifiedDrawable(dp(16));
+					badge.setBounds(0, 0, dp(16), dp(16));
 					title.setCompoundDrawables(null, null, badge, null);
 					title.setCompoundDrawablePadding(gap / 2);
-					title.setContentDescription(
-							safeDisplayText(row.chatTitle) + ", " + getString(R.string.verified)
-					);
-				} else {
-					title.setCompoundDrawables(null, null, null, null);
-					title.setCompoundDrawablePadding(0);
-					title.setContentDescription(safeDisplayText(row.chatTitle));
 				}
+				top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+				TextView time = new TextView(MainActivity.this);
+				time.setText(formatMessageTime(row.chatDate));
+				time.setTextColor(row.chatDate > 0 ? primary : muted);
+				time.setTextSize(12);
+				time.setGravity(Gravity.RIGHT);
+				top.addView(time, new LinearLayout.LayoutParams(-2, -2));
+				details.addView(top, new LinearLayout.LayoutParams(-1, -2));
+				TextView preview = new TextView(MainActivity.this);
 				preview.setText(safeDisplayText(row.chatPreview));
-				preview.setVisibility(row.chatPreview == null || row.chatPreview.length() == 0 ? View.GONE : View.VISIBLE);
-				return listItemFrame(box);
+				preview.setTextColor(muted);
+				preview.setTextSize(14);
+				preview.setSingleLine(true);
+				preview.setEllipsize(TextUtils.TruncateAt.END);
+				LinearLayout.LayoutParams previewLp = new LinearLayout.LayoutParams(-1, -2);
+				previewLp.setMargins(0, dp(2), 0, 0);
+				details.addView(preview, previewLp);
+				LinearLayout.LayoutParams detailsLp = new LinearLayout.LayoutParams(0, -2, 1);
+				detailsLp.setMargins(dp(12), 0, 0, 0);
+				box.addView(details, detailsLp);
+				return box;
 			}
 
 			private View messageView(final MessageRow row) {
 				if (row.message != null && row.message.system) {
 					return systemMessageView(row);
 				}
+				boolean own = row.message != null && isOwnUser(row.message.from);
 				LinearLayout outer = new LinearLayout(MainActivity.this);
 				outer.setOrientation(LinearLayout.VERTICAL);
-				LinearLayout box = fileBox();
+				outer.setGravity(own ? Gravity.RIGHT : Gravity.LEFT);
+				LinearLayout box = bubbleBox(own);
 				installMessageLongPress(box, row.message);
-				box.addView(userNameRow(messageAuthor(row.message), 14), new LinearLayout.LayoutParams(-1, -2));
+				if (!own || currentPeerIsRoom()) {
+					box.addView(userNameRow(messageAuthor(row.message), 14), new LinearLayout.LayoutParams(-1, -2));
+				}
 				addReplyReference(box, row.message);
 				if (row.imageData != null) {
 					LinearLayout.LayoutParams contentLp = new LinearLayout.LayoutParams(-1, -2);
@@ -7837,7 +7912,7 @@ public final class MainActivity extends Activity {
 				}
 				addMessageMeta(box, row.message);
 				addChannelCommentsLink(box, row.message);
-				outer.addView(box, new LinearLayout.LayoutParams(-1, -2));
+				outer.addView(box, new LinearLayout.LayoutParams(-2, -2));
 				addMessageButtons(outer, row.message);
 				return listItemFrame(outer);
 			}
@@ -8092,6 +8167,16 @@ public final class MainActivity extends Activity {
 			return box;
 		}
 
+		private LinearLayout bubbleBox(boolean own) {
+			BubbleLayout box = new BubbleLayout(MainActivity.this,
+					Math.max(dp(180), getResources().getDisplayMetrics().widthPixels * 78 / 100));
+			box.setOrientation(LinearLayout.VERTICAL);
+			int inset = Math.max(gap, pad / 2);
+			box.setPadding(inset, inset, inset, inset);
+			box.setBackgroundDrawable(shape(own ? blend(primary, surface, 0.38f) : surface, 0, dp(20)));
+			return box;
+		}
+
 		private TextView fileLabel(String value) {
 			TextView label = new TextView(MainActivity.this);
 			label.setTextColor(textColor);
@@ -8288,6 +8373,8 @@ public final class MainActivity extends Activity {
 		LinearLayout r = new LinearLayout(this);
 		r.setOrientation(LinearLayout.HORIZONTAL);
 		r.setGravity(Gravity.CENTER_VERTICAL);
+		r.setPadding(gap, gap, gap, gap);
+		r.setBackgroundDrawable(shape(blend(surfaceHi, primary, 0.12f), 0, dp(20)));
 
 		ImageButton back = headerIconButton(R.drawable.ic_back, getString(R.string.action_back), new View.OnClickListener() {
 			@Override
@@ -8298,6 +8385,13 @@ public final class MainActivity extends Activity {
 		LinearLayout.LayoutParams backLp = new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight);
 		backLp.setMargins(0, 0, gap, 0);
 		r.addView(back, backLp);
+		TextView avatar = chatAvatar(chatPeerTitle(currentHeaderUser()), dp(38));
+		avatar.setOnClickListener(new View.OnClickListener() {
+			@Override public void onClick(View v) { showCurrentPeerProfile(); }
+		});
+		LinearLayout.LayoutParams avatarLp = new LinearLayout.LayoutParams(dp(38), dp(38));
+		avatarLp.setMargins(0, 0, gap, 0);
+		r.addView(avatar, avatarLp);
 
 		LinearLayout.LayoutParams nameLp = new LinearLayout.LayoutParams(0, -1, 1);
 		currentPeerNameView = userNameRow(currentHeaderUser(), 18, true);
@@ -9415,11 +9509,22 @@ public final class MainActivity extends Activity {
 		LinearLayout r = new LinearLayout(this);
 		r.setOrientation(LinearLayout.HORIZONTAL);
 		r.setGravity(Gravity.CENTER);
-		int height = dp(56);
+		int height = dp(62);
 		for (View b: buttons) {
+			LinearLayout item = new LinearLayout(this);
+			item.setOrientation(LinearLayout.VERTICAL);
+			item.setGravity(Gravity.CENTER);
+			item.addView(b, new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight));
+			TextView caption = new TextView(this);
+			caption.setText(b.getContentDescription());
+			caption.setTextColor(muted);
+			caption.setTextSize(10);
+			caption.setSingleLine(true);
+			caption.setGravity(Gravity.CENTER);
+			item.addView(caption, new LinearLayout.LayoutParams(-1, -2));
 			LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, height, 1);
 			lp.setMargins(gap / 2, 0, gap / 2, 0);
-			r.addView(b, lp);
+			r.addView(item, lp);
 		}
 		return r;
 	}
@@ -9481,6 +9586,8 @@ public final class MainActivity extends Activity {
 			});
 		LinearLayout.LayoutParams sendLp = new LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight);
 		r.addView(sendButton, sendLp);
+		sendButton.setBackgroundDrawable(pressable(primary, blend(primary, Color.WHITE, 0.18f), 0, dp(14)));
+		sendButton.setColorFilter(onPrimary);
 		outer.addView(r, new LinearLayout.LayoutParams(-1, -2));
 		renderComposerMedia();
 		return outer;
@@ -9586,12 +9693,12 @@ public final class MainActivity extends Activity {
 			sendButton.setEnabled(!loading);
 			setButtonRequestBusy(sendButton, loading);
 			sendButton.setBackgroundDrawable(pressable(
-				loading ? blend(surface, Color.BLACK, 0.25f) : surface,
-				loading ? blend(surface, Color.BLACK, 0.18f) : surfaceHi,
+				loading ? blend(primary, Color.BLACK, 0.30f) : primary,
+				loading ? blend(primary, Color.BLACK, 0.20f) : blend(primary, Color.WHITE, 0.18f),
 				0,
-				elementRadius()
+				dp(14)
 			));
-			sendButton.setColorFilter(loading ? blend(textColor, bg, 0.55f) : textColor);
+			sendButton.setColorFilter(loading ? blend(onPrimary, bg, 0.55f) : onPrimary);
 			sendButton.setContentDescription(loading ? getString(R.string.status_sending) : getString(R.string.action_send));
 		}
 		if (text != null) text.setEnabled(!loading);

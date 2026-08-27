@@ -8,8 +8,9 @@ final class MessageRow {
 	final String chatTitle;
 	final String chatPreview;
 	final boolean chatVerified;
+	final long chatDate;
 
-	private MessageRow(String text, String imageData, MiniTaLib.FileInfo file, MiniTaLib.Message message, String chatTitle, String chatPreview, boolean chatVerified) {
+	private MessageRow(String text, String imageData, MiniTaLib.FileInfo file, MiniTaLib.Message message, String chatTitle, String chatPreview, boolean chatVerified, long chatDate) {
 		this.text = text;
 		this.imageData = imageData;
 		this.file = file;
@@ -17,29 +18,30 @@ final class MessageRow {
 		this.chatTitle = chatTitle;
 		this.chatPreview = chatPreview;
 		this.chatVerified = chatVerified;
+		this.chatDate = chatDate;
 	}
 
 	static MessageRow text(String text) {
-		return new MessageRow(text, null, null, null, null, null, false);
+		return new MessageRow(text, null, null, null, null, null, false, 0);
 	}
 
 	static MessageRow messageText(String text, MiniTaLib.Message message) {
-		return new MessageRow(text, null, null, message, null, null, false);
+		return new MessageRow(text, null, null, message, null, null, false, 0);
 	}
 
 	static MessageRow inlineImage(String data, MiniTaLib.Message message) {
-		return new MessageRow(null, data, null, message, null, null, false);
+		return new MessageRow(null, data, null, message, null, null, false, 0);
 	}
 
 	static MessageRow file(String text, MiniTaLib.FileInfo file, MiniTaLib.Message message) {
-		return new MessageRow(text, null, file, message, null, null, false);
+		return new MessageRow(text, null, file, message, null, null, false, 0);
 	}
 
 	static MessageRow chat(String title, String preview) {
-		return chat(title, preview, false);
+		return chat(title, preview, false, 0);
 	}
 
-	static MessageRow chat(String title, String preview, boolean verified) {
-		return new MessageRow(null, null, null, null, title, preview, verified);
+	static MessageRow chat(String title, String preview, boolean verified, long date) {
+		return new MessageRow(null, null, null, null, title, preview, verified, date);
 	}
 }
