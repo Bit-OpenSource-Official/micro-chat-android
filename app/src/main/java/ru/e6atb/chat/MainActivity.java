@@ -1621,19 +1621,16 @@ public final class MainActivity extends Activity {
 	private void showBotCommandsMenu() {
 		if (botCommands.isEmpty() || currentPeer == null || currentPeer.length() == 0) return;
 		final Dialog dialog = new Dialog(this);
-		LinearLayout box = new LinearLayout(this);
-		box.setOrientation(LinearLayout.VERTICAL);
-		box.setPadding(pad, pad, pad, pad);
-		box.setBackgroundDrawable(shape(surface, 0, buttonRadius()));
+		LinearLayout box = dialogBox();
 		box.addView(title("Commands"), new LinearLayout.LayoutParams(-1, -2));
 		for (final MiniTaLib.BotCommand command : botCommands) {
-			String label = "/" + command.command + (command.description.length() == 0 ? "" : "\n" + command.description);
-			Button choice = button(label, new View.OnClickListener() {
+			String label = "/" + command.command + (command.description.length() == 0 ? "" : " — " + command.description);
+			Button choice = sheetActionButton(label, new View.OnClickListener() {
 				@Override public void onClick(View v) {
 					dialog.dismiss();
 					sendChatMessage(currentPeer, "/" + command.command, true);
 				}
-			});
+			}, false);
 			LinearLayout.LayoutParams choiceLp = new LinearLayout.LayoutParams(-1, -2);
 			choiceLp.setMargins(0, gap / 2, 0, 0);
 			box.addView(choice, choiceLp);
@@ -1663,7 +1660,12 @@ public final class MainActivity extends Activity {
 			return;
 		}
 		if (stickerPacks.isEmpty()) {
-			status.setText("No sticker packs available");
+			TextView hint = label("No sticker packs are available yet. Create one with stickerbot: choose an ID, title and DSR price, then send PNG or WebP stickers to the bot.");
+			hint.setTextColor(muted);
+			hint.setTextSize(14);
+			showContentDialog("Stickers", hint, "Open stickerbot", new Runnable() {
+				@Override public void run() { openChatIfExists("stickerbot", null, true); }
+			}, getString(R.string.action_cancel));
 			return;
 		}
 		final Dialog dialog = new Dialog(this);
@@ -1863,9 +1865,20 @@ public final class MainActivity extends Activity {
 			}
 		}), new LinearLayout.LayoutParams(0, -2, 1));
 		quickActions.addView(walletQuickAction("↺", getString(R.string.wallet_payment_history), new View.OnClickListener() {
-			@Override public void onClick(View v) { showWalletHistory(); }
+			@Override public void onClick(View v) { loadWalletHistory(v, false); }
 		}), new LinearLayout.LayoutParams(0, -2, 1));
 		wallet.addView(quickActions, new LinearLayout.LayoutParams(-1, -2));
+		LinearLayout historyHeader = new LinearLayout(this);
+		historyHeader.setGravity(Gravity.CENTER_VERTICAL);
+		TextView historyTitle = label(getString(R.string.wallet_payment_history));
+		historyTitle.setTextColor(textColor);
+		historyTitle.setTextSize(16);
+		historyHeader.addView(historyTitle, new LinearLayout.LayoutParams(0, -2, 1));
+		Button showAll = sheetActionButton(getString(R.string.action_refresh), new View.OnClickListener() {
+			@Override public void onClick(View v) { loadWalletHistory(v, false); }
+		}, false);
+		historyHeader.addView(showAll, new LinearLayout.LayoutParams(-2, dp(40)));
+		wallet.addView(historyHeader, new LinearLayout.LayoutParams(-1, -2));
 
 		walletRecentView = new LinearLayout(this);
 		walletRecentView.setOrientation(LinearLayout.VERTICAL);
@@ -1961,7 +1974,9 @@ public final class MainActivity extends Activity {
 			walletRecentView.addView(walletHistoryRow(getString(R.string.wallet_history_empty), muted));
 			return;
 		}
-		for (final MiniTaLib.WalletTransaction tx : recent) {
+		for (int index = 0; index < recent.size(); index++) {
+			final MiniTaLib.WalletTransaction tx = recent.get(index);
+			if (index > 0) walletRecentView.addView(listDivider());
 			boolean incoming = tx.toUserId == ownId;
 			TextView item = walletHistoryRow(formatWalletHistoryRow(tx, incoming), incoming ? success : textColor, new View.OnClickListener() {
 				@Override public void onClick(View v) { showWalletTransactionDetails(tx); }
@@ -2025,7 +2040,7 @@ public final class MainActivity extends Activity {
 				ui(new Runnable() {
 					@Override
 					public void run() {
-						if (page != Page.WALLET_HISTORY) return;
+						if (page != Page.WALLET && page != Page.WALLET_HISTORY) return;
 						renderWalletHistory(info, history);
 					}
 				});
@@ -2035,14 +2050,17 @@ public final class MainActivity extends Activity {
 
 	private void renderWalletHistory(MiniTaLib.WalletInfo info, List<MiniTaLib.WalletTransaction> history) {
 		if (info != null) setCachedWalletInfo(info);
-		if (walletHistoryView == null) return;
-		walletHistoryView.removeAllViews();
+		LinearLayout target = page == Page.WALLET ? walletRecentView : walletHistoryView;
+		if (target == null) return;
+		target.removeAllViews();
 		if (history == null || history.isEmpty()) {
-			walletHistoryView.addView(walletHistoryRow(getString(R.string.wallet_history_empty), muted));
+			target.addView(walletHistoryRow(getString(R.string.wallet_history_empty), muted));
 			return;
 		}
 		long myID = info == null ? 0 : info.userId;
-		for (final MiniTaLib.WalletTransaction tx : history) {
+		for (int index = 0; index < history.size(); index++) {
+			final MiniTaLib.WalletTransaction tx = history.get(index);
+			if (index > 0) target.addView(listDivider());
 			boolean incoming = tx.toUserId == myID;
 			TextView row = walletHistoryRow(formatWalletHistoryRow(tx, incoming), incoming ? blend(primary, Color.WHITE, 0.18f) : textColor, new View.OnClickListener() {
 				@Override
@@ -2050,7 +2068,7 @@ public final class MainActivity extends Activity {
 					showWalletTransactionDetails(tx);
 				}
 			});
-			walletHistoryView.addView(row);
+			target.addView(row);
 		}
 		status.setText(getString(R.string.status_wallet_history_updated));
 	}
@@ -2126,12 +2144,20 @@ public final class MainActivity extends Activity {
 		row.setTextColor(color);
 		row.setTextSize(14);
 		row.setPadding(dp(4), dp(12), dp(4), dp(12));
-		row.setBackgroundDrawable(listener == null ? shape(Color.TRANSPARENT, border, 0) : pressable(Color.TRANSPARENT, surfaceHi, border, 0));
+		row.setBackgroundDrawable(listener == null ? shape(Color.TRANSPARENT, 0, 0) : pressable(Color.TRANSPARENT, surfaceHi, 0, dp(10)));
 		if (listener != null) row.setOnClickListener(listener);
 		LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-		lp.setMargins(0, 0, 0, gap / 2);
 		row.setLayoutParams(lp);
 		return row;
+	}
+
+	private View listDivider() {
+		View divider = new View(this);
+		divider.setBackgroundColor(border);
+		LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, Math.max(1, dp(1)));
+		lp.setMargins(0, 0, 0, 0);
+		divider.setLayoutParams(lp);
+		return divider;
 	}
 
 	private void showWalletTransactionDetails(MiniTaLib.WalletTransaction tx) {
@@ -3513,7 +3539,9 @@ public final class MainActivity extends Activity {
 			accountSessionsView.addView(sessionRow(getString(R.string.settings_no_sessions), muted));
 			return;
 		}
-		for (MiniTaLib.SessionInfo item : sessions) {
+		for (int index = 0; index < sessions.size(); index++) {
+			if (index > 0) accountSessionsView.addView(listDivider());
+			MiniTaLib.SessionInfo item = sessions.get(index);
 			final MiniTaLib.SessionInfo session = item;
 			String name = item.label.length() == 0
 					? (item.current ? getString(R.string.settings_current_session) : getString(R.string.settings_other_device))
@@ -3583,9 +3611,8 @@ public final class MainActivity extends Activity {
 		row.setTextColor(color);
 		row.setTextSize(15);
 		row.setPadding(gap, dp(12), gap, dp(12));
-		row.setBackgroundDrawable(shape(Color.TRANSPARENT, border, 0));
+		row.setBackgroundDrawable(pressable(Color.TRANSPARENT, surfaceHi, 0, dp(10)));
 		LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-		lp.setMargins(0, 0, 0, gap / 2);
 		row.setLayoutParams(lp);
 		return row;
 	}
@@ -7341,6 +7368,16 @@ public final class MainActivity extends Activity {
 			}
 
 			@Override
+			public boolean canRunBotCommand() {
+				return page == Page.CHAT && currentPeerIsBot() && currentPeer != null && currentPeer.length() > 0;
+			}
+
+			@Override
+			public void runBotCommand(String command) {
+				if (currentPeer != null && currentPeer.length() > 0) sendChatMessage(currentPeer, command, true);
+			}
+
+			@Override
 			public int linkColor() {
 				return primary;
 			}
@@ -9808,11 +9845,16 @@ public final class MainActivity extends Activity {
 	private LinearLayout messageBar() {
 		LinearLayout outer = new LinearLayout(this);
 		outer.setOrientation(LinearLayout.VERTICAL);
-		outer.setPadding(pad, gap, pad, gap);
-		outer.setBackgroundDrawable(shape(bg, border, 0));
+		outer.setBackgroundColor(bg);
+		View topDivider = new View(this);
+		topDivider.setBackgroundColor(border);
+		outer.addView(topDivider, new LinearLayout.LayoutParams(-1, Math.max(1, dp(1))));
+		LinearLayout body = new LinearLayout(this);
+		body.setOrientation(LinearLayout.VERTICAL);
+		body.setPadding(pad, gap, pad, gap);
 		composerMediaBar = new LinearLayout(this);
 		composerMediaBar.setOrientation(LinearLayout.VERTICAL);
-		outer.addView(composerMediaBar, new LinearLayout.LayoutParams(-1, -2));
+		body.addView(composerMediaBar, new LinearLayout.LayoutParams(-1, -2));
 		LinearLayout r = new LinearLayout(this);
 		r.setOrientation(LinearLayout.HORIZONTAL);
 		r.setGravity(Gravity.BOTTOM);
@@ -9858,7 +9900,8 @@ public final class MainActivity extends Activity {
 		r.addView(sendButton, sendLp);
 		sendButton.setBackgroundDrawable(pressable(primary, blend(primary, Color.WHITE, 0.18f), 0, dp(14)));
 		sendButton.setColorFilter(onPrimary);
-		outer.addView(r, new LinearLayout.LayoutParams(-1, -2));
+		body.addView(r, new LinearLayout.LayoutParams(-1, -2));
+		outer.addView(body, new LinearLayout.LayoutParams(-1, -2));
 		renderComposerMedia();
 		return outer;
 	}

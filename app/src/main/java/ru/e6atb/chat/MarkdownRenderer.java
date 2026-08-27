@@ -17,6 +17,8 @@ final class MarkdownRenderer {
 		void copyCode(String code);
 		void openUrl(String url);
 		void openMention(String login);
+		boolean canRunBotCommand();
+		void runBotCommand(String command);
 		int linkColor();
 	}
 
@@ -53,6 +55,13 @@ final class MarkdownRenderer {
 				String mention = value.substring(i + 1, mentionEnd).toLowerCase(Locale.US);
 				appendMentionSpan(out, value.substring(i, mentionEnd), mention);
 				i = mentionEnd;
+				continue;
+			}
+			int commandEnd = commandEnd(value, i);
+			if (commandEnd > i && callbacks != null && callbacks.canRunBotCommand()) {
+				String command = value.substring(i, commandEnd);
+				appendCommandSpan(out, command);
+				i = commandEnd;
 				continue;
 			}
 			if (startsWith(value, i, "**")) {
@@ -137,6 +146,21 @@ final class MarkdownRenderer {
 		return end > offset + 1 ? end : -1;
 	}
 
+	private int commandEnd(String value, int offset) {
+		if (value.charAt(offset) != '/') return -1;
+		if (offset > 0) {
+			char previous = value.charAt(offset - 1);
+			if (Character.isLetterOrDigit(previous) || previous == '_' || previous == '-') return -1;
+		}
+		int end = offset + 1;
+		while (end < value.length()) {
+			char c = value.charAt(end);
+			if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) break;
+			end++;
+		}
+		return end > offset + 1 && end - offset <= 33 ? end : -1;
+	}
+
 	private void appendStyleSpan(SpannableStringBuilder out, String value, Object span) {
 		int start = out.length();
 		out.append(value);
@@ -188,6 +212,24 @@ final class MarkdownRenderer {
 			@Override
 			public void onClick(View widget) {
 				if (callbacks != null) callbacks.openMention(login);
+			}
+
+			@Override
+			public void updateDrawState(TextPaint ds) {
+				super.updateDrawState(ds);
+				ds.setColor(linkColor());
+				ds.setUnderlineText(false);
+			}
+		}, start, out.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+	}
+
+	private void appendCommandSpan(SpannableStringBuilder out, final String command) {
+		int start = out.length();
+		out.append(command);
+		out.setSpan(new ClickableSpan() {
+			@Override
+			public void onClick(View widget) {
+				if (callbacks != null) callbacks.runBotCommand(command);
 			}
 
 			@Override
