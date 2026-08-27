@@ -20,7 +20,7 @@ endif
 RELEASE_VERSION := $(if $(VERSION),$(VERSION),$(word 1,$(POSITIONAL_RELEASE_ARGS)))
 
 MST5_NATIVE_OUTPUT := $(CURDIR)/app/src/main/assets/mst5-native
-MST5_NATIVE_VERSION ?= 0.7.2
+MST5_NATIVE_VERSION ?= 0.7.3
 
 .PHONY: help release-branch test release-check native-libs require-native-libs armv6-ota-tls require-armv6-ota-tls apk apk-universal apk-armv6 apk-armv7 apk-arm64 apk-x86_64 xapk release-apks
 
