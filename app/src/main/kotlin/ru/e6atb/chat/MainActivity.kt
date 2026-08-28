@@ -11446,8 +11446,8 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        // Prefer raw MST5, then the central CDN's HTTP-only M5oH route.
-        val DEFAULT_SERVER: String = "mst5://ms.ove.rs:8067/main|m5oh://central-1-cdn.ms.sectorlambda.ru/main"
+        // Prefer raw MST5, then the central CDN's ordinary HTTP-only M5oH route.
+        val DEFAULT_SERVER: String = "mst5://ms.ove.rs:8067/main|http://central-1-cdn.ms.sectorlambda.ru/main"
         val ACTION_ACCEPT_CALL: String = "ru.e6atb.chat.ACCEPT_CALL"
         val ACTION_OPEN_CALL: String = "ru.e6atb.chat.OPEN_CALL"
         val ACTION_OPEN_UPDATE: String = "ru.e6atb.chat.OPEN_UPDATE"
