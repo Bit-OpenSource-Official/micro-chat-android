@@ -665,6 +665,11 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
     }
 
     @kotlin.Throws(Exception::class)
+    fun deletePublicAvatar(): User = ru.e6atb.chat.MST5.Companion.user(
+        post("/avatars/delete", JSONObject(), 10_000).getJSONObject("user")
+    )
+
+    @kotlin.Throws(Exception::class)
     fun sendMessageWithMedia(
         preparedBody: JSONObject?, items: List<MessageMedia>?,
         transfer: TransferControl?, maxDsrAmount: Long

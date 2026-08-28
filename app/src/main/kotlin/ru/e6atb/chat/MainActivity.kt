@@ -248,6 +248,7 @@ class MainActivity : Activity() {
     private var myLogin = ""
     private var myNick = ""
     private var myDescription = ""
+    private var myAvatar: MST5.FileInfo? = null
     private var myVerified = false
     private var myBot = false
     private var myMessagePrivacy = "everyone"
@@ -705,10 +706,7 @@ class MainActivity : Activity() {
 
     private fun showOAuthConfirmDialog(request: MST5.OAuthDeviceRequest) {
         val dialog: Dialog = Dialog(this)
-        val box: LinearLayout = LinearLayout(this)
-        box.setOrientation(LinearLayout.VERTICAL)
-        box.setPadding(pad, pad, pad, pad)
-        box.setBackgroundDrawable(shape(surface, 0, buttonRadius()))
+        val box: LinearLayout = dialogBox()
         box.addView(title(getString(R.string.oauth_authorize_title)), LinearLayout.LayoutParams(-1, -2))
         var detail: String? = getString(
             R.string.oauth_authorize_body,
@@ -1555,10 +1553,7 @@ class MainActivity : Activity() {
 
     private fun showUsernameReservationPaymentSheet(usernameValue: String?, detailText: String?, onConfirm: Runnable?) {
         val dialog: Dialog = Dialog(this)
-        val box: LinearLayout = LinearLayout(this)
-        box.setOrientation(LinearLayout.VERTICAL)
-        box.setPadding(pad, pad, pad, pad)
-        box.setBackgroundDrawable(shape(surface, 0, buttonRadius()))
+        val box: LinearLayout = dialogBox()
 
         val title: TextView = title(
             getString(
@@ -1711,10 +1706,7 @@ class MainActivity : Activity() {
             return
         }
         val dialog: Dialog = Dialog(this)
-        val box: LinearLayout = LinearLayout(this)
-        box.setOrientation(LinearLayout.VERTICAL)
-        box.setPadding(pad, pad, pad, pad)
-        box.setBackgroundDrawable(shape(surface, 0, buttonRadius()))
+        val box: LinearLayout = dialogBox()
         box.addView(title("Stickers"), LinearLayout.LayoutParams(-1, -2))
         for (pack in stickerPacks) {
             if (!pack.owned) {
@@ -2601,143 +2593,65 @@ class MainActivity : Activity() {
 
         val settings: LinearLayout = LinearLayout(this)
         settings.setOrientation(LinearLayout.VERTICAL)
-        settings.setPadding(pad, pad, pad, dp(28))
+        settings.setPadding(0, dp(6), 0, dp(28))
 
-        settings.addView(spaced(title(getString(R.string.settings_title))))
-        settings.addView(spaced(settingsProfileHeader()))
-        settings.addView(settingsSection(getString(R.string.settings_section_account)))
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_profile),
-                ownUserSettingsSubtitle(),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsProfile()
-                    }
-                })
-        )
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_sessions),
-                getString(R.string.settings_sessions_subtitle),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsSessions()
-                    }
-                })
-        )
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_cloud_password),
-                getString(R.string.settings_cloud_password_subtitle),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsCloudPassword()
-                    }
-                })
-        )
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_e2e_keys),
-                getString(R.string.settings_e2e_keys_subtitle),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsE2EKeys()
-                    }
-                })
-        )
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_authorization),
-                getString(R.string.settings_authorization_subtitle),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsAuthorization()
-                    }
-                })
-        )
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_contacts),
-                getString(R.string.settings_contacts_subtitle),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsContacts()
-                    }
-                })
-        )
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_privacy),
-                privacySettingsSubtitle(),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsPrivacy()
-                    }
-                })
-        )
-        settings.addView(settingsSection(getString(R.string.settings_section_app)))
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_language),
-                languageLabel(SessionStore.language(this)),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsLanguage()
-                    }
-                })
-        )
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_protocol),
-                protocolLabel(SessionStore.transportProtocol(this)),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsProtocol()
-                    }
-                })
-        )
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_interface),
-                if (SessionStore.showStatus(this)) getString(R.string.settings_status_visible) else getString(R.string.settings_status_hidden),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsInterface()
-                    }
-                })
-        )
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_updates),
-                updateSettingsSubtitle(),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        checkGithubUpdate()
-                    }
-                })
-        )
-        settings.addView(settingsSection(getString(R.string.settings_section_actions)))
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_delete_account),
-                getString(R.string.settings_delete_account_subtitle),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsDeleteAccount()
-                    }
-                })
-        )
-        settings.addView(
-            settingsRow(
-                getString(R.string.settings_logout),
-                getString(R.string.settings_logout_subtitle),
-                object : View.OnClickListener {
-                    override fun onClick(v: View?) {
-                        showSettingsLogout()
-                    }
-                })
-        )
+        val heading = title(getString(R.string.settings_title))
+        heading.setTextSize(22)
+        heading.setTypeface(Typeface.DEFAULT, Typeface.NORMAL)
+        heading.setPadding(pad, dp(8), pad, dp(10))
+        settings.addView(heading)
+        settings.addView(settingsProfileHeader(), settingsOuterParams(dp(4), dp(12)))
+
+        settings.addView(settingsGroup(
+            settingsMenuRow("A", getString(R.string.settings_profile), ownUserSettingsSubtitle(), primary, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsProfile() }
+            }),
+            settingsMenuRow("◈", getString(R.string.settings_privacy), privacySettingsSubtitle(), success, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsPrivacy() }
+            }),
+            settingsMenuRow("!", getString(R.string.settings_sessions), getString(R.string.settings_sessions_subtitle), danger, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsSessions() }
+            })
+        ), settingsOuterParams(0, dp(14)))
+
+        settings.addView(settingsGroup(
+            settingsMenuRow("K", getString(R.string.settings_cloud_password), getString(R.string.settings_cloud_password_subtitle), muted, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsCloudPassword() }
+            }),
+            settingsMenuRow("E", getString(R.string.settings_e2e_keys), getString(R.string.settings_e2e_keys_subtitle), muted, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsE2EKeys() }
+            }),
+            settingsMenuRow("@", getString(R.string.settings_authorization), getString(R.string.settings_authorization_subtitle), muted, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsAuthorization() }
+            }),
+            settingsMenuRow("C", getString(R.string.settings_contacts), getString(R.string.settings_contacts_subtitle), muted, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsContacts() }
+            })
+        ), settingsOuterParams(0, dp(14)))
+
+        settings.addView(settingsGroup(
+            settingsMenuRow("A", getString(R.string.settings_language), languageLabel(SessionStore.language(this)), muted, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsLanguage() }
+            }),
+            settingsMenuRow("M", getString(R.string.settings_protocol), protocolLabel(SessionStore.transportProtocol(this)), muted, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsProtocol() }
+            }),
+            settingsMenuRow("◌", getString(R.string.settings_interface), if (SessionStore.showStatus(this)) getString(R.string.settings_status_visible) else getString(R.string.settings_status_hidden), muted, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsInterface() }
+            }),
+            settingsMenuRow("↥", getString(R.string.settings_updates), updateSettingsSubtitle(), muted, object : View.OnClickListener {
+                override fun onClick(v: View?) { checkGithubUpdate() }
+            })
+        ), settingsOuterParams(0, dp(14)))
+
+        settings.addView(settingsGroup(
+            settingsMenuRow("×", getString(R.string.settings_delete_account), getString(R.string.settings_delete_account_subtitle), danger, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsDeleteAccount() }
+            }, true),
+            settingsMenuRow("↪", getString(R.string.settings_logout), getString(R.string.settings_logout_subtitle), muted, object : View.OnClickListener {
+                override fun onClick(v: View?) { showSettingsLogout() }
+            })
+        ), settingsOuterParams(0, dp(14)))
         settings.addView(settingsVersionText())
 
         scroll.addView(settings, LinearLayout.LayoutParams(-1, -2))
@@ -2925,20 +2839,20 @@ class MainActivity : Activity() {
         box.setOrientation(LinearLayout.HORIZONTAL)
         box.setGravity(Gravity.CENTER_VERTICAL)
         box.setPadding(pad, dp(12), pad, dp(12))
-        box.setBackgroundDrawable(pressable(surface, accentSurface, border, elementRadius()))
+        box.setBackgroundDrawable(pressable(accentSurface, blend(accentSurface, primary, 0.12f), 0, dp(16)))
         box.setOnClickListener(object : View.OnClickListener {
             override fun onClick(v: View?) {
                 showSettingsProfile()
             }
         })
-        val avatar: TextView = chatAvatar(displayOwnUser(), dp(56))
-        box.addView(avatar, LinearLayout.LayoutParams(dp(56), dp(56)))
+        val avatar: FrameLayout = ownProfileAvatar(dp(52))
+        box.addView(avatar, LinearLayout.LayoutParams(dp(52), dp(52)))
         val details: LinearLayout = LinearLayout(this)
         details.setOrientation(LinearLayout.VERTICAL)
         val nameLine: LinearLayout = LinearLayout(this)
         nameLine.setGravity(Gravity.CENTER_VERTICAL)
         val name: TextView = label(displayOwnUser())
-        name.setTextSize(18)
+        name.setTextSize(16)
         name.setSingleLine(true)
         nameLine.addView(name, LinearLayout.LayoutParams(-2, -2))
         if (myVerified) {
@@ -2964,7 +2878,87 @@ class MainActivity : Activity() {
         val detailsLp: LinearLayout.LayoutParams = LinearLayout.LayoutParams(0, -2, 1f)
         detailsLp.setMargins(dp(12), 0, 0, 0)
         box.addView(details, detailsLp)
+        val arrow: TextView = label("›")
+        arrow.setTextSize(24)
+        arrow.setTextColor(muted)
+        arrow.setGravity(Gravity.CENTER)
+        box.addView(arrow, LinearLayout.LayoutParams(dp(28), dp(52)))
         return box
+    }
+
+    private fun settingsOuterParams(top: Int, bottom: Int): LinearLayout.LayoutParams {
+        val lp = LinearLayout.LayoutParams(-1, -2)
+        lp.setMargins(pad, top, pad, bottom)
+        return lp
+    }
+
+    private fun settingsGroup(vararg rows: View): LinearLayout {
+        val group = LinearLayout(this)
+        group.setOrientation(LinearLayout.VERTICAL)
+        group.setBackgroundDrawable(shape(surface, 0, dp(14)))
+        for (index in rows.indices) {
+            group.addView(rows[index], LinearLayout.LayoutParams(-1, -2))
+            if (index + 1 < rows.size) {
+                val divider = View(this)
+                divider.setBackgroundColor(border)
+                val dividerLp = LinearLayout.LayoutParams(-1, Math.max(1, dp(1)))
+                dividerLp.setMargins(dp(14), 0, dp(14), 0)
+                group.addView(divider, dividerLp)
+            }
+        }
+        return group
+    }
+
+    private fun settingsMenuRow(
+        glyph: String,
+        name: String?,
+        detail: String?,
+        glyphColor: Int,
+        listener: View.OnClickListener?,
+        destructive: Boolean = false
+    ): LinearLayout {
+        val row = LinearLayout(this)
+        row.setOrientation(LinearLayout.HORIZONTAL)
+        row.setGravity(Gravity.CENTER_VERTICAL)
+        row.setMinimumHeight(dp(54))
+        row.setPadding(dp(14), dp(10), dp(10), dp(10))
+        row.setBackgroundDrawable(pressable(surface, surfaceHi, 0, 0))
+        row.setOnClickListener(listener)
+
+        val glyphView = TextView(this)
+        glyphView.setText(glyph)
+        glyphView.setTextColor(glyphColor)
+        glyphView.setTextSize(14)
+        glyphView.setGravity(Gravity.CENTER)
+        glyphView.setTypeface(Typeface.DEFAULT, Typeface.BOLD)
+        glyphView.setBackgroundDrawable(shape(blend(glyphColor, surface, 0.86f), 0, dp(9)))
+        row.addView(glyphView, LinearLayout.LayoutParams(dp(30), dp(30)))
+
+        val texts = LinearLayout(this)
+        texts.setOrientation(LinearLayout.VERTICAL)
+        val title = label(name)
+        title.setTextSize(15)
+        title.setTextColor(if (destructive) danger else textColor)
+        title.setSingleLine(true)
+        texts.addView(title, LinearLayout.LayoutParams(-1, -2))
+        if (!detail.isNullOrEmpty()) {
+            val subtitle = label(detail)
+            subtitle.setTextSize(12)
+            subtitle.setTextColor(muted)
+            subtitle.setSingleLine(true)
+            subtitle.setEllipsize(TextUtils.TruncateAt.END)
+            texts.addView(subtitle, LinearLayout.LayoutParams(-1, -2))
+        }
+        val textsLp = LinearLayout.LayoutParams(0, -2, 1f)
+        textsLp.setMargins(dp(12), 0, dp(8), 0)
+        row.addView(texts, textsLp)
+
+        val arrow = label("›")
+        arrow.setTextColor(muted)
+        arrow.setTextSize(22)
+        arrow.setGravity(Gravity.CENTER)
+        row.addView(arrow, LinearLayout.LayoutParams(dp(20), dp(30)))
+        return row
     }
 
     private fun ownUserSettingsSubtitle(): String? {
@@ -3059,15 +3053,25 @@ class MainActivity : Activity() {
 
         val box: LinearLayout = LinearLayout(this)
         box.setOrientation(LinearLayout.VERTICAL)
-        box.setPadding(pad, pad, pad, dp(28))
+        box.setPadding(pad, dp(6), pad, dp(28))
         val back: ImageButton =
             headerIconButton(R.drawable.ic_back, getString(R.string.action_back), object : View.OnClickListener {
                 override fun onClick(v: View?) {
                     showSettings()
                 }
             })
-        box.addView(spaced(row(back)))
-        box.addView(spaced(title(titleText)))
+        val header = LinearLayout(this)
+        header.setOrientation(LinearLayout.HORIZONTAL)
+        header.setGravity(Gravity.CENTER_VERTICAL)
+        header.setPadding(0, dp(4), 0, dp(4))
+        header.addView(back, LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight))
+        val heading = label(titleText)
+        heading.setTextSize(18)
+        heading.setTypeface(Typeface.DEFAULT, Typeface.NORMAL)
+        val headingLp = LinearLayout.LayoutParams(0, -2, 1f)
+        headingLp.setMargins(dp(6), 0, 0, 0)
+        header.addView(heading, headingLp)
+        box.addView(header, LinearLayout.LayoutParams(-1, -2))
         scroll.addView(box, LinearLayout.LayoutParams(-1, -2))
         content.addView(scroll, fill())
         return box
@@ -3075,17 +3079,31 @@ class MainActivity : Activity() {
 
     private fun showSettingsProfile() {
         val box: LinearLayout = settingsPage(getString(R.string.settings_profile), Page.SETTINGS_PROFILE)
+        val avatarBlock = LinearLayout(this)
+        avatarBlock.setOrientation(LinearLayout.VERTICAL)
+        avatarBlock.setGravity(Gravity.CENTER_HORIZONTAL)
+        avatarBlock.setPadding(0, dp(14), 0, dp(8))
+        val avatar = ownProfileAvatar(dp(84))
+        avatar.setOnClickListener(object : View.OnClickListener {
+            override fun onClick(v: View?) { pickAvatar() }
+        })
+        avatarBlock.addView(avatar, LinearLayout.LayoutParams(dp(84), dp(84)))
+        val changeAvatar = label(getString(R.string.settings_change_photo))
+        changeAvatar.setTextColor(primary)
+        changeAvatar.setTextSize(13)
+        changeAvatar.setGravity(Gravity.CENTER)
+        changeAvatar.setPadding(0, dp(8), 0, 0)
+        changeAvatar.setOnClickListener(object : View.OnClickListener {
+            override fun onClick(v: View?) { pickAvatar() }
+        })
+        avatarBlock.addView(changeAvatar, LinearLayout.LayoutParams(-2, -2))
+        box.addView(avatarBlock, LinearLayout.LayoutParams(-1, -2))
         val signedIn = (myID != null && myID.length > 0) || (myLogin != null && myLogin.length > 0)
-        box.addView(
-            spaced(
-                label(
-                    if (signedIn) getString(
-                        R.string.status_online_as,
-                        displayOwnUser()
-                    ) else getString(R.string.settings_not_logged_in)
-                )
-            )
-        )
+        val identity = label(if (signedIn) getString(R.string.status_online_as, displayOwnUser()) else getString(R.string.settings_not_logged_in))
+        identity.setTextColor(muted)
+        identity.setTextSize(13)
+        identity.setGravity(Gravity.CENTER)
+        box.addView(spaced(identity))
         if (myID != null && myID.length > 0) {
             box.addView(spaced(title(getString(R.string.profile_id))))
             box.addView(spaced(clickableUserID(myID)))
@@ -3130,6 +3148,13 @@ class MainActivity : Activity() {
                 pickAvatar()
             }
         }))))
+        if (myAvatar != null && myAvatar!!.id.isNotEmpty()) {
+            box.addView(spaced(row(button(getString(R.string.action_delete), object : View.OnClickListener {
+                override fun onClick(v: View?) {
+                    deleteAvatar()
+                }
+            }))))
+        }
     }
 
     private fun showSettingsSessions() {
@@ -3422,6 +3447,7 @@ class MainActivity : Activity() {
             getString(R.string.privacy_nobody)
         )
         messagePrivacyGroup.check(messagePrivacyId(myMessagePrivacy))
+        styleSelectionGroup(messagePrivacyGroup)
         box.addView(spaced(messagePrivacyGroup))
 
         box.addView(spaced(title(getString(R.string.settings_privacy_calls))))
@@ -3448,6 +3474,7 @@ class MainActivity : Activity() {
             getString(R.string.privacy_nobody)
         )
         callPrivacyGroup.check(callPrivacyId(myCallPrivacy))
+        styleSelectionGroup(callPrivacyGroup)
         box.addView(spaced(callPrivacyGroup))
 
         box.addView(spaced(title(getString(R.string.settings_privacy_invites))))
@@ -3469,6 +3496,7 @@ class MainActivity : Activity() {
             getString(R.string.privacy_nobody)
         )
         invitePrivacyGroup.check(invitePrivacyId(myInvitePrivacy))
+        styleSelectionGroup(invitePrivacyGroup)
         box.addView(spaced(invitePrivacyGroup))
 
         box.addView(spaced(row(primaryButton(getString(R.string.action_save), object : View.OnClickListener {
@@ -3484,8 +3512,14 @@ class MainActivity : Activity() {
         button.setText(ru.e6atb.chat.MainActivity.Companion.safeDisplayText(label))
         styleChoiceButton(button, true)
         val lp: RadioGroup.LayoutParams = RadioGroup.LayoutParams(-1, -2)
-        lp.setMargins(0, 0, 0, gap / 2)
         group.addView(button, lp)
+    }
+
+    private fun styleSelectionGroup(group: RadioGroup) {
+        group.setBackgroundDrawable(shape(surface, 0, dp(14)))
+        for (index in 0 until group.childCount) {
+            group.getChildAt(index).setBackgroundDrawable(pressable(surface, surfaceHi, 0, 0))
+        }
     }
 
     private fun showSettingsServer() {
@@ -3512,6 +3546,7 @@ class MainActivity : Activity() {
             getString(R.string.language_russian)
         )
         languageGroup.check(languageId(SessionStore.language(this)))
+        styleSelectionGroup(languageGroup)
         box.addView(spaced(languageGroup))
         box.addView(spaced(row(primaryButton(getString(R.string.action_save), object : View.OnClickListener {
             override fun onClick(v: View?) {
@@ -3526,7 +3561,6 @@ class MainActivity : Activity() {
         button.setText(ru.e6atb.chat.MainActivity.Companion.safeDisplayText(label))
         styleChoiceButton(button, true)
         val lp: RadioGroup.LayoutParams = RadioGroup.LayoutParams(-1, -2)
-        lp.setMargins(0, 0, 0, gap / 2)
         group.addView(button, lp)
     }
 
@@ -3570,6 +3604,7 @@ class MainActivity : Activity() {
             getString(R.string.settings_protocol_m5oh)
         )
         protocolGroup.check(protocolId(SessionStore.transportProtocol(this)))
+        styleSelectionGroup(protocolGroup)
         box.addView(spaced(protocolGroup))
         box.addView(spaced(row(primaryButton(getString(R.string.action_save), object : View.OnClickListener {
             override fun onClick(v: View?) {
@@ -4379,6 +4414,9 @@ class MainActivity : Activity() {
         myLogin = u.login
         myNick = u.nick
         myDescription = u.description
+        // Some profile-edit responses omit a pending avatar.  Keep the local
+        // preview until /me supplies it again or the owner explicitly removes it.
+        if (u.avatar != null) myAvatar = u.avatar
         myVerified = u.verified
         myBot = u.bot
         myMessagePrivacy = normalizePrivacy(u.messagePrivacy).orEmpty()
@@ -4453,6 +4491,7 @@ class MainActivity : Activity() {
         myEmail = ""
         myLogin = ""
         myNick = ""
+        myAvatar = null
         myVerified = false
         myBot = false
         myMessagePrivacy = "everyone"
@@ -5074,10 +5113,7 @@ class MainActivity : Activity() {
 
     private fun showCallbackSwipeConfirmation(message: MST5.Message?, button: MST5.Button, clickedButton: Button?) {
         val dialog: Dialog = Dialog(this)
-        val box: LinearLayout = LinearLayout(this)
-        box.setOrientation(LinearLayout.VERTICAL)
-        box.setPadding(pad, pad, pad, pad)
-        box.setBackgroundDrawable(shape(surface, 0, buttonRadius()))
+        val box: LinearLayout = dialogBox()
         box.addView(title(getString(R.string.callback_confirm_title)), LinearLayout.LayoutParams(-1, -2))
         val details: TextView = label(getString(R.string.callback_confirm_body, button.text))
         details.setTextColor(muted)
@@ -5347,10 +5383,7 @@ class MainActivity : Activity() {
             return
         }
         val dialog: Dialog = Dialog(this)
-        val box: LinearLayout = LinearLayout(this)
-        box.setOrientation(LinearLayout.VERTICAL)
-        box.setPadding(pad, pad, pad, pad)
-        box.setBackgroundDrawable(shape(surface, 0, buttonRadius()))
+        val box: LinearLayout = dialogBox()
 
         val title: TextView = title(getString(R.string.payment_title))
         title.setText(getString(R.string.payment_pay_title, amount))
@@ -5478,7 +5511,7 @@ class MainActivity : Activity() {
             override fun run() {
                 val avatar: File = cropAvatar(uri)
                 try {
-                    client.uploadPublicAvatar(avatar, TransferControl(object : MST5.ProgressListener {
+                    val uploaded = client.uploadPublicAvatar(avatar, TransferControl(object : MST5.ProgressListener {
                         override fun onProgress(done: Long, total: Long) {
                             ui(object : Runnable {
                                 override fun run() {
@@ -5489,7 +5522,9 @@ class MainActivity : Activity() {
                     }))
                     ui(object : Runnable {
                         override fun run() {
+                            myAvatar = uploaded
                             status.setText(getString(R.string.status_avatar_updated))
+                            if (page === Page.SETTINGS_PROFILE) showSettingsProfile()
                         }
                     })
                 } finally {
@@ -8611,6 +8646,57 @@ class MainActivity : Activity() {
         return avatar
     }
 
+    private fun ownProfileAvatar(size: Int): FrameLayout {
+        val box = FrameLayout(this)
+        box.addView(chatAvatar(displayOwnUser(), size), FrameLayout.LayoutParams(size, size))
+        val avatar = myAvatar ?: return box
+        if (avatar.id.isEmpty()) return box
+        val image = ImageView(this)
+        image.setScaleType(ImageView.ScaleType.CENTER_CROP)
+        image.setBackgroundDrawable(shape(surfaceHi, 0, size / 2))
+        box.addView(image, FrameLayout.LayoutParams(size, size))
+        loadAvatarInto(avatar, image)
+        return box
+    }
+
+    private fun loadAvatarInto(avatar: MST5.FileInfo, target: ImageView) {
+        val client = ta ?: return
+        io.execute(object : Runnable {
+            override fun run() {
+                try {
+                    val image = rs.ove.crypt.proto.Mst5ImageDecoder.decode(client.downloadFileBytes(avatar.id, 1_048_576), 256)
+                    ui(object : Runnable {
+                        override fun run() {
+                            // The view may still be waiting to be attached while its profile
+                            // screen is being assembled.  Setting the bitmap is safe in either
+                            // case and prevents an intermittent initials-only preview.
+                            if (image != null && !isFinishing) target.setImageBitmap(image)
+                        }
+                    })
+                } catch (_: Exception) {
+                    // The initials placeholder remains visible when the file is unavailable.
+                }
+            }
+        })
+    }
+
+    private fun deleteAvatar() {
+        val client = ta ?: return
+        run("delete_avatar", object : Task {
+            @Throws(Exception::class)
+            override fun run() {
+                val user = client.deletePublicAvatar()
+                myAvatar = null
+                applyOwnUser(user)
+                ui(object : Runnable {
+                    override fun run() {
+                        if (page === Page.SETTINGS_PROFILE) showSettingsProfile()
+                    }
+                })
+            }
+        })
+    }
+
     private class BubbleLayout(context: Context?, private val maxBubbleWidth: Int) : LinearLayout(context) {
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val available: Int = MeasureSpec.getSize(widthMeasureSpec)
@@ -10373,10 +10459,7 @@ class MainActivity : Activity() {
                 if (!confirmed[0] && onCancel != null) onCancel.run()
             }
         })
-        val box: LinearLayout = LinearLayout(this)
-        box.setOrientation(LinearLayout.VERTICAL)
-        box.setPadding(pad, pad, pad, pad)
-        box.setBackgroundDrawable(shape(surface, 0, buttonRadius()))
+        val box: LinearLayout = dialogBox()
         val title: TextView = title(titleText)
         box.addView(title, LinearLayout.LayoutParams(-1, -2))
         val details: TextView = label(if (detailText == null) "" else detailText)
@@ -10402,7 +10485,7 @@ class MainActivity : Activity() {
         val cancelLp: LinearLayout.LayoutParams = LinearLayout.LayoutParams(-1, -2)
         cancelLp.setMargins(0, gap, 0, 0)
         box.addView(cancel, cancelLp)
-        dialog.setContentView(box)
+        setScrollableDialogContent(dialog, box)
         showStyledDialog(dialog)
     }
 
@@ -10670,7 +10753,7 @@ class MainActivity : Activity() {
         if (buttons.getChildCount() > 0) {
             box.addView(buttons, LinearLayout.LayoutParams(-1, -2))
         }
-        dialog.setContentView(box)
+        setScrollableDialogContent(dialog, box)
         showStyledDialog(dialog)
     }
 

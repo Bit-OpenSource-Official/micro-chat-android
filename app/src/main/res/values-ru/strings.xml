@@ -281,6 +281,7 @@
 	<string name="settings_logout_subtitle">Завершить текущую сессию</string>
 	<string name="settings_app_version">Версия приложения</string>
 	<string name="settings_name">Имя</string>
+	<string name="settings_change_photo">Изменить фото</string>
 	<string name="settings_description_hint">До 200 символов</string>
 	<string name="settings_save_description">Сохранить описание</string>
 	<string name="settings_public_name_hint">публичное имя</string>

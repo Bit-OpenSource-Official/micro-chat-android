@@ -281,6 +281,7 @@
 	<string name="settings_logout_subtitle">End current session</string>
 	<string name="settings_app_version">App version</string>
 	<string name="settings_name">Name</string>
+	<string name="settings_change_photo">Change photo</string>
 	<string name="settings_description_hint">Up to 200 characters</string>
 	<string name="settings_save_description">Save description</string>
 	<string name="settings_public_name_hint">public name</string>
