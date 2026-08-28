@@ -8124,7 +8124,7 @@ class MainActivity : Activity() {
         return ru.e6atb.chat.MainActivity.Companion.safeDisplayText(login)
     }
 
-    private fun renderMarkdown(value: String?): CharSequence {
+    private fun renderMarkdown(value: String?, linkColor: Int = primary): CharSequence {
         return MarkdownRenderer(object : MarkdownRenderer.Callbacks {
             override fun copyCode(code: String?) {
                 copyToClipboard("code", code)
@@ -8147,7 +8147,7 @@ class MainActivity : Activity() {
             }
 
             override fun linkColor(): Int {
-                return primary
+                return linkColor
             }
         }).render(value)
     }
@@ -8982,7 +8982,7 @@ class MainActivity : Activity() {
             }
             val messageText = if (row.message == null || row.message.text == null) "" else row.message.text
             if (messageText.length > 0) {
-                val body: TextView = messageTextLabel(messageText)
+                val body: TextView = messageTextLabel(messageText, own)
                 installMessageLongPress(body, row.message)
                 val bodyLp: LinearLayout.LayoutParams = LinearLayout.LayoutParams(-1, -2)
                 bodyLp.setMargins(0, gap / 3, 0, 0)
@@ -9280,9 +9280,12 @@ class MainActivity : Activity() {
             return label
         }
 
-        fun messageTextLabel(value: String?): TextView {
+        fun messageTextLabel(value: String?, own: Boolean = false): TextView {
             val label: TextView = fileLabel("")
-            label.setText(renderMarkdown(value))
+            // The outgoing bubble is painted with `primary`, so using the same
+            // colour for a URL makes it disappear into its background.
+            label.setTextColor(if (own) onPrimary else textColor)
+            label.setText(renderMarkdown(value, if (own) blend(onPrimary, primary, 0.12f) else primary))
             label.setMovementMethod(LinkMovementMethod.getInstance())
             label.setHighlightColor(Color.TRANSPARENT)
             label.setLinksClickable(true)
