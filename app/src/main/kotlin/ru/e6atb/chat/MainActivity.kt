@@ -591,6 +591,11 @@ class MainActivity : Activity() {
             pendingSessionIntent = Intent(intent)
             return
         }
+        if (isQrLoginIntent(intent)) {
+            val code = intent.getData()?.getQueryParameter("code") ?: ""
+            if (code.isNotBlank()) openQrLoginRequest(code.trim())
+            return
+        }
         if (isOAuthIntent(intent)) {
             val data: Uri? = intent.getData()
             val userCode: String? = if (data == null) "" else data.getQueryParameter("user_code")
@@ -667,6 +672,16 @@ class MainActivity : Activity() {
                 && "ms.ove.rs".equalsIgnoreCase(data.getHost())
                 && "/oauth/device".equals(data.getPath())
         return custom || web
+    }
+
+    private fun isQrLoginIntent(intent: Intent?): Boolean {
+        val data = intent?.data ?: return false
+        return "ovechat".equalsIgnoreCase(data.scheme) && "login".equalsIgnoreCase(data.host)
+    }
+
+    private fun openQrLoginRequest(code: String) {
+        val client = ta ?: return
+        AlertDialog.Builder(this).setTitle("Вход в web-клиент").setMessage("Разрешить вход на другом устройстве?").setNegativeButton("Отклонить") { _, _ -> run("qr_reject", object : Task { override fun run() { client.approveQrLogin(code, false) } }) }.setPositiveButton("Разрешить") { _, _ -> run("qr_approve", object : Task { override fun run() { client.approveQrLogin(code, true) } }) }.show()
     }
 
     private fun openBotDeepLink(link: BotDeepLinkParser.Link?) {

@@ -127,6 +127,12 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         post("/oauth/device/decision", body, 10000)
     }
 
+    @kotlin.Throws(Exception::class)
+    fun approveQrLogin(code: String, approve: Boolean) {
+        val body = JSONObject().put("code", code.trim()).put("decision", if (approve) "approve" else "reject")
+        post("/auth/qr/approve", body, 10000)
+    }
+
     class OAuthDeviceRequest(
         @JvmField val userCode: String,
         @JvmField val clientID: String,
