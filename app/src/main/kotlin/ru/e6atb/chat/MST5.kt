@@ -1261,8 +1261,8 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
 
     fun message(o: JSONObject?): Message? {
         return Mst5MessageMapper.message(o, userId, object : Mst5MessageMapper.Security {
-            override fun decrypt(from: User, to: User, payload: JSONObject): String {
-                return decryptMessage(from, to, payload)
+            override fun decrypt(from: User, to: User, chatId: String, payload: JSONObject): String {
+                return decryptMessage(from, to, chatId, payload)
             }
 
             override fun rememberEncryptedMedia(from: User, to: User, media: List<FileInfo?>) {
@@ -1563,29 +1563,51 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         return e2eSessions.rememberSession(cacheKey, created)
     }
 
-    private fun decryptMessage(from: User, to: User, raw: JSONObject): String {
-        if (e2eIdentity == null) {
-            return "[encrypted: private key unavailable]"
-        }
+    private fun decryptMessage(from: User, to: User, chatId: String, raw: JSONObject): String {
+        val identity = e2eIdentity ?: return "[encrypted: private key unavailable]"
         try {
-            if (raw.optInt("version") !== 3 && raw.optInt("version") !== 4) return "Обновите приложение"
+            val group = raw.optInt("version") == 5 && raw.optJSONObject("recipients") != null
+            val envelopeRaw = if (group) {
+                val recipients = raw.getJSONObject("recipients")
+                val candidates = arrayOf(accountKey(), userId, login)
+                var selected: JSONObject? = null
+                for (candidate in candidates) {
+                    if (!candidate.isNullOrEmpty()) {
+                        selected = recipients.optJSONObject(candidate)
+                        if (selected != null) break
+                    }
+                }
+                selected ?: return "[encrypted: recipient unavailable]"
+            } else raw
+            val envelopeVersion = envelopeRaw.optInt("version")
+            if (envelopeVersion != 3 && envelopeVersion != 4) return "Обновите приложение"
             val envelope: NativeE2E.Envelope = NativeE2E.Envelope(
-                raw.optInt("version"),
-                raw.optString("nonce"),
-                raw.optString("ciphertext"),
-                raw.optString("tag")
+                envelopeVersion,
+                envelopeRaw.optString("nonce"),
+                envelopeRaw.optString("ciphertext"),
+                envelopeRaw.optString("tag")
             )
             val sentByMe = if (userId.length > 0)
                 userId.equals(from.id)
             else
                 login.equals(from.login)
             val peerUser = if (sentByMe) to else from
-            val peerAddress: String = if (peerUser.id.length > 0) peerUser.id else peerUser.login
-            val peer = peerE2EKey(peerAddress)
             val fromContext: String = from.id
             val toContext: String = to.id
+            val session = if (group) {
+                // A sender encrypts one copy for every room member. For our
+                // own outgoing copy the peer key is our own public key; for an
+                // incoming copy it is the sender's chat-scoped key.
+                val localRecipient = accountKey() == userId || accountKey() == login || accountKey() == from.id
+                val peerKey = if (sentByMe && localRecipient) identity.publicKeyB64
+                else fetchChatE2EKey(if (peerUser.id.isNotEmpty()) peerUser.id else peerUser.login, chatId).publicKey
+                NativeE2E.session(identity, peerKey, fromContext, toContext)
+            } else {
+                val peerAddress: String = if (peerUser.id.length > 0) peerUser.id else peerUser.login
+                e2eSession(peerE2EKey(peerAddress), fromContext, toContext)
+            }
             return NativeE2E.open(
-                e2eSession(peer, fromContext, toContext),
+                session,
                 fromContext,
                 toContext,
                 envelope

@@ -8,7 +8,7 @@ import org.json.JSONObject
 object Mst5MessageMapper {
     interface Security {
         @Throws(Exception::class)
-        fun decrypt(from: MST5.User, to: MST5.User, payload: JSONObject): String
+        fun decrypt(from: MST5.User, to: MST5.User, chatId: String, payload: JSONObject): String
         fun rememberEncryptedMedia(from: MST5.User, to: MST5.User, media: List<MST5.FileInfo?>)
         fun hasIdentity(): Boolean
         @Throws(Exception::class)
@@ -24,11 +24,14 @@ object Mst5MessageMapper {
         val chatId = source.optString("chat_id")
         val isRoomMessage = chatId.startsWith("chat:")
         val e2e = source.optJSONObject("e2e")
-        val encrypted = e2e != null && !isRoomMessage
+        // Private messages carry a single v3/v4 envelope. Room messages use the
+        // v5 envelope with a recipient-specific v4 envelope. Keep the wire
+        // format opaque to the UI and let MST5 select/decrypt the local entry.
+        val encrypted = e2e != null && (!isRoomMessage || (e2e.optInt("version") == 5 && e2e.optJSONObject("recipients") != null))
         val system = source.optBoolean("system")
         val media = Mst5Json.media(source.optJSONArray("media"))
         if (encrypted) {
-            text = security.decrypt(from, to, e2e!!)
+            text = security.decrypt(from, to, chatId, e2e!!)
             security.rememberEncryptedMedia(from, to, media)
         } else if (!system && !isRoomMessage && media.isEmpty() && security.hasIdentity() && from.id.isNotEmpty() && to.id.isNotEmpty()) {
             try {
