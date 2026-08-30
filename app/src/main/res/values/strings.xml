@@ -429,6 +429,7 @@
 	<string name="profile_verification">Verification</string>
 	<string name="profile_id">ID</string>
 	<string name="profile_username">Username</string>
+	<string name="profile_qr">QR profile</string>
 	<string name="profile_name">Name</string>
 	<string name="profile_description">Description</string>
 	<string name="profile_description_empty">No description</string>

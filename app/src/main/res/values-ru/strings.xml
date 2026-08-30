@@ -427,6 +427,7 @@
 	<string name="profile_verification">Верификация</string>
 	<string name="profile_id">ID</string>
 	<string name="profile_username">Username</string>
+	<string name="profile_qr">QR-профиль</string>
 	<string name="profile_name">Имя</string>
 	<string name="profile_description">Описание</string>
 	<string name="profile_description_empty">Описание не указано</string>

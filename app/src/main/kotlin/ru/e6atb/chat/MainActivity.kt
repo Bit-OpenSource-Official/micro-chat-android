@@ -76,6 +76,8 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Switch
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -3178,6 +3180,9 @@ class MainActivity : Activity() {
                 pickAvatar()
             }
         }))))
+        box.addView(spaced(row(button(getString(R.string.profile_qr), object : View.OnClickListener {
+            override fun onClick(v: View?) { showProfileQr() }
+        }))))
         if (myAvatar != null && myAvatar!!.id.isNotEmpty()) {
             box.addView(spaced(row(button(getString(R.string.action_delete), object : View.OnClickListener {
                 override fun onClick(v: View?) {
@@ -3185,6 +3190,20 @@ class MainActivity : Activity() {
                 }
             }))))
         }
+    }
+
+    private fun showProfileQr() {
+        val address = if (!myLogin.isNullOrEmpty()) myLogin else myID.orEmpty()
+        if (address.isEmpty()) { status.setText(getString(R.string.status_sign_in_first)); return }
+        try {
+            val matrix = QRCodeWriter().encode("ove://user/$address", BarcodeFormat.QR_CODE, 640, 640)
+            val bitmap = Bitmap.createBitmap(matrix.width, matrix.height, Bitmap.Config.ARGB_8888)
+            for (x in 0 until matrix.width) for (y in 0 until matrix.height) bitmap.setPixel(x, y, if (matrix.get(x, y)) Color.BLACK else Color.WHITE)
+            val image = ImageView(this).apply { setImageBitmap(bitmap); setPadding(gap, gap, gap, gap); setBackgroundColor(Color.WHITE); contentDescription = getString(R.string.profile_qr) }
+            val caption = label("ove://user/$address").also { it.setGravity(Gravity.CENTER); it.setTextColor(muted) }
+            val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(image, LinearLayout.LayoutParams(-1, dp(300))); addView(caption, LinearLayout.LayoutParams(-1, -2)) }
+            showContentDialog(getString(R.string.profile_qr), content, getString(R.string.action_close), null, null)
+        } catch (error: Exception) { status.setText(errorText(error)) }
     }
 
     private fun showSettingsSessions() {
