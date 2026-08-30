@@ -1205,7 +1205,8 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
     @kotlin.Throws(Exception::class)
     fun sendDastars(to: String, amount: Long, comment: String): WalletInfo {
         val body: JSONObject = JSONObject()
-        body.put("to", to)
+        val recipient = to.trim().removePrefix("ove://user/").removePrefix("ove:user:").trim('/')
+        body.put("to", recipient)
         body.put("amount", amount)
         body.put("comment", if (comment == null) "" else comment.trim())
         return ru.e6atb.chat.MST5.Companion.walletInfo(post("/wallet/send", body, 10000).getJSONObject("wallet"))
