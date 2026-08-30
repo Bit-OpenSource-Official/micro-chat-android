@@ -177,6 +177,17 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         activateE2E(ru.e6atb.chat.MST5.User(userId, "", login, "", false, false), null)
     }
 
+    /** Registers the active identity for a group/channel-specific E2E slot. */
+    @kotlin.Throws(Exception::class)
+    fun registerChatE2E(chatId: String) {
+        val identity = e2eIdentity ?: throw SecurityException("E2E private key is unavailable on this device")
+        val body = JSONObject()
+            .put("version", 3)
+            .put("public_key", identity.publicKeyB64)
+            .put("chat_id", chatId.trim())
+        post("/e2e/key", body, 10000)
+    }
+
     @kotlin.Throws(Exception::class)
     fun resetCloudPassword(email: String, code: String): User {
         val body: JSONObject = JSONObject()
@@ -1507,6 +1518,21 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         }
         return ru.e6atb.chat.MST5.PeerE2EKey(user, response.optInt("version", 1), response.getString("public_key"))
     }
+
+    @kotlin.Throws(Exception::class)
+    private fun fetchChatE2EKey(address: String, chatId: String): PeerE2EKey {
+        val response = get(
+            "/e2e/key?user=" + ru.e6atb.chat.MST5.Companion.enc(address) +
+                "&chat_id=" + ru.e6atb.chat.MST5.Companion.enc(chatId), 10000
+        )
+        val user = ru.e6atb.chat.MST5.user(response.getJSONObject("user"))
+        if (user.id.isEmpty()) throw IOException("e2e user id is unavailable")
+        return ru.e6atb.chat.MST5.PeerE2EKey(user, response.optInt("version", 1), response.getString("public_key"))
+    }
+
+    @kotlin.Throws(Exception::class)
+    fun chatE2EPublicKey(address: String, chatId: String): String =
+        fetchChatE2EKey(address, chatId).publicKey
 
     @kotlin.Throws(Exception::class)
     private fun peerE2EKey(peer: String): PeerE2EKey {
