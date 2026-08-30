@@ -98,6 +98,8 @@
 	<string name="status_online">online</string>
 	<string name="status_online_as">online as %1$s</string>
 	<string name="status_choose_server">choose server</string>
+	<string name="wallet_debit_notification_title">DSR списание</string>
+	<string name="wallet_debit_notification_text">−%1$d DSR · %2$s</string>
 	<string name="status_server">server: %1$s</string>
 	<string name="status_microphone_denied">microphone permission denied</string>
 	<string name="status_nodes_updated">nodes updated</string>
