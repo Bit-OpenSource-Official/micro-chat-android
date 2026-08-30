@@ -442,6 +442,10 @@
 	<string name="profile_user">Пользователь</string>
 	<string name="action_profile">Профиль</string>
 	<string name="action_verify_e2e">Проверить E2E ключ</string>
+	<string name="action_enable_chat_e2e">Включить шифрование чата</string>
+	<string name="action_disable_chat_e2e">Выключить шифрование чата</string>
+	<string name="status_chat_e2e_enabled">Шифрование чата включено</string>
+	<string name="status_chat_e2e_disabled">Шифрование чата выключено</string>
 	<string name="action_copy_id">Копировать id</string>
 	<string name="action_delete_chat">Удалить чат</string>
 	<string name="action_leave_chat">Покинуть чат</string>

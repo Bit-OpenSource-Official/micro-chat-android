@@ -31,6 +31,7 @@ internal object SessionStore {
     @JvmField val TRANSPORT_MST5 = "mst5"
     @JvmField val TRANSPORT_M5OH = "m5oh"
     private const val E2E_PEER_PREFIX = "e2e.peer."
+    private const val E2E_CHAT_PREFIX = "e2e.chat."
 
     @JvmStatic fun save(context: Context?, server: String?, token: String?, username: String?) = save(context, server, token, userId(context), username)
     @JvmStatic fun save(context: Context?, server: String?, token: String?, userId: String?, username: String?) {
@@ -86,6 +87,16 @@ internal object SessionStore {
     @JvmStatic fun peerE2EFingerprint(context: Context?, server: String?, ownLogin: String?, peer: String?): String {
         val key = E2E_PEER_PREFIX + keyID("${safe(server)}\n${safe(ownLogin)}\n${safe(peer)}"); val publicKey = get(context, key, "")
         return if (publicKey.isEmpty()) "" else try { NativeE2E.fingerprint(publicKey) } catch (_: Exception) { "" }
+    }
+
+    @JvmStatic fun chatE2EEnabled(context: Context?, server: String?, ownLogin: String?, chatId: String?): Boolean {
+        val key = E2E_CHAT_PREFIX + keyID("${safe(server)}\n${safe(ownLogin)}\n${safe(chatId)}")
+        return get(context, key, "false") == "true"
+    }
+
+    @JvmStatic fun setChatE2EEnabled(context: Context?, server: String?, ownLogin: String?, chatId: String?, enabled: Boolean) {
+        val key = E2E_CHAT_PREFIX + keyID("${safe(server)}\n${safe(ownLogin)}\n${safe(chatId)}")
+        load(context).also { p -> p.setProperty(key, enabled.toString()); store(context, p) }
     }
 
     private fun longValue(context: Context?, key: String): Long = get(context, key, "0").toLongOrNull() ?: 0

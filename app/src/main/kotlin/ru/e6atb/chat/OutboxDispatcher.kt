@@ -30,15 +30,19 @@ internal object OutboxDispatcher {
             synchronized(transfers) { transfers[entry.id] = transfer }; entry.progressPhase = if (entry.kind == "media" || entry.kind == "file") "sending" else ""; entry.progressPercent = 0; notifyListener(listener, entry, null)
             try {
                 val sent = if (entry.kind == "media" || entry.kind == "file") {
-                    val prepared = client.prepareMessage(entry.peer, entry.text, entry.id, entry.room, entry.replyToMessageId); if (entry.commentPostId > 0) prepared.put("comment_post_id", entry.commentPostId)
+                    val roomUser = if (entry.encrypted && entry.room) client.getPeer(entry.peer) else null
+                    val prepared = if (roomUser == null) client.prepareMessage(entry.peer, entry.text, entry.id, entry.room, entry.replyToMessageId) else JSONObject()
+                    if (entry.commentPostId > 0) prepared.put("comment_post_id", entry.commentPostId)
                     val media = ArrayList<MST5.MessageMedia>(); entry.attachments.forEach { attachment ->
                         val source = if (attachment.fileId.isNullOrEmpty()) object : MST5.UploadSource {
                             override fun open(): InputStream = when { !attachment.localPath.isNullOrEmpty() -> FileInputStream(File(attachment.localPath)); !attachment.sourceUri.isNullOrEmpty() -> context.contentResolver.openInputStream(Uri.parse(attachment.sourceUri)) ?: throw IllegalStateException("media source is unavailable"); else -> throw IllegalStateException("media source is unavailable") }
                             override fun openDescriptor(): ParcelFileDescriptor? = when { !attachment.localPath.isNullOrEmpty() -> ParcelFileDescriptor.open(File(attachment.localPath), ParcelFileDescriptor.MODE_READ_ONLY); !attachment.sourceUri.isNullOrEmpty() -> context.contentResolver.openFileDescriptor(Uri.parse(attachment.sourceUri), "r"); else -> null }
                         } else null
                         media += MST5.MessageMedia(attachment.clientId, attachment.fileId, attachment.name, attachment.mime, attachment.size, source, attachment.photo)
-                    }; client.sendMessageWithMedia(prepared, media, transfer, entry.maxDsrAmount).asOutgoing()
-                } else if (entry.commentPostId > 0) client.sendChannelComment(entry.peer, entry.commentPostId, entry.text, entry.id, entry.replyToMessageId).asOutgoing()
+                    }; if (roomUser != null) client.sendGroupE2eMedia(roomUser, entry.text, media, transfer, entry.maxDsrAmount, entry.id, entry.replyToMessageId, entry.commentPostId).asOutgoing() else client.sendMessageWithMedia(prepared, media, transfer, entry.maxDsrAmount).asOutgoing()
+                } else if (entry.commentPostId > 0 && entry.encrypted && entry.room) client.sendGroupE2eMessage(client.getPeer(entry.peer), entry.text, entry.id, entry.replyToMessageId, entry.commentPostId).asOutgoing()
+                else if (entry.commentPostId > 0) client.sendChannelComment(entry.peer, entry.commentPostId, entry.text, entry.id, entry.replyToMessageId).asOutgoing()
+                else if (entry.encrypted && entry.room) client.sendGroupE2eMessage(client.getPeer(entry.peer), entry.text, entry.id, entry.replyToMessageId).asOutgoing()
                 else client.sendPreparedMessage(client.prepareMessage(entry.peer, entry.text, entry.id, entry.room, entry.replyToMessageId)).asOutgoing()
                 ChatCache.appendMessage(context, server, SessionStore.login(context), OutboxStore.cachePeer(entry.peer, entry.commentPostId), sent); OutboxStore.complete(context, server, user, entry.id); notifyListener(listener, entry, sent)
             } catch (error: Throwable) {

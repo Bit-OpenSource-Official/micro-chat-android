@@ -1810,6 +1810,21 @@ class MainActivity : Activity() {
         return currentPeerIsRoom() && "group".equals(currentPeerUser!!.roomKind)
     }
 
+    private fun currentRoomChatId(): String {
+        return if (currentPeerUser == null || !currentPeerIsRoom()) "" else "chat:" + currentPeerUser!!.id
+    }
+
+    private fun currentPeerE2EEnabled(): Boolean {
+        if (!currentPeerIsRoom()) return false
+        val chatId = currentRoomChatId()
+        return chatId.isNotEmpty() && SessionStore.chatE2EEnabled(
+            this,
+            SessionStore.server(this, ru.e6atb.chat.MainActivity.Companion.DEFAULT_SERVER),
+            myLogin,
+            chatId
+        )
+    }
+
     private fun currentPeerCanWrite(): Boolean {
         if (!currentPeerIsRoom()) return true
         if (!currentPeerIsChannel()) return true
@@ -5044,7 +5059,8 @@ class MainActivity : Activity() {
             clientMessageId,
             maxDsr,
             commentPostId,
-            replyId
+            replyId,
+            room && currentPeerE2EEnabled()
         )
         ui(object : Runnable {
             override fun run() {
@@ -5093,7 +5109,8 @@ class MainActivity : Activity() {
                 peerName,
                 currentPeerIsRoom(),
                 msg,
-                replyToMessageId
+                replyToMessageId,
+                currentPeerE2EEnabled()
             )
             addMessageRow(outboxMessage(entry), false)
             if (clearInput && text != null) text.setText("")
@@ -9665,6 +9682,7 @@ class MainActivity : Activity() {
         if (currentPeer != null && currentPeer.length > 0) {
             actions.add(getString(R.string.action_profile))
             if (currentPeerIsRoom()) {
+                actions.add(if (currentPeerE2EEnabled()) getString(R.string.action_disable_chat_e2e) else getString(R.string.action_enable_chat_e2e))
                 if (!currentPeerIsChannel() || currentPeerCanManageRoom()) {
                     actions.add(getString(R.string.action_members))
                 }
@@ -9696,6 +9714,8 @@ class MainActivity : Activity() {
                 val action: String = actions.get(which)
                 if (action.equals(getString(R.string.action_profile))) {
                     showCurrentPeerProfile()
+                } else if (action.equals(getString(R.string.action_enable_chat_e2e)) || action.equals(getString(R.string.action_disable_chat_e2e))) {
+                    toggleCurrentChatE2E(action.equals(getString(R.string.action_enable_chat_e2e)))
                 } else if (action.equals(getString(R.string.action_members))) {
                     showCurrentRoomMembersDialog()
                 } else if (action.equals(getString(R.string.action_invite))) {
@@ -9720,6 +9740,26 @@ class MainActivity : Activity() {
                     if (currentPeerBannedByMe) confirmUnbanCurrentPeer()
                     else confirmBanCurrentPeer()
                 }
+            }
+        })
+    }
+
+    private fun toggleCurrentChatE2E(enabled: Boolean) {
+        val client = ta
+        val room = currentPeerUser
+        val chatId = currentRoomChatId()
+        if (client == null || room == null || chatId.isEmpty()) return
+        if (!enabled) {
+            SessionStore.setChatE2EEnabled(this, SessionStore.server(this, ru.e6atb.chat.MainActivity.Companion.DEFAULT_SERVER), myLogin, chatId, false)
+            status.setText(getString(R.string.status_chat_e2e_disabled))
+            return
+        }
+        run("chat_e2e", object : Task {
+            @Throws(Exception::class)
+            override fun run() {
+                client.registerChatE2E(chatId)
+                SessionStore.setChatE2EEnabled(this@MainActivity, SessionStore.server(this@MainActivity, ru.e6atb.chat.MainActivity.Companion.DEFAULT_SERVER), myLogin, chatId, true)
+                ui(object : Runnable { override fun run() { status.setText(getString(R.string.status_chat_e2e_enabled)) } })
             }
         })
     }

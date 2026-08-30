@@ -471,7 +471,7 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
 
     /** Builds a v5 recipient envelope for a room using its chat-scoped keys. */
     @kotlin.Throws(Exception::class)
-    fun prepareGroupE2eMessage(room: User, text: String, clientMessageId: String?, replyToMessageId: Long): JSONObject {
+    fun prepareGroupE2eMessage(room: User, text: String, clientMessageId: String?, replyToMessageId: Long, commentPostId: Long = 0): JSONObject {
         val identity = e2eIdentity ?: throw SecurityException("E2E private key is unavailable on this device")
         val members = ArrayList<User>()
         room.memberUsers.forEach { if (it.id.isNotEmpty() && members.none { member -> member.id == it.id }) members += it }
@@ -491,19 +491,20 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
             put("to", room.id)
             if (!clientMessageId.isNullOrEmpty()) put("client_message_id", clientMessageId)
             if (replyToMessageId > 0) put("reply_to_message_id", replyToMessageId)
+            if (commentPostId > 0) put("comment_post_id", commentPostId)
             put("e2e", JSONObject().put("version", 5).put("recipients", recipients))
         }
     }
 
     @kotlin.Throws(Exception::class)
-    fun sendGroupE2eMessage(room: User, text: String, clientMessageId: String?, replyToMessageId: Long): Message =
-        sendPreparedMessage(prepareGroupE2eMessage(room, text, clientMessageId, replyToMessageId))
+    fun sendGroupE2eMessage(room: User, text: String, clientMessageId: String?, replyToMessageId: Long, commentPostId: Long = 0): Message =
+        sendPreparedMessage(prepareGroupE2eMessage(room, text, clientMessageId, replyToMessageId, commentPostId))
 
     /** Uploads group media encrypted once, wrapping its key for every member. */
     @kotlin.Throws(Exception::class)
     fun sendGroupE2eMedia(
         room: User, text: String, items: List<MessageMedia>?, transfer: TransferControl?, maxDsrAmount: Long,
-        clientMessageId: String?, replyToMessageId: Long
+        clientMessageId: String?, replyToMessageId: Long, commentPostId: Long = 0
     ): Message {
         val identity = e2eIdentity ?: throw SecurityException("E2E private key is unavailable on this device")
         val members = room.memberUsers.filter { it.id.isNotEmpty() && !it.bot }
@@ -529,6 +530,7 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
             val body = JSONObject().put("to", room.id).put("e2e", e2e)
             if (!clientMessageId.isNullOrEmpty()) body.put("client_message_id", clientMessageId)
             if (replyToMessageId > 0) body.put("reply_to_message_id", replyToMessageId)
+            if (commentPostId > 0) body.put("comment_post_id", commentPostId)
             body.put("_media_key", Base64Codec.encode(mediaKey))
             return sendMessageWithMedia(body, items, transfer, maxDsrAmount)
         } finally {
@@ -1144,6 +1146,10 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         val path = "/history?peer=" + ru.e6atb.chat.MST5.Companion.enc(peer) + "&after=" + after + "&limit=" + limit
         return historyPage(path).messages
     }
+
+    /** Resolves the server-side peer, including room members required for group E2E. */
+    @kotlin.Throws(Exception::class)
+    fun getPeer(peer: String): User = historyPage("/history?peer=" + ru.e6atb.chat.MST5.Companion.enc(peer) + "&limit=1").peer
 
     @kotlin.Throws(Exception::class)
     fun getHistoryBefore(peer: String, before: Long, limit: Int): List<Message> {

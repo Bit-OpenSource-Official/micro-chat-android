@@ -444,6 +444,10 @@
 	<string name="profile_user">User</string>
 	<string name="action_profile">Profile</string>
 	<string name="action_verify_e2e">Verify E2E key</string>
+	<string name="action_enable_chat_e2e">Enable chat encryption</string>
+	<string name="action_disable_chat_e2e">Disable chat encryption</string>
+	<string name="status_chat_e2e_enabled">Chat encryption enabled</string>
+	<string name="status_chat_e2e_disabled">Chat encryption disabled</string>
 	<string name="action_copy_id">Copy id</string>
 	<string name="action_delete_chat">Delete chat</string>
 	<string name="action_leave_chat">Leave chat</string>
