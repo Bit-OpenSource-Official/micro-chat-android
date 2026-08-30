@@ -927,7 +927,7 @@ class MainActivity : Activity() {
         chatFilterBar.setGravity(Gravity.CENTER_VERTICAL)
         val filterScroll = HorizontalScrollView(this)
         filterScroll.setHorizontalScrollBarEnabled(false)
-        filterScroll.addView(chatFilterBar, HorizontalScrollView.LayoutParams(-2, -2))
+        filterScroll.addView(chatFilterBar, ViewGroup.LayoutParams(-2, -2))
         val filterLp = LinearLayout.LayoutParams(-1, -2)
         filterLp.setMargins(pad, 0, pad, gap)
         content.addView(filterScroll, filterLp)
