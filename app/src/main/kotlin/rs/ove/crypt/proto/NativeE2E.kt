@@ -24,15 +24,24 @@ object NativeE2E {
         if (peer.size != 32) throw IllegalArgumentException("E2E public key must be 32 bytes"); return Session(actual, peer, from, to)
     }
     @JvmStatic @Throws(IOException::class) fun seal(session: Session, from: String?, to: String?, text: String?): Envelope = Envelope.decode(NativeMst5.e2eSeal(session.identity.requireHandle(), session.peer, from, to, text.orEmpty().toByteArray(Charsets.UTF_8)))
+    @JvmStatic @Throws(IOException::class) fun sealBytes(session: Session, from: String?, to: String?, plaintext: ByteArray?): Envelope = Envelope.decode(NativeMst5.e2eSeal(session.identity.requireHandle(), session.peer, from, to, plaintext ?: ByteArray(0)))
     @JvmStatic @Throws(IOException::class) fun open(session: Session, from: String?, to: String?, envelope: Envelope): String = NativeMst5.e2eDecrypt(session.identity.requireHandle(), session.peer, from, to, envelope.encoded).toString(Charsets.UTF_8)
+    @JvmStatic @Throws(IOException::class) fun openBytes(session: Session, from: String?, to: String?, envelope: Envelope): ByteArray = NativeMst5.e2eDecrypt(session.identity.requireHandle(), session.peer, from, to, envelope.encoded)
     @JvmStatic @Throws(IOException::class) fun encryptedMediaSize(plaintextSize: Long): Long {
         if (plaintextSize < 0) throw IOException("invalid E2E media size")
         return try { Math.addExact(plaintextSize, Math.addExact(32L, Math.multiplyExact((plaintextSize + 65535L) / 65536L, 20L))) } catch (error: ArithmeticException) { throw IOException("E2E media size overflow", error) }
     }
     @JvmStatic @Throws(Exception::class) fun uploadMedia(session: Session, endpoint: String?, publicKey: String?, ticket: String?, fileId: String?, plaintextSize: Long, source: ParcelFileDescriptor?, observer: Mst5MediaClient.Observer?) = Mst5MediaClient.uploadE2EDescriptor(endpoint, publicKey, ticket, fileId, plaintextSize, source, session.identity.requireHandle(), session.peer, session.from, session.to, observer)
+    @JvmStatic @Throws(Exception::class) fun uploadMediaWithKey(endpoint: String?, publicKey: String?, ticket: String?, fileId: String?, plaintextSize: Long, source: ParcelFileDescriptor?, mediaKey: ByteArray?, fileAad: ByteArray?, observer: Mst5MediaClient.Observer?) = Mst5MediaClient.uploadE2EDescriptorWithKey(endpoint, publicKey, ticket, fileId, plaintextSize, source, mediaKey, fileAad, observer)
     @JvmStatic @Throws(Exception::class) fun downloadMedia(session: Session, endpoint: String?, publicKey: String?, ticket: String?, fileId: String?, encryptedSize: Long, target: ParcelFileDescriptor?, observer: Mst5MediaClient.Observer?): Long = Mst5MediaClient.downloadE2EDescriptor(endpoint, publicKey, ticket, fileId, encryptedSize, target, session.identity.requireHandle(), session.peer, session.from, session.to, observer)
+    @JvmStatic @Throws(Exception::class) fun downloadMediaWithKey(endpoint: String?, publicKey: String?, ticket: String?, fileId: String?, encryptedSize: Long, target: ParcelFileDescriptor?, mediaKey: ByteArray?, fileAad: ByteArray?, observer: Mst5MediaClient.Observer?): Long = Mst5MediaClient.downloadE2EDescriptorWithKey(endpoint, publicKey, ticket, fileId, encryptedSize, target, mediaKey, fileAad, observer)
     @JvmStatic @Throws(Exception::class) fun downloadMediaBytes(session: Session, endpoint: String?, publicKey: String?, ticket: String?, fileId: String?, encryptedSize: Long, maxBytes: Int): ByteArray = Mst5MediaClient.downloadE2EBytes(endpoint, publicKey, ticket, fileId, encryptedSize, maxBytes, session.identity.requireHandle(), session.peer, session.from, session.to)
+    @JvmStatic @Throws(Exception::class) fun downloadMediaBytesWithKey(endpoint: String?, publicKey: String?, ticket: String?, fileId: String?, encryptedSize: Long, maxBytes: Int, mediaKey: ByteArray?, fileAad: ByteArray?): ByteArray = Mst5MediaClient.downloadE2EBytesWithKey(endpoint, publicKey, ticket, fileId, encryptedSize, maxBytes, mediaKey, fileAad)
     @JvmStatic @Throws(IOException::class) fun fingerprint(publicKey: String?): String { val key = Base64Codec.decode(publicKey.orEmpty()); if (key.size != 32) throw IllegalArgumentException("E2E public key must be 32 bytes"); return NativeMst5.e2ePublicFingerprint(key) }
+    @JvmStatic @Throws(IOException::class) fun mediaKey(identity: Identity?, peerPublicKey: String?, from: String?, to: String?): ByteArray {
+        val session = session(identity, peerPublicKey, from, to)
+        return NativeMst5.e2eMediaKey(session.identity.requireHandle(), session.peer, from, to)
+    }
     @JvmStatic @Throws(IOException::class) fun backup(identity: Identity, password: String?): Backup = Backup(2, NativeMst5.e2eBackup(identity.requireHandle(), password))
 
     class Identity internal constructor(private var handle: Long, @JvmField internal val path: String) {

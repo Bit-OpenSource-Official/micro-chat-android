@@ -9,7 +9,7 @@ object Mst5MessageMapper {
     interface Security {
         @Throws(Exception::class)
         fun decrypt(from: MST5.User, to: MST5.User, chatId: String, payload: JSONObject): String
-        fun rememberEncryptedMedia(from: MST5.User, to: MST5.User, media: List<MST5.FileInfo?>)
+        fun rememberEncryptedMedia(from: MST5.User, to: MST5.User, chatId: String, payload: JSONObject, media: List<MST5.FileInfo?>)
         fun hasIdentity(): Boolean
         @Throws(Exception::class)
         fun verifyPeer(peer: String)
@@ -32,7 +32,7 @@ object Mst5MessageMapper {
         val media = Mst5Json.media(source.optJSONArray("media"))
         if (encrypted) {
             text = security.decrypt(from, to, chatId, e2e!!)
-            security.rememberEncryptedMedia(from, to, media)
+            security.rememberEncryptedMedia(from, to, chatId, e2e!!, media)
         } else if (!system && !isRoomMessage && media.isEmpty() && security.hasIdentity() && from.id.isNotEmpty() && to.id.isNotEmpty()) {
             try {
                 security.verifyPeer(if (from.id == userId) to.id else from.id)

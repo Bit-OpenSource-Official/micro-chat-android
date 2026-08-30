@@ -5,6 +5,7 @@ import android.os.ParcelFileDescriptor
 import org.json.JSONArray
 import org.json.JSONObject
 import rs.ove.crypt.proto.CryptTcpClient
+import rs.ove.crypt.proto.Base64Codec
 import rs.ove.crypt.proto.Mst5MediaClient
 import rs.ove.crypt.proto.NativeE2E
 import java.io.File
@@ -468,6 +469,79 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         return body
     }
 
+    /** Builds a v5 recipient envelope for a room using its chat-scoped keys. */
+    @kotlin.Throws(Exception::class)
+    fun prepareGroupE2eMessage(room: User, text: String, clientMessageId: String?, replyToMessageId: Long): JSONObject {
+        val identity = e2eIdentity ?: throw SecurityException("E2E private key is unavailable on this device")
+        val members = ArrayList<User>()
+        room.memberUsers.forEach { if (it.id.isNotEmpty() && members.none { member -> member.id == it.id }) members += it }
+        if (members.none { it.id == userId || it.login.equals(login, ignoreCase = true) }) {
+            members += User(userId, "", login, "", false, false, 0)
+        }
+        if (members.isEmpty()) throw IOException("room has no E2E recipients")
+        val recipients = JSONObject()
+        for (member in members) {
+            val address = if (member.id.isNotEmpty()) member.id else member.login
+            val key = if (address == userId || address.equals(login, ignoreCase = true)) identity.publicKeyB64
+            else fetchChatE2EKey(address, room.id).publicKey
+            val envelope = NativeE2E.seal(NativeE2E.session(identity, key, accountAddress(), address), accountAddress(), address, text)
+            recipients.put(address, envelopeJson(envelope))
+        }
+        return JSONObject().apply {
+            put("to", room.id)
+            if (!clientMessageId.isNullOrEmpty()) put("client_message_id", clientMessageId)
+            if (replyToMessageId > 0) put("reply_to_message_id", replyToMessageId)
+            put("e2e", JSONObject().put("version", 5).put("recipients", recipients))
+        }
+    }
+
+    @kotlin.Throws(Exception::class)
+    fun sendGroupE2eMessage(room: User, text: String, clientMessageId: String?, replyToMessageId: Long): Message =
+        sendPreparedMessage(prepareGroupE2eMessage(room, text, clientMessageId, replyToMessageId))
+
+    /** Uploads group media encrypted once, wrapping its key for every member. */
+    @kotlin.Throws(Exception::class)
+    fun sendGroupE2eMedia(
+        room: User, text: String, items: List<MessageMedia>?, transfer: TransferControl?, maxDsrAmount: Long,
+        clientMessageId: String?, replyToMessageId: Long
+    ): Message {
+        val identity = e2eIdentity ?: throw SecurityException("E2E private key is unavailable on this device")
+        val members = room.memberUsers.filter { it.id.isNotEmpty() && !it.bot }
+        if (members.isEmpty()) throw IOException("room has no E2E recipients")
+        val primary = members.first()
+        val primaryAddress = if (primary.id.isNotEmpty()) primary.id else primary.login
+        val primaryKey = if (primaryAddress == userId || primaryAddress.equals(login, ignoreCase = true)) identity.publicKeyB64
+        else fetchChatE2EKey(primaryAddress, room.id).publicKey
+        val mediaKey = NativeE2E.mediaKey(identity, primaryKey, accountAddress(), primaryAddress)
+        val mediaRecipients = JSONObject()
+        val textRecipients = JSONObject()
+        try {
+            for (member in members) {
+                val address = if (member.id.isNotEmpty()) member.id else member.login
+                val key = if (address == userId || address.equals(login, ignoreCase = true)) identity.publicKeyB64
+                else fetchChatE2EKey(address, room.id).publicKey
+                val session = NativeE2E.session(identity, key, accountAddress(), address)
+                mediaRecipients.put(address, envelopeJson(NativeE2E.sealBytes(session, accountAddress(), address, mediaKey)))
+                textRecipients.put(address, envelopeJson(NativeE2E.seal(session, accountAddress(), address, text)))
+            }
+            val e2e = JSONObject().put("version", 5).put("recipients", textRecipients)
+                .put("media", JSONObject().put("key_recipients", mediaRecipients).put("aad", ""))
+            val body = JSONObject().put("to", room.id).put("e2e", e2e)
+            if (!clientMessageId.isNullOrEmpty()) body.put("client_message_id", clientMessageId)
+            if (replyToMessageId > 0) body.put("reply_to_message_id", replyToMessageId)
+            body.put("_media_key", Base64Codec.encode(mediaKey))
+            return sendMessageWithMedia(body, items, transfer, maxDsrAmount)
+        } finally {
+            mediaKey.fill(0)
+        }
+    }
+
+    private fun envelopeJson(envelope: NativeE2E.Envelope): JSONObject = JSONObject().apply {
+        put("version", envelope.version)
+        put("nonce", envelope.nonce)
+        put("ciphertext", envelope.ciphertext)
+    }
+
     @kotlin.Throws(Exception::class)
     fun sendPreparedMessage(body: JSONObject?): Message {
         return message(post("/send", body, 10000).getJSONObject("message"))!!
@@ -710,7 +784,12 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         val body: JSONObject = JSONObject(if (preparedBody == null) "{}" else preparedBody.toString())
         val preparedPhotoFiles: ArrayList<File> = ArrayList<File>()
         val uploadItems = preparePhotoUploads(items, preparedPhotoFiles)
-        val encryptMedia = body.optJSONObject("e2e") != null
+        val e2eBody = body.optJSONObject("e2e")
+        val groupMedia = e2eBody?.optJSONObject("media")
+        val groupMediaKey = body.optString("_media_key").takeIf { it.isNotEmpty() }?.let { Base64Codec.decode(it) }
+        val groupMediaAad = groupMedia?.optString("aad").orEmpty().let { if (it.isEmpty()) ByteArray(0) else Base64Codec.decode(it) }
+        body.remove("_media_key")
+        val encryptMedia = e2eBody != null
         body.put("media", ru.e6atb.chat.MST5.Companion.mediaRequest(uploadItems, encryptMedia))
         body.put("max_dsr_amount", Math.max(0, maxDsrAmount))
         val prepared: JSONObject = post("/messages/prepare", body, 10000)
@@ -743,7 +822,22 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
                 val descriptor: ParcelFileDescriptor = source.source.openDescriptor()
                     ?: throw IOException("media descriptor is not available")
                 descriptors.add(descriptor)
-                if (encryptMedia) {
+                if (groupMediaKey != null) {
+                    val progressBase = encryptedCompleted
+                    val sourceSize = source.size
+                    Mst5MediaClient.uploadE2EDescriptorWithKey(
+                        ticket.getString("endpoint"), ticket.getString("server_public_key"),
+                        ticket.getString("ticket"), ticket.getString("file_id"), source.size, descriptor,
+                        groupMediaKey, groupMediaAad,
+                        if (transfer == null) null else object : Mst5MediaClient.Observer {
+                            override fun isCancelled(): Boolean = transfer.isCancelled
+                            override fun onProgress(done: Long, ignored: Long) {
+                                transfer.progress(Math.min(progressTotal, progressBase + Math.min(sourceSize, done)), progressTotal)
+                            }
+                        }
+                    )
+                    encryptedCompleted += source.size
+                } else if (encryptMedia) {
                     val to: String = body.optString("to")
                     val peer = peerE2EKey(to)
                     val progressBase = encryptedCompleted
@@ -941,6 +1035,12 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         val announced: Long = ticket.optLong("size", -1)
         val e2e: MediaE2EContext? = encryptedMedia.get(if (fileID == null) "" else fileID)
         if (e2e != null) {
+            if (e2e.mediaKey != null) {
+                return NativeE2E.downloadMediaBytesWithKey(
+                    ticket.getString("endpoint"), ticket.getString("server_public_key"), ticket.getString("ticket"), ticket.getString("file_id"),
+                    announced, if (maxBytes > 0) maxBytes else Integer.MAX_VALUE, e2e.mediaKey, e2e.mediaAad ?: ByteArray(0)
+                )
+            }
             return NativeE2E.downloadMediaBytes(
                 e2eSessionForMedia(e2e), ticket.getString("endpoint"),
                 ticket.getString("server_public_key"), ticket.getString("ticket"), ticket.getString("file_id"),
@@ -975,7 +1075,12 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
                         listener.onProgress(completed, total)
                     }
                 }
-                if (e2e == null) {
+                if (e2e?.mediaKey != null) {
+                    NativeE2E.downloadMediaWithKey(
+                        ticket.getString("endpoint"), ticket.getString("server_public_key"), ticket.getString("ticket"), ticket.getString("file_id"), announced, descriptor,
+                        e2e.mediaKey, e2e.mediaAad ?: ByteArray(0), observer
+                    )
+                } else if (e2e == null) {
                     Mst5MediaClient.downloadDescriptor(
                         ticket.getString("endpoint"), ticket.getString("server_public_key"),
                         ticket.getString("ticket"), ticket.getString("file_id"), announced, descriptor, observer
@@ -1004,7 +1109,10 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
 
     @kotlin.Throws(Exception::class)
     private fun e2eSessionForMedia(media: MediaE2EContext): NativeE2E.Session {
-        if (e2eIdentity == null) throw SecurityException("E2E private key is unavailable on this device")
+        val identity = e2eIdentity ?: throw SecurityException("E2E private key is unavailable on this device")
+        if (media.mediaKey != null) {
+            return NativeE2E.session(identity, Base64Codec.encode(media.mediaKey), media.fromContext, media.toContext)
+        }
         val sentByMe = if (userId.length > 0) userId!!.equals(media.from.id) else login!!.equals(media.from.login)
         val peerUser = if (sentByMe) media.to else media.from
         val peerAddress: String = if (peerUser.id.length > 0) peerUser.id else peerUser.login
@@ -1265,11 +1373,12 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
                 return decryptMessage(from, to, chatId, payload)
             }
 
-            override fun rememberEncryptedMedia(from: User, to: User, media: List<FileInfo?>) {
+            override fun rememberEncryptedMedia(from: User, to: User, chatId: String, payload: JSONObject, media: List<FileInfo?>) {
+                val groupContext = if (payload.optInt("version") == 5) groupMediaContext(from, to, chatId, payload) else null
                 for (file in media) {
                     if (file != null && file.id.length > 0) encryptedMedia.put(
                         file.id,
-                        ru.e6atb.chat.MST5.MediaE2EContext(from, to)
+                        groupContext ?: ru.e6atb.chat.MST5.MediaE2EContext(from, to)
                     )
                 }
             }
@@ -1563,10 +1672,44 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         return e2eSessions.rememberSession(cacheKey, created)
     }
 
+    private fun groupMediaContext(from: User, to: User, chatId: String, payload: JSONObject): MediaE2EContext? {
+        val identity = e2eIdentity ?: return null
+        return try {
+            val media = payload.optJSONObject("media") ?: return null
+            val wrapped = media.optJSONObject("key_recipients") ?: return null
+            val candidates = arrayOf(accountKey(), userId, login)
+            var recipient = ""
+            var encoded: JSONObject? = null
+            for (candidate in candidates) {
+                if (candidate.isNotEmpty()) {
+                    encoded = wrapped.optJSONObject(candidate)
+                    if (encoded != null) { recipient = candidate; break }
+                }
+            }
+            if (encoded == null || recipient.isEmpty()) return null
+            val sentByMe = userId.isNotEmpty() && userId == from.id || userId.isEmpty() && login.equals(from.login, ignoreCase = true)
+            val peerKey = if (sentByMe) identity.publicKeyB64
+            else fetchChatE2EKey(if (from.id.isNotEmpty()) from.id else from.login, chatId).publicKey
+            val envelope = NativeE2E.Envelope(
+                encoded.optInt("version"), encoded.optString("nonce"), encoded.optString("ciphertext"), encoded.optString("tag")
+            )
+            val fromContext = if (from.id.isNotEmpty()) from.id else from.login
+            val toContext = if (userId.isNotEmpty()) userId else login
+            val key = NativeE2E.openBytes(NativeE2E.session(identity, peerKey, fromContext, toContext), fromContext, toContext, envelope)
+            if (key.size != 32) { key.fill(0); return null }
+            val aadText = media.optString("aad")
+            val aad = if (aadText.isEmpty()) ByteArray(0) else Base64Codec.decode(aadText)
+            MediaE2EContext(from, to, key, aad, fromContext, toContext)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun decryptMessage(from: User, to: User, chatId: String, raw: JSONObject): String {
         val identity = e2eIdentity ?: return "[encrypted: private key unavailable]"
         try {
             val group = raw.optInt("version") == 5 && raw.optJSONObject("recipients") != null
+            var groupRecipient = ""
             val envelopeRaw = if (group) {
                 val recipients = raw.getJSONObject("recipients")
                 val candidates = arrayOf(accountKey(), userId, login)
@@ -1574,7 +1717,7 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
                 for (candidate in candidates) {
                     if (!candidate.isNullOrEmpty()) {
                         selected = recipients.optJSONObject(candidate)
-                        if (selected != null) break
+                        if (selected != null) { groupRecipient = candidate; break }
                     }
                 }
                 selected ?: return "[encrypted: recipient unavailable]"
@@ -1593,7 +1736,7 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
                 login.equals(from.login)
             val peerUser = if (sentByMe) to else from
             val fromContext: String = from.id
-            val toContext: String = to.id
+            val toContext: String = if (group && groupRecipient.isNotEmpty()) groupRecipient else to.id
             val session = if (group) {
                 // A sender encrypts one copy for every room member. For our
                 // own outgoing copy the peer key is our own public key; for an
@@ -1619,7 +1762,14 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
 
     private class PeerE2EKey(val user: User, val version: Int, val publicKey: String)
 
-    private class MediaE2EContext(val from: User, val to: User)
+    private class MediaE2EContext(
+        val from: User,
+        val to: User,
+        val mediaKey: ByteArray? = null,
+        val mediaAad: ByteArray? = null,
+        val fromContext: String = from.id,
+        val toContext: String = to.id,
+    )
 
     class User(
         id: String,
