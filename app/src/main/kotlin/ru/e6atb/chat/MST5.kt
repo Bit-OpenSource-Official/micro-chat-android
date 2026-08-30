@@ -1009,6 +1009,15 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         return getHistoryPageBefore(peer, before, limit).messages
     }
 
+    /** Server-side chat search and media-only filtering. */
+    @kotlin.Throws(Exception::class)
+    fun searchHistory(peer: String, query: String, mediaOnly: Boolean, limit: Int): List<Message> {
+        var path = "/history?peer=" + ru.e6atb.chat.MST5.Companion.enc(peer) + "&limit=" + limit.coerceIn(1, 100)
+        if (query.isNotBlank()) path += "&q=" + ru.e6atb.chat.MST5.Companion.enc(query.trim())
+        if (mediaOnly) path += "&media=1"
+        return historyPage(path).messages
+    }
+
     @kotlin.Throws(Exception::class)
     fun getHistoryPageBefore(peer: String, before: Long, limit: Int): HistoryPage {
         val path = "/history?peer=" + ru.e6atb.chat.MST5.Companion.enc(peer) + "&before=" + before + "&limit=" + limit
