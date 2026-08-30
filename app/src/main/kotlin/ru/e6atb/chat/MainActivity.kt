@@ -8959,11 +8959,13 @@ class MainActivity : Activity() {
             }
             if (row.message != null && row.message.media != null) {
                 for (mediaIndex in 0..<row.message.media.size) {
-                    val file: MST5.FileInfo = row.message.media.get(mediaIndex)
+                    // Older server responses could contain a null media entry.
+                    // Do not let one malformed attachment crash ListView layout.
+                    val file: MST5.FileInfo = row.message.media.getOrNull(mediaIndex) ?: continue
                     val kind: String? =
                         if (isImageFile(file)) getString(R.string.message_image_prefix) else getString(R.string.message_file_prefix)
                     val name: String? =
-                        if (file.name == null || file.name.length == 0) getString(R.string.file_fallback_name) else file.name
+                        if (file.name.isNullOrEmpty()) getString(R.string.file_fallback_name) else file.name
                     val mediaRow: MessageRow = MessageRow.file(
                         (kind + name).toString() + " (" + formatBytes(file.size) + ")",
                         file,
@@ -8972,9 +8974,9 @@ class MainActivity : Activity() {
                     val labelLp: LinearLayout.LayoutParams = LinearLayout.LayoutParams(-1, -2)
                     labelLp.setMargins(0, gap / 3, 0, 0)
                     box.addView(fileLabel(mediaRow.text), labelLp)
-                    if (mediaIndex == 0 && row.message.localFilePath.length > 0) {
+                    if (mediaIndex == 0 && !row.message.localFilePath.isNullOrEmpty()) {
                         if (isImageFile(file)) addLocalImagePreview(box, row.message.localFilePath)
-                    } else if (file.id != null && file.id.length > 0) {
+                    } else if (!file.id.isNullOrEmpty()) {
                         if (isImageFile(file)) addImagePreview(box, mediaRow)
                         addDownloadButton(box, mediaRow)
                     }
@@ -9315,6 +9317,7 @@ class MainActivity : Activity() {
                 val actions: LinearLayout = LinearLayout(this@MainActivity)
                 actions.setOrientation(LinearLayout.HORIZONTAL)
                 for (item in row) {
+                    if (item == null) continue
                     val action: Button = messageActionButton(item.text, object : View.OnClickListener {
                         override fun onClick(v: View?) {
                             handleMessageButton(message, item, if (v is Button) v as Button? else null)
@@ -9397,6 +9400,7 @@ class MainActivity : Activity() {
             }
             if (message.reactions != null) {
                 for (item in message.reactions) {
+                    if (item == null) continue
                     val chip: Button = reactionChip(item.emoji + " " + item.count, item.mine)
                     chip.setOnClickListener(object : View.OnClickListener {
                         override fun onClick(v: View?) {
