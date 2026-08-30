@@ -191,6 +191,22 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         token = ""
     }
 
+    data class InactivityPolicy(val periodMonths: Int, val scheduledAt: Long)
+
+    @kotlin.Throws(Exception::class)
+    fun accountInactivity(): InactivityPolicy {
+        val value = get("/account/inactivity", 10000)
+        return InactivityPolicy(value.optInt("period_months", 0), value.optLong("scheduled_at", 0L))
+    }
+
+    @kotlin.Throws(Exception::class)
+    fun setAccountInactivity(periodMonths: Int): InactivityPolicy {
+        if (periodMonths !in intArrayOf(0, 1, 3, 6, 12, 24)) throw IllegalArgumentException("unsupported inactivity period")
+        val body = JSONObject().put("period_months", periodMonths)
+        val value = post("/account/inactivity", body, 10000)
+        return InactivityPolicy(value.optInt("period_months", 0), value.optLong("scheduled_at", 0L))
+    }
+
     @kotlin.Throws(Exception::class)
     fun setUsername(username: String): User {
         val body: JSONObject = JSONObject()
