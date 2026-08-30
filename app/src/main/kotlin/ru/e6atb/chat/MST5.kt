@@ -17,6 +17,7 @@ import java.net.URLEncoder
 import java.util.ArrayList
 import java.util.HashMap
 import java.util.Locale
+import java.util.UUID
 
 class MST5(context: Context?, baseUrl: String, private var token: String, userId: String, login: String) {
     private val baseUrl: String
@@ -1130,6 +1131,24 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         post("/call", body, 10000)
     }
 
+    @kotlin.Throws(Exception::class)
+    fun sendPoll(to: String, question: String, options: List<String>): Message {
+        val values = JSONArray()
+        options.map { it.trim() }.filter { it.isNotEmpty() }.take(12).forEach { value ->
+            values.put(JSONObject().put("text", value).put("votes", 0))
+        }
+        if (values.length() < 2) throw IllegalArgumentException("poll requires at least two options")
+        val poll = JSONObject().put("type", "poll").put("question", question.trim()).put("options", values).put("voters", JSONArray())
+        val body = JSONObject().put("to", to).put("text", question.trim()).put("poll", poll).put("client_message_id", UUID.randomUUID().toString())
+        return message(post("/send", body, 10000).getJSONObject("message")) ?: throw IOException("poll response is invalid")
+    }
+
+    @kotlin.Throws(Exception::class)
+    fun votePoll(messageId: Long, option: Int): Message {
+        val body = JSONObject().put("message_id", messageId).put("option", option)
+        return message(post("/polls/vote", body, 10000).getJSONObject("message")) ?: throw IOException("poll response is invalid")
+    }
+
     @get:kotlin.Throws(Exception::class)
     val chats: List<Chat>
         get() {
@@ -1140,6 +1159,42 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
             }
             return chats
         }
+
+    /** Server-persisted chat favorites and folders used by the Android chat list. */
+    @kotlin.Throws(Exception::class)
+    fun chatFavorites(): Set<String> {
+        val values = get("/chats/favorites", 10000).optJSONArray("favorites") ?: JSONArray()
+        val result = LinkedHashSet<String>()
+        for (index in 0 until values.length()) values.optString(index).takeIf { it.isNotEmpty() }?.let(result::add)
+        return result
+    }
+
+    class ChatFolder(@JvmField val name: String, @JvmField val chats: Set<String>)
+
+    @kotlin.Throws(Exception::class)
+    fun chatFolders(): List<ChatFolder> {
+        val values = get("/chats/folders", 10000).optJSONArray("folders") ?: JSONArray()
+        val result = ArrayList<ChatFolder>(values.length())
+        for (index in 0 until values.length()) {
+            val item = values.optJSONObject(index) ?: continue
+            val chats = LinkedHashSet<String>()
+            item.optJSONArray("chats")?.let { list ->
+                for (chatIndex in 0 until list.length()) list.optString(chatIndex).takeIf { it.isNotEmpty() }?.let(chats::add)
+            }
+            item.optString("name").takeIf { it.isNotEmpty() }?.let { result += ChatFolder(it, chats) }
+        }
+        return result
+    }
+
+    @kotlin.Throws(Exception::class)
+    fun setChatFavorite(chat: String, favorite: Boolean) {
+        post("/chats/favorite", JSONObject().put("chat", chat).put("favorite", favorite), 10000)
+    }
+
+    @kotlin.Throws(Exception::class)
+    fun setChatFolder(name: String, chat: String, enabled: Boolean = true) {
+        post("/chats/folder", JSONObject().put("name", name).put("chat", chat).put("enabled", enabled), 10000)
+    }
 
     @kotlin.Throws(Exception::class)
     fun getHistory(peer: String, after: Long, limit: Int): List<Message> {

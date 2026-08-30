@@ -92,6 +92,7 @@ import java.util.ArrayList
 import java.util.Date
 import java.util.HashMap
 import java.util.HashSet
+import java.util.LinkedHashSet
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ExecutorService
@@ -148,9 +149,15 @@ class MainActivity : Activity() {
     private val imagePreviewLoading: MutableSet<String> = HashSet()
     private val chatData = ArrayList<MST5.Chat>()
     private val visibleChatData = ArrayList<MST5.Chat>()
+    private val favoriteChatKeys = HashSet<String>()
+    private val chatFolderChats = LinkedHashMap<String, MutableSet<String>>()
+    private var selectedChatFolder = ""
     private val composerMedia = ArrayList<ComposerMedia>()
     private val botCommands = ArrayList<MST5.BotCommand>()
     private var botCommandsPeer: String? = ""
+    private val mentionCandidates = ArrayList<MST5.User>()
+    private var mentionQuery = ""
+    private var mentionLoading = false
     private val stickerPacks = ArrayList<MST5.StickerPack>()
     private var stickerPacksLoaded = false
     private var stickerPacksLoading = false
@@ -171,6 +178,7 @@ class MainActivity : Activity() {
     private lateinit var contactAddress: EditText
     private lateinit var peer: EditText
     private lateinit var chatSearch: EditText
+    private lateinit var chatFilterBar: LinearLayout
     private lateinit var text: EditText
     private lateinit var composerMediaBar: LinearLayout
     private var composerSending = false
@@ -914,6 +922,15 @@ class MainActivity : Activity() {
         val searchLp: LinearLayout.LayoutParams = LinearLayout.LayoutParams(-1, -2)
         searchLp.setMargins(pad, 0, pad, gap)
         content.addView(chatSearch, searchLp)
+        chatFilterBar = LinearLayout(this)
+        chatFilterBar.setOrientation(LinearLayout.HORIZONTAL)
+        chatFilterBar.setGravity(Gravity.CENTER_VERTICAL)
+        val filterScroll = HorizontalScrollView(this)
+        filterScroll.setHorizontalScrollBarEnabled(false)
+        filterScroll.addView(chatFilterBar, HorizontalScrollView.LayoutParams(-2, -2))
+        val filterLp = LinearLayout.LayoutParams(-1, -2)
+        filterLp.setMargins(pad, 0, pad, gap)
+        content.addView(filterScroll, filterLp)
         val list: ListView = ListView(this)
         list.setBackgroundColor(bg)
         list.setCacheColorHint(bg)
@@ -927,6 +944,13 @@ class MainActivity : Activity() {
                 val chat: MST5.Chat = visibleChatData.get(pos)
                 val chatPeer = resolvedPeerName(chat.peer, chat.id)
                 openChatImmediately(chatPeer, chat.peer, chat.banned, chat.bannedByMe, chat.bannedMe, null)
+            }
+        })
+        list.setOnItemLongClickListener(object : AdapterView.OnItemLongClickListener {
+            override fun onItemLongClick(parent: AdapterView<*>?, view: View?, position: Int, id: Long): Boolean {
+                if (position < 0 || position >= visibleChatData.size) return true
+                showChatActions(visibleChatData[position])
+                return true
             }
         })
         loadCachedChats()
@@ -965,6 +989,106 @@ class MainActivity : Activity() {
         lp.setMargins(0, 0, 0, gap / 2)
         header.setLayoutParams(lp)
         return header
+    }
+
+    private fun renderChatFilterBar() {
+        if (!::chatFilterBar.isInitialized) return
+        chatFilterBar.removeAllViews()
+        val filters = ArrayList<String>()
+        filters += ""
+        filters += "favorites"
+        filters.addAll(chatFolderChats.keys)
+        for (filter in filters) {
+            val title = when (filter) {
+                "" -> "Все"
+                "favorites" -> "Избранные"
+                else -> filter
+            }
+            val chip = button(title, object : View.OnClickListener {
+                override fun onClick(v: View?) {
+                    selectedChatFolder = filter
+                    renderChatFilterBar()
+                    renderChatRows(if (::chatSearch.isInitialized) chatSearch.text.toString() else "")
+                }
+            })
+            chip.setTextSize(13)
+            chip.setTextColor(if (selectedChatFolder == filter) onPrimary else textColor)
+            chip.setBackgroundDrawable(if (selectedChatFolder == filter) shape(primary, 0, dp(18)) else shape(surfaceHi, 0, dp(18)))
+            val lp = LinearLayout.LayoutParams(-2, dp(36))
+            lp.setMargins(0, 0, gap, 0)
+            chatFilterBar.addView(chip, lp)
+        }
+    }
+
+    private fun chatAddress(chat: MST5.Chat): String = chat.id.ifEmpty { chat.peer.login.ifEmpty { chat.peer.id } }
+
+    private fun showChatActions(chat: MST5.Chat) {
+        val key = chatAddress(chat)
+        val favorite = favoriteChatKeys.contains(key)
+        val options = ArrayList<String>()
+        options += if (favorite) "Убрать из избранного" else "Добавить в избранное"
+        if (chatFolderChats.isEmpty()) options += "Создать папку"
+        else options += "Добавить в папку"
+        showActionDialog("Действия с чатом", options.toTypedArray(), object : ChoiceHandler {
+            override fun onChoice(which: Int) {
+                if (which == 0) {
+                    run("chat_favorite", object : Task {
+                        @Throws(Exception::class)
+                        override fun run() {
+                            ta?.setChatFavorite(key, !favorite)
+                            ui(object : Runnable {
+                                override fun run() {
+                                    if (favorite) favoriteChatKeys.remove(key) else favoriteChatKeys.add(key)
+                                    renderChatFilterBar()
+                                    renderChatRows(chatSearch.text.toString())
+                                }
+                            })
+                        }
+                    })
+                } else {
+                    showChatFolderDialog(chat)
+                }
+            }
+        })
+    }
+
+    private fun showChatFolderDialog(chat: MST5.Chat) {
+        val dialog = Dialog(this)
+        val box = dialogBox()
+        box.addView(title("Папка чата"), LinearLayout.LayoutParams(-1, -2))
+        val name = input("Название папки", false)
+        name.setSingleLine(true)
+        box.addView(spaced(name))
+        if (chatFolderChats.isNotEmpty()) {
+            val hint = label("Доступные: ${chatFolderChats.keys.joinToString(", ")}")
+            hint.setTextColor(muted)
+            hint.setTextSize(12)
+            box.addView(spaced(hint))
+        }
+        val save = primaryButton("Добавить", object : View.OnClickListener {
+            override fun onClick(v: View?) {
+                val value = name.text.toString().trim()
+                if (value.isEmpty()) { name.error = "Введите название"; return }
+                dialog.dismiss()
+                run("chat_folder", object : Task {
+                    @Throws(Exception::class)
+                    override fun run() {
+                        ta?.setChatFolder(value, chatAddress(chat), true)
+                        ui(object : Runnable {
+                            override fun run() {
+                                chatFolderChats.getOrPut(value) { LinkedHashSet() }.add(chatAddress(chat))
+                                renderChatFilterBar()
+                                renderChatRows(chatSearch.text.toString())
+                            }
+                        })
+                    }
+                })
+            }
+        })
+        val cancel = button(getString(R.string.action_cancel), object : View.OnClickListener { override fun onClick(v: View?) { dialog.dismiss() } })
+        box.addView(row(cancel, save), LinearLayout.LayoutParams(-1, -2))
+        setScrollableDialogContent(dialog, box)
+        showStyledDialog(dialog)
     }
 
     private fun showAddChat() {
@@ -1066,6 +1190,18 @@ class MainActivity : Activity() {
         text.setMinLines(1)
         text.setMaxLines(3)
         text.setImeOptions(EditorInfo.IME_ACTION_SEND)
+        text.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(value: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(value: CharSequence?, start: Int, before: Int, count: Int) {
+                val raw = value?.toString().orEmpty()
+                val match = Regex("(?:^|\\s)@([A-Za-z0-9_.-]*)$").find(raw)
+                mentionQuery = match?.groupValues?.getOrNull(1).orEmpty()
+                if (mentionQuery.isEmpty() && match == null) mentionCandidates.clear()
+                else loadMentionCandidates(mentionQuery)
+                if (::chatInputContainer.isInitialized && page === Page.CHAT) refreshChatInput()
+            }
+            override fun afterTextChanged(value: Editable?) {}
+        })
         text.setOnEditorActionListener(object : TextView.OnEditorActionListener {
             override fun onEditorAction(v: TextView?, action: Int, e: KeyEvent?): Boolean {
                 if (action == EditorInfo.IME_ACTION_SEND) {
@@ -1638,7 +1774,51 @@ class MainActivity : Activity() {
         }
         if (replyToMessage != null) chatInputContainer.addView(replyComposerView())
         loadBotCommandsIfNeeded()
+        if (mentionCandidates.isNotEmpty()) chatInputContainer.addView(mentionSuggestionsView())
         chatInputContainer.addView(messageBar())
+    }
+
+    private fun loadMentionCandidates(query: String) {
+        val client = ta ?: return
+        if (mentionLoading) return
+        mentionLoading = true
+        run("mention_candidates", object : Task {
+            @Throws(Exception::class)
+            override fun run() {
+                val values = client.contacts.filter { it.login.isNotEmpty() && it.login.startsWith(query, ignoreCase = true) }.take(8)
+                ui(object : Runnable {
+                    override fun run() {
+                        mentionLoading = false
+                        mentionCandidates.clear()
+                        mentionCandidates.addAll(values)
+                        if (::chatInputContainer.isInitialized && page === Page.CHAT) refreshChatInput()
+                    }
+                })
+            }
+        })
+    }
+
+    private fun mentionSuggestionsView(): View {
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.HORIZONTAL
+        box.setPadding(0, 0, 0, gap / 2)
+        for (candidate in mentionCandidates) {
+            val choice = button("@${candidate.login}", object : View.OnClickListener {
+                override fun onClick(v: View?) {
+                    val value = text.text.toString()
+                    val replacement = "@${candidate.login} "
+                    text.setText(value.replace(Regex("@[A-Za-z0-9_.-]*$"), replacement))
+                    text.setSelection(text.length())
+                    mentionCandidates.clear()
+                    refreshChatInput()
+                }
+            })
+            choice.setTextSize(12)
+            val lp = LinearLayout.LayoutParams(-2, dp(34))
+            lp.setMargins(0, 0, gap / 2, 0)
+            box.addView(choice, lp)
+        }
+        return box
     }
 
     private fun loadBotCommandsIfNeeded() {
@@ -1683,6 +1863,46 @@ class MainActivity : Activity() {
             choiceLp.setMargins(0, gap / 2, 0, 0)
             box.addView(choice, choiceLp)
         }
+        setScrollableDialogContent(dialog, box)
+        showStyledDialog(dialog)
+    }
+
+    private fun showCreatePollDialog() {
+        val client = ta ?: return
+        if (currentPeer.isEmpty() || currentPeerIsRoom() && !currentPeerCanWrite()) return
+        val dialog = Dialog(this)
+        val box = dialogBox()
+        box.addView(title("Новый опрос"), LinearLayout.LayoutParams(-1, -2))
+        val question = input("Вопрос", false)
+        question.setSingleLine(true)
+        val options = input("Варианты через запятую", false)
+        options.setSingleLine(true)
+        options.setText("Да,Нет")
+        box.addView(spaced(question))
+        box.addView(spaced(options))
+        val submit = primaryButton("Создать", object : View.OnClickListener {
+            override fun onClick(v: View?) {
+                val q = question.text.toString().trim()
+                val values = options.text.toString().split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                if (q.isEmpty()) { question.error = "Введите вопрос"; return }
+                if (values.size < 2) { options.error = "Нужно минимум два варианта"; return }
+                dialog.dismiss()
+                run("create_poll", object : Task {
+                    @Throws(Exception::class)
+                    override fun run() {
+                        val sent = client.sendPoll(currentPeer, q, values)
+                        ui(object : Runnable {
+                            override fun run() {
+                                messageRows.add(MessageRow.messageText(sent.text, sent))
+                                messageList.setSelection(messageRows.count - 1)
+                            }
+                        })
+                    }
+                })
+            }
+        })
+        val cancel = button(getString(R.string.action_cancel), object : View.OnClickListener { override fun onClick(v: View?) { dialog.dismiss() } })
+        box.addView(row(cancel, submit), LinearLayout.LayoutParams(-1, -2))
         setScrollableDialogContent(dialog, box)
         showStyledDialog(dialog)
     }
@@ -4569,10 +4789,17 @@ class MainActivity : Activity() {
             @Throws(Exception::class)
             override fun run() {
                 val chats: List<MST5.Chat>? = c.chats
+                val favorites = try { c.chatFavorites() } catch (_: Exception) { emptySet<String>() }
+                val folders = try { c.chatFolders() } catch (_: Exception) { emptyList<MST5.ChatFolder>() }
                 cacheSaveChats(chats)
 
                 ui(object : Runnable {
                     override fun run() {
+                        favoriteChatKeys.clear()
+                        favoriteChatKeys.addAll(favorites)
+                        chatFolderChats.clear()
+                        folders.forEach { chatFolderChats[it.name] = LinkedHashSet(it.chats) }
+                        renderChatFilterBar()
                         renderChats(chats, getString(R.string.source_online))
                     }
                 })
@@ -4594,6 +4821,9 @@ class MainActivity : Activity() {
         visibleChatData.clear()
         chatRows!!.clear()
         for (chat in chatData) {
+            val chatKey = chat.id.ifEmpty { chat.peer.login.ifEmpty { chat.peer.id } }
+            if (selectedChatFolder == "favorites" && !favoriteChatKeys.contains(chatKey)) continue
+            if (selectedChatFolder.isNotEmpty() && selectedChatFolder != "favorites" && !chatFolderChats[selectedChatFolder].orEmpty().contains(chatKey)) continue
             if (chat.peer != null && chat.peer.login != null && chat.peer.login.equals(currentPeer)) {
                 currentPeerBanned = chat.banned
                 currentPeerBannedByMe = chat.bannedByMe
@@ -4615,6 +4845,7 @@ class MainActivity : Activity() {
                 )
             )
         }
+        if (chatRows != null) chatRows.notifyDataSetChanged()
     }
 
     private fun loadHistory(afterServerLoad: Runnable? = null) {
@@ -9041,11 +9272,44 @@ class MainActivity : Activity() {
                 bodyLp.setMargins(0, gap / 3, 0, 0)
                 box.addView(body, bodyLp)
             }
+            addPollOptions(box, row.message)
             addMessageMeta(box, row.message)
             addChannelCommentsLink(box, row.message)
             outer.addView(box, LinearLayout.LayoutParams(-2, -2))
             addMessageButtons(outer, row.message)
             return listItemFrame(outer)
+        }
+
+        fun addPollOptions(box: LinearLayout, message: MST5.Message?) {
+            if (message == null || message.data.isNullOrEmpty()) return
+            val poll = try { JSONObject(message.data).takeIf { it.optString("type") == "poll" } } catch (_: Exception) { null } ?: return
+            val options = poll.optJSONArray("options") ?: return
+            val list = LinearLayout(this@MainActivity)
+            list.orientation = LinearLayout.VERTICAL
+            for (index in 0 until options.length()) {
+                val item = options.optJSONObject(index) ?: continue
+                val title = item.optString("text")
+                if (title.isEmpty()) continue
+                val votes = item.optInt("votes", 0)
+                val choice = messageActionButton("$title  ·  $votes", object : View.OnClickListener {
+                    override fun onClick(v: View?) {
+                        val client = ta ?: return
+                        run("poll_vote", object : Task {
+                            @Throws(Exception::class)
+                            override fun run() {
+                                val updated = client.votePoll(message.id, index)
+                                ui(object : Runnable { override fun run() { messageRows.updateMessage(updated) } })
+                            }
+                        })
+                    }
+                })
+                val lp = LinearLayout.LayoutParams(-1, -2)
+                if (index > 0) lp.setMargins(0, gap / 2, 0, 0)
+                list.addView(choice, lp)
+            }
+            val lp = LinearLayout.LayoutParams(-1, -2)
+            lp.setMargins(0, gap / 2, 0, 0)
+            box.addView(list, lp)
         }
 
         fun installMessageLongPress(view: View?, message: MST5.Message?) {
@@ -9715,6 +9979,7 @@ class MainActivity : Activity() {
             } else {
                 actions.add(getString(R.string.action_verify_e2e))
             }
+            actions.add("Поиск по чату")
             actions.add(getString(R.string.action_copy_id))
             if (currentPeerIsRoom() && !currentPeerCanManageRoom()) {
                 actions.add(getString(R.string.action_leave_chat))
@@ -9749,6 +10014,8 @@ class MainActivity : Activity() {
                     showRemoveMemberDialog()
                 } else if (action.equals(getString(R.string.action_verify_e2e))) {
                     showE2EFingerprint()
+                } else if (action.equals("Поиск по чату")) {
+                    showChatSearchDialog()
                 } else if (action.equals(getString(R.string.action_copy_id))) {
                     copyCurrentPeerID()
                 } else if (action.equals(getString(R.string.action_delete_chat))) {
@@ -9761,6 +10028,43 @@ class MainActivity : Activity() {
                 }
             }
         })
+    }
+
+    private fun showChatSearchDialog() {
+        val client = ta ?: return
+        if (currentPeer.isEmpty()) return
+        val dialog = Dialog(this)
+        val box = dialogBox()
+        box.addView(title("Поиск по чату"), LinearLayout.LayoutParams(-1, -2))
+        val query = input("Текст поиска", false)
+        query.setSingleLine(true)
+        val mediaOnly = CheckBox(this)
+        mediaOnly.text = "Только сообщения с медиа"
+        mediaOnly.setTextColor(textColor)
+        box.addView(spaced(query))
+        box.addView(spaced(mediaOnly))
+        val search = primaryButton("Найти", object : View.OnClickListener {
+            override fun onClick(v: View?) {
+                dialog.dismiss()
+                run("search_history", object : Task {
+                    @Throws(Exception::class)
+                    override fun run() {
+                        val found = client.searchHistory(currentPeer, query.text.toString(), mediaOnly.isChecked, 100)
+                        ui(object : Runnable {
+                            override fun run() {
+                                if (page !== Page.CHAT || !::messageRows.isInitialized) return
+                                messageRows.replaceRows(found.map { toMessageRow(it) })
+                                status.setText("Найдено сообщений: ${found.size}")
+                            }
+                        })
+                    }
+                })
+            }
+        })
+        val cancel = button(getString(R.string.action_cancel), object : View.OnClickListener { override fun onClick(v: View?) { dialog.dismiss() } })
+        box.addView(row(cancel, search), LinearLayout.LayoutParams(-1, -2))
+        setScrollableDialogContent(dialog, box)
+        showStyledDialog(dialog)
     }
 
     private fun toggleCurrentChatE2E(enabled: Boolean) {
@@ -11027,6 +11331,14 @@ class MainActivity : Activity() {
             r.addView(commands, commandsLp)
         }
         r.addView(text, inputLp)
+        val pollButton: ImageButton = inputIconButton(R.drawable.ic_poll, "Опрос", object : View.OnClickListener {
+            override fun onClick(v: View?) {
+                showCreatePollDialog()
+            }
+        })
+        val pollLp: LinearLayout.LayoutParams = LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight)
+        pollLp.setMargins(0, 0, gap, 0)
+        r.addView(pollButton, pollLp)
         val stickerButton: ImageButton = inputIconButton(R.drawable.ic_sticker, "Stickers", object : View.OnClickListener {
             override fun onClick(v: View?) {
                 showStickerPicker()
