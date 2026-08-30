@@ -32,9 +32,13 @@ class MessageSyncService : Service() {
     private fun showMessage(from: String, text: String?) { val id = MESSAGE_BASE_ID + abs(from.hashCode()) % 100000; val pending = PendingIntent.getActivity(this, id, Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_CHAT, from), pendingIntentFlags()); notificationManager()?.notify(id, notification(MESSAGE_CHANNEL, from, text.orEmpty(), false).apply { contentIntent = pending }) }
     private fun notifyWalletDebits(api: MST5, userId: String) {
         val uid = userId.toLongOrNull() ?: return
+        val prefs = getSharedPreferences(WALLET_NOTIFICATION_PREFS, MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val lastCheck = prefs.getLong(WALLET_NOTIFICATION_LAST_CHECK, 0L)
+        if (now - lastCheck < WALLET_NOTIFICATION_CHECK_INTERVAL_MS) return
+        prefs.edit().putLong(WALLET_NOTIFICATION_LAST_CHECK, now).apply()
         val transactions = try { api.getWalletHistory(20) } catch (_: Exception) { return }
         if (transactions.isEmpty()) return
-        val prefs = getSharedPreferences(WALLET_NOTIFICATION_PREFS, MODE_PRIVATE)
         val initialized = prefs.getBoolean(WALLET_NOTIFICATION_INITIALIZED, false)
         val lastId = prefs.getLong(WALLET_NOTIFICATION_LAST_ID, 0L)
         val newest = transactions.maxOf { it.id }
@@ -56,5 +60,5 @@ class MessageSyncService : Service() {
     private fun pendingIntentFlags(): Int = PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0
     private fun notificationManager() = getSystemService(NOTIFICATION_SERVICE) as? NotificationManager
     private fun isStaleIncomingCall(call: MST5.Call?) = call != null && call.date > 0 && System.currentTimeMillis() / 1000 - call.date > MAX_INCOMING_CALL_AGE_SEC
-    companion object { const val ACTION_SYNC_UPDATED = "ru.e6atb.chat.SYNC_UPDATED"; private const val ACTION_REJECT_CALL = "ru.e6atb.chat.REJECT_CALL"; private const val SYNC_CHANNEL = "sync"; private const val MESSAGE_CHANNEL = "messages"; private const val CALL_CHANNEL = "calls_visual"; private const val AUTH_CHANNEL = "authorization"; private const val WALLET_NOTIFICATION_PREFS = "wallet_notifications"; private const val WALLET_NOTIFICATION_INITIALIZED = "initialized"; private const val WALLET_NOTIFICATION_LAST_ID = "last_transaction_id"; private const val WALLET_NOTIFICATION_BASE_ID = 200000; private const val MAX_INCOMING_CALL_AGE_SEC = 120; private const val FOREGROUND_ID = 1; const val MESSAGE_BASE_ID = 1000; const val CALL_NOTIFICATION_ID = 2; @JvmStatic private fun isOwnUser(user: MST5.User?, userId: String?, login: String?) = user != null && if (!userId.isNullOrEmpty()) userId == user.id else !login.isNullOrEmpty() && login == user.login; @JvmStatic private fun userAddress(user: MST5.User?) = user?.login?.takeIf { it.isNotEmpty() } ?: user?.id.orEmpty(); @JvmStatic private fun pollRetryDelayMs(failures: Int) = minOf(5000L shl minOf(failures, 4), 60000L) }
+    companion object { const val ACTION_SYNC_UPDATED = "ru.e6atb.chat.SYNC_UPDATED"; private const val ACTION_REJECT_CALL = "ru.e6atb.chat.REJECT_CALL"; private const val SYNC_CHANNEL = "sync"; private const val MESSAGE_CHANNEL = "messages"; private const val CALL_CHANNEL = "calls_visual"; private const val AUTH_CHANNEL = "authorization"; private const val WALLET_NOTIFICATION_PREFS = "wallet_notifications"; private const val WALLET_NOTIFICATION_INITIALIZED = "initialized"; private const val WALLET_NOTIFICATION_LAST_ID = "last_transaction_id"; private const val WALLET_NOTIFICATION_LAST_CHECK = "last_check_at"; private const val WALLET_NOTIFICATION_CHECK_INTERVAL_MS = 30_000L; private const val WALLET_NOTIFICATION_BASE_ID = 200000; private const val MAX_INCOMING_CALL_AGE_SEC = 120; private const val FOREGROUND_ID = 1; const val MESSAGE_BASE_ID = 1000; const val CALL_NOTIFICATION_ID = 2; @JvmStatic private fun isOwnUser(user: MST5.User?, userId: String?, login: String?) = user != null && if (!userId.isNullOrEmpty()) userId == user.id else !login.isNullOrEmpty() && login == user.login; @JvmStatic private fun userAddress(user: MST5.User?) = user?.login?.takeIf { it.isNotEmpty() } ?: user?.id.orEmpty(); @JvmStatic private fun pollRetryDelayMs(failures: Int) = minOf(5000L shl minOf(failures, 4), 60000L) }
 }
