@@ -20,7 +20,11 @@ endif
 RELEASE_VERSION := $(if $(VERSION),$(VERSION),$(word 1,$(POSITIONAL_RELEASE_ARGS)))
 
 MST5_NATIVE_OUTPUT := $(CURDIR)/app/src/main/assets/mst5-native
-MST5_NATIVE_VERSION ?= 0.7.5
+# Keep the expected manifest pinned to the MST5 release consumed by this
+# client.  fetch-mst5-native.sh downloads the latest compatible release; the
+# explicit pin makes release-check fail clearly when that release changes
+# unexpectedly instead of publishing APKs with an unverified ABI bundle.
+MST5_NATIVE_VERSION ?= 0.7.30
 
 .PHONY: help release-branch test release-check native-libs require-native-libs armv6-ota-tls require-armv6-ota-tls apk apk-universal apk-armv6 apk-armv7 apk-arm64 apk-x86_64 xapk release-apks
 
