@@ -557,8 +557,9 @@ class MainActivity : Activity() {
             override fun run() {
                 try {
                     CrashReportDispatcher.dispatch(this@MainActivity, c)
-                } catch (ignored: Exception) {
+                } catch (error: Throwable) {
                     // The report remains pending and is retried by the foreground service.
+                    android.util.Log.e("OVE.CrashReport", "initial crash-report dispatch failed", error)
                 }
             }
         })

@@ -2,6 +2,7 @@ package ru.e6atb.chat
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
@@ -23,9 +24,10 @@ internal object CrashReportStore {
     private val authValue = Pattern.compile("(?i)((?:token|password|authorization|secret)\\s*[=:]\\s*)([^\\s,;]+)")
     private val bearer = Pattern.compile("(?i)(bearer\\s+)([^\\s,;]+)")
     private val longSecret = Pattern.compile("(?<![A-Za-z0-9])[A-Za-z0-9_+/=-]{64,}(?![A-Za-z0-9])")
+    private const val NATIVE_FILE = "native-crash$SUFFIX"
     @Volatile private var installed = false
 
-    @JvmStatic fun nativeReportPath(context: Context?): String = directory(context)?.let { File(it, "native-crash$SUFFIX").absolutePath } ?: ""
+    @JvmStatic fun nativeReportPath(context: Context?): String = directory(context)?.let { File(it, NATIVE_FILE).absolutePath } ?: ""
 
     @JvmStatic @Synchronized fun install(context: Context?) {
         if (installed || context == null) return
@@ -77,21 +79,44 @@ internal object CrashReportStore {
         for (file in files) {
             if (!file.isFile || !file.name.endsWith(SUFFIX)) continue
             val text = read(file)
-            if (text.isEmpty() && file.name == "native-crash$SUFFIX") continue
-            if (text.isEmpty() || !text.startsWith(MARKER)) {
+            if (text.isEmpty() && file.name == NATIVE_FILE) continue
+            if (text.isEmpty()) {
                 file.delete()
                 continue
             }
-            reports += PendingReport(file.name.removeSuffix(SUFFIX), text, file)
+            val report = if (file.name == NATIVE_FILE) normalizeNativeReport(text) else text
+            if (report.isEmpty() || !report.startsWith(MARKER)) {
+                // Java reports are always written by formatReport.  Do not
+                // accidentally send arbitrary files from this directory.
+                file.delete()
+                continue
+            }
+            // The native signal/panic handler writes directly to this file.
+            // Normalize it in memory so even an older native library format
+            // cannot be discarded before it reaches logbot.  We deliberately
+            // do not rewrite the file here: replacing a file during startup
+            // could lose the only copy if the process is killed mid-rename.
+            reports += PendingReport(file.name.removeSuffix(SUFFIX), report, file)
         }
         return reports
     }
 
     @JvmStatic @Synchronized fun remove(report: PendingReport?) {
         val file = report?.file ?: return
-        if (file.name == "native-crash$SUFFIX") {
+        if (file.name == NATIVE_FILE) {
             try { FileOutputStream(file, false).use { it.fd.sync() } } catch (_: Exception) { }
         } else file.delete()
+    }
+
+    private fun normalizeNativeReport(raw: String): String {
+        val redacted = redact(raw)
+        if (redacted.startsWith(MARKER)) return truncateUtf8(redacted, MAX_REPORT_BYTES)
+        val id = "native-${System.currentTimeMillis()}"
+        val report = "$MARKER\nReport-ID: $id\nUTC: ${utcNow()}\nApp: ${safe(BuildConfig.VERSION_NAME)} (${BuildConfig.VERSION_CODE})" +
+            "\nAndroid: ${safe(Build.VERSION.RELEASE)} (SDK ${Build.VERSION.SDK_INT})\nDevice: ${safe(Build.MANUFACTURER)} ${safe(Build.MODEL)}" +
+            "\nThread: native\nSource: native-handler\n\n$redacted"
+        Log.w("OVE.CrashReport", "normalized native crash report")
+        return truncateUtf8(report, MAX_REPORT_BYTES)
     }
 
     private fun directory(context: Context?): File? {
