@@ -44,6 +44,7 @@ import android.text.TextUtils
 import android.text.TextWatcher
 import android.text.method.LinkMovementMethod
 import android.util.Base64
+import android.util.Log
 import android.util.LruCache
 import android.util.TypedValue
 import android.view.Gravity
@@ -9119,23 +9120,31 @@ class MainActivity : Activity() {
         }
 
         override fun getView(pos: Int, convertView: View?, parent: ViewGroup?): View {
-            val row: MessageRow = rows[pos]
-            if (row.message != null) {
-                return messageView(row)
-            }
-            if (row.imageData != null) {
-                return imageView(row.imageData, convertView)
-            }
-            if (row.file != null) {
-                if (isImageFile(row.file)) {
-                    return imageFileView(row)
+            val row = rows.getOrNull(pos)
+            if (row == null) return fallbackRowView("")
+            return try {
+                if (row.message != null) {
+                    messageView(row)
+                } else if (row.imageData != null) {
+                    imageView(row.imageData, convertView)
+                } else if (row.file != null) {
+                    if (isImageFile(row.file)) imageFileView(row) else fileView(row)
+                } else if (row.chatTitle != null) {
+                    chatPreviewView(row, convertView)
+                } else {
+                    textView(row.text, convertView)
                 }
-                return fileView(row)
+            } catch (error: RuntimeException) {
+                // A malformed server row must not take down the entire activity
+                // while ListView is laying out recycled children. Keep a small
+                // visible placeholder and retain the full exception in logcat.
+                Log.e("OVE.MessageAdapter", "Unable to render message row $pos", error)
+                fallbackRowView(row.text)
             }
-            if (row.chatTitle != null) {
-                return chatPreviewView(row, convertView)
-            }
-            return textView(row.text, convertView)
+        }
+
+        private fun fallbackRowView(value: String?): View {
+            return textView(value?.takeIf { it.isNotEmpty() } ?: getString(R.string.reply_message_unavailable), null)
         }
 
         fun chatPreviewView(row: MessageRow, convertView: View?): View {
