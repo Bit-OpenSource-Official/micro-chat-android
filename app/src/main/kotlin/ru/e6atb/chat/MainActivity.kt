@@ -205,6 +205,8 @@ class MainActivity : Activity() {
     private lateinit var callHintView: TextView
     private lateinit var callParticipantsView: TextView
     private lateinit var chatInputContainer: LinearLayout
+    private var chatInputExtras: LinearLayout? = null
+    private var chatMessageBar: View? = null
     private lateinit var commentInputContainer: LinearLayout
     private lateinit var cloudPasswordState: TextView
     private lateinit var currentPeerNameView: LinearLayout
@@ -1761,23 +1763,47 @@ class MainActivity : Activity() {
 
     private fun refreshChatInput() {
         if (chatInputContainer == null) return
-        chatInputContainer.removeAllViews()
         if (currentPeerBanned) {
+            chatInputContainer.removeAllViews()
+            chatInputExtras = null
+            chatMessageBar = null
             chatInputContainer.addView(bannedChatBlock())
             return
         }
         if (this.isEmptyBotDialog) {
+            chatInputContainer.removeAllViews()
+            chatInputExtras = null
+            chatMessageBar = null
             chatInputContainer.addView(startBotButton())
             return
         }
         if (currentPeerIsRoom() && !currentPeerCanWrite()) {
+            chatInputContainer.removeAllViews()
+            chatInputExtras = null
+            chatMessageBar = null
             chatInputContainer.addView(readOnlyRoomBlock())
             return
         }
-        if (replyToMessage != null) chatInputContainer.addView(replyComposerView())
+
+        // Keep the EditText's message bar attached while updating reply and
+        // mention decorations. Removing and re-adding it on every keystroke
+        // makes Android drop the input focus (and can hide the keyboard).
+        if (chatMessageBar?.parent !== chatInputContainer) {
+            chatInputContainer.removeAllViews()
+            val extras = LinearLayout(this)
+            extras.setOrientation(LinearLayout.VERTICAL)
+            chatInputExtras = extras
+            chatInputContainer.addView(extras)
+            val messageBar = messageBar()
+            chatMessageBar = messageBar
+            chatInputContainer.addView(messageBar)
+        }
+
+        val extras = chatInputExtras ?: return
+        extras.removeAllViews()
+        if (replyToMessage != null) extras.addView(replyComposerView())
         loadBotCommandsIfNeeded()
-        if (mentionCandidates.isNotEmpty()) chatInputContainer.addView(mentionSuggestionsView())
-        chatInputContainer.addView(messageBar())
+        if (mentionCandidates.isNotEmpty()) extras.addView(mentionSuggestionsView())
     }
 
     private fun loadMentionCandidates(query: String) {
