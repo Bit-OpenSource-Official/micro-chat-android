@@ -24,7 +24,7 @@ MST5_NATIVE_OUTPUT := $(CURDIR)/app/src/main/assets/mst5-native
 # client.  fetch-mst5-native.sh downloads the latest compatible release; the
 # explicit pin makes release-check fail clearly when that release changes
 # unexpectedly instead of publishing APKs with an unverified ABI bundle.
-MST5_NATIVE_VERSION ?= 0.7.30
+MST5_NATIVE_VERSION ?= 0.7.33
 
 .PHONY: help release-branch test release-check native-libs require-native-libs armv6-ota-tls require-armv6-ota-tls apk apk-universal apk-armv6 apk-armv7 apk-arm64 apk-x86_64 xapk release-apks
 
