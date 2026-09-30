@@ -801,6 +801,7 @@ class MainActivity : Activity() {
         val currentCode: String = if (::emailCode.isInitialized) emailCode.text.toString().trim() else pendingEmailCode.orEmpty()
         val currentPassword: String = if (::password.isInitialized) password.text.toString() else ""
         email = input(getString(R.string.hint_email), false)
+        email.setInputType(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS)
         email.setText(currentEmail)
         status.setText(
             getString(
@@ -4545,7 +4546,7 @@ class MainActivity : Activity() {
                             authNeedsCloudPassword = false
                             pendingEmailCode = ""
                             showLogin()
-                            if (debugCode != null && debugCode.length > 0 && emailCode != null) {
+                            if (debugCode != null && debugCode.length > 0 && ::emailCode.isInitialized) {
                                 emailCode.setText(debugCode)
                             }
                             status.setText(getString(R.string.status_email_code_sent))
