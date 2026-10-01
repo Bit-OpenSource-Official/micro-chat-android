@@ -337,7 +337,7 @@ class MainActivity : Activity() {
     private val emailCodeCooldownTick: Runnable = object : Runnable {
         override fun run() {
             updateEmailCodeCooldown()
-            if (resendEmailCodeButton != null && emailCodeResendRemainingMs(currentEmailText()) > 0) {
+            if (::resendEmailCodeButton.isInitialized && emailCodeResendRemainingMs(currentEmailText()) > 0) {
                 main.postDelayed(this, 1000)
             }
         }
@@ -4585,7 +4585,7 @@ class MainActivity : Activity() {
     }
 
     private fun updateEmailCodeCooldown() {
-        if (resendEmailCodeButton == null) return
+        if (!::resendEmailCodeButton.isInitialized) return
         val remaining = emailCodeResendRemainingMs(currentEmailText())
         if (remaining > 0) {
             setButtonEnabledStyle(resendEmailCodeButton, false, false)
@@ -11492,7 +11492,7 @@ class MainActivity : Activity() {
         val busy: String? =
             if (sendingCode) getString(R.string.status_sending_code) else getString(R.string.status_checking_code)
         setButtonBusy(loginButton, loading, busy, idle, true)
-        if (resendEmailCodeButton != null) {
+        if (::resendEmailCodeButton.isInitialized) {
             if (loading) {
                 setButtonEnabledStyle(resendEmailCodeButton, false, false)
                 setButtonRequestBusy(resendEmailCodeButton, true)
