@@ -753,14 +753,14 @@ class MainActivity : Activity() {
         slider.setOnConfirmAction(object : Runnable {
             override fun run() {
                 dialog.dismiss()
-                decideOAuth(request.userCode, true)
+                decideOAuth(request, true)
             }
         })
         box.addView(slider, LinearLayout.LayoutParams(-1, dp(56)))
         val reject: Button = button(getString(R.string.action_reject), object : View.OnClickListener {
             override fun onClick(view: View?) {
                 dialog.dismiss()
-                decideOAuth(request.userCode, false)
+                decideOAuth(request, false)
             }
         })
         box.addView(spaced(reject))
@@ -768,20 +768,34 @@ class MainActivity : Activity() {
         showStyledDialog(dialog)
     }
 
-    private fun decideOAuth(userCode: String?, approve: Boolean) {
+    private fun decideOAuth(request: MST5.OAuthDeviceRequest, approve: Boolean) {
         val client: MST5? = ta
         if (client == null) return
         run("oauth_decision", object : Task {
             @Throws(Exception::class)
             override fun run() {
-                client.oauthDeviceDecision(userCode.orEmpty(), approve)
+                client.oauthDeviceDecision(request.userCode, approve)
                 ui(object : Runnable {
                     override fun run() {
                         status.setText(getString(if (approve) R.string.oauth_authorized else R.string.oauth_rejected))
+                        if (approve) openReturnUri(request.returnUri)
                     }
                 })
             }
         })
+    }
+
+    private fun openReturnUri(value: String) {
+        if (value.isBlank()) return
+        val uri = Uri.parse(value)
+        val scheme = uri.scheme ?: return
+        if (listOf("file", "content", "data", "javascript", "intent", "android-app")
+                .any { scheme.equals(it, ignoreCase = true) }) return
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, "Авторизация подтверждена. Вернитесь в приложение.", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun flushPendingSessionIntent() {

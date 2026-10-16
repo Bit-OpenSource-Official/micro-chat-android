@@ -116,6 +116,7 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
             out.optString("client_name"),
             out.optString("audience"),
             out.optString("action_description"),
+            out.optString("return_uri"),
             out.optLong("expires_at"),
             out.optString("status")
         )
@@ -141,6 +142,7 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         @JvmField val clientName: String,
         @JvmField val audience: String,
         @JvmField val actionDescription: String,
+        @JvmField val returnUri: String,
         @JvmField val expiresAt: Long,
         @JvmField val status: String
     )
