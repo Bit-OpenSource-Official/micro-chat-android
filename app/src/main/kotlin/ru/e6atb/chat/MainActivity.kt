@@ -5063,7 +5063,7 @@ class MainActivity : Activity() {
                         }
 
                         hasOlderMessages =
-                            history.size === ru.e6atb.chat.MainActivity.Companion.HISTORY_PAGE && rows.size > 0
+                            history.size == ru.e6atb.chat.MainActivity.Companion.HISTORY_PAGE && rows.size > 0
 
                         if (!rows.isEmpty()) {
                             messageRows!!.insertRows(rows, 0)
@@ -5113,7 +5113,7 @@ class MainActivity : Activity() {
                             override fun run() {
                                 composerSending = false
                                 val label: String? =
-                                    if (snapshot.size === 1) snapshot[0].name.orEmpty() else "${snapshot.size} files"
+                                    if (snapshot.size == 1) snapshot[0].name.orEmpty() else "${snapshot.size} files"
                                 showSwipeConfirmDialog(
                                     getString(R.string.media_payment_title),
                                     getString(
@@ -5647,7 +5647,9 @@ class MainActivity : Activity() {
             arrayOf(
                 getString(R.string.attachment_photo),
                 getString(R.string.attachment_file),
-                getString(R.string.payment_transfer_title)
+                getString(R.string.payment_transfer_title),
+                "Опрос",
+                "Stickers"
             ), object : ChoiceHandler {
                 override fun onChoice(which: Int) {
                     if (which == 0) {
@@ -5656,6 +5658,10 @@ class MainActivity : Activity() {
                         pickFile()
                     } else if (which == 2) {
                         showDastarsTransferDialog(currentPeer)
+                    } else if (which == 3) {
+                        showCreatePollDialog()
+                    } else if (which == 4) {
+                        showStickerPicker()
                     }
                 }
             })
@@ -6210,7 +6216,7 @@ class MainActivity : Activity() {
 
     private fun cachedImagePreviewError(key: String?): String? {
         kotlin.synchronized(imagePreviewLoading) {
-            return imagePreviewErrors.get(key)!!
+            return imagePreviewErrors.get(key)
         }
     }
 
@@ -11382,24 +11388,8 @@ class MainActivity : Activity() {
             r.addView(commands, commandsLp)
         }
         r.addView(text, inputLp)
-        val pollButton: ImageButton = inputIconButton(R.drawable.ic_poll, "Опрос", object : View.OnClickListener {
-            override fun onClick(v: View?) {
-                showCreatePollDialog()
-            }
-        })
-        val pollLp: LinearLayout.LayoutParams = LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight)
-        pollLp.setMargins(0, 0, gap, 0)
-        r.addView(pollButton, pollLp)
-        val stickerButton: ImageButton = inputIconButton(R.drawable.ic_sticker, "Stickers", object : View.OnClickListener {
-            override fun onClick(v: View?) {
-                showStickerPicker()
-            }
-        })
-        val stickerLp: LinearLayout.LayoutParams = LinearLayout.LayoutParams(buttonMinHeight, buttonMinHeight)
-        stickerLp.setMargins(0, 0, gap, 0)
-        r.addView(stickerButton, stickerLp)
         val attachButton: ImageButton =
-            inputIconButton(R.drawable.ic_attach, getString(R.string.attachment_attach), object : View.OnClickListener {
+            inputIconButton(R.drawable.ic_add, getString(R.string.attachment_attach), object : View.OnClickListener {
                 override fun onClick(v: View?) {
                     showAttachmentActions()
                 }
@@ -11887,8 +11877,10 @@ class MainActivity : Activity() {
     }
 
     companion object {
-        // Prefer raw MST5, then the central CDN's ordinary HTTP-only M5oH route.
-        val DEFAULT_SERVER: String = "mst5://ms.ove.rs:8067/main|http://central-1-cdn.ms.sectorlambda.ru/10.100.2.228:8080"
+        // Prefer raw MST5, then discover the default route from the central
+        // HTTP-only M5oH router.  Node destinations remain inside the
+        // authenticated protocol and are never baked into the UI client.
+        val DEFAULT_SERVER: String = "mst5://ms.ove.rs:8067/main|http://central-1-cdn.ms.sectorlambda.ru/"
         val ACTION_ACCEPT_CALL: String = "ru.e6atb.chat.ACCEPT_CALL"
         val ACTION_OPEN_CALL: String = "ru.e6atb.chat.OPEN_CALL"
         val ACTION_OPEN_UPDATE: String = "ru.e6atb.chat.OPEN_UPDATE"

@@ -730,7 +730,7 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         val body: JSONObject = JSONObject()
         body.put("media", ru.e6atb.chat.MST5.Companion.mediaRequest(items, false))
         var size: Long = 0
-        if (items != null) for (item in items) if (item!!.fileId.length === 0) size += item.size
+        if (items != null) for (item in items) if (item!!.fileId.length == 0) size += item.size
         val out: JSONObject = post("/media/quote", body, 10000)
         return ru.e6atb.chat.MST5.MediaQuote(
             out.optLong("size_bytes", size),
@@ -804,7 +804,7 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
         val operationId: String = prepared.getString("operation_id")
         val uploads: JSONArray? = prepared.optJSONArray("uploads")
         var total: Long = 0
-        if (uploadItems != null) for (item in uploadItems) if (item!!.fileId.length === 0) total += item.size
+        if (uploadItems != null) for (item in uploadItems) if (item!!.fileId.length == 0) total += item.size
         val progressTotal = total
         val descriptors: ArrayList<ParcelFileDescriptor?> = ArrayList<ParcelFileDescriptor?>()
         val batch: ArrayList<Mst5MediaClient.Upload> = ArrayList<Mst5MediaClient.Upload>()
@@ -821,7 +821,11 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
                 }
                 val expectedSize =
                     if (source == null) -1 else (if (encryptMedia) NativeE2E.encryptedMediaSize(source.size) else source.size)
-                if (source == null || source.source == null || ticket.optLong("size") !== expectedSize) {
+                // `!==` compares boxed Long instances.  Values outside the
+                // JVM's small-number cache can therefore fail even when the
+                // media ticket has the exact expected byte length, causing an
+                // upload to be cancelled before its first chunk is sent.
+                if (source == null || source.source == null || ticket.optLong("size") != expectedSize) {
                     throw IOException("server returned an invalid media ticket")
                 }
                 val descriptor: ParcelFileDescriptor = source.source.openDescriptor()
@@ -1064,7 +1068,10 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
     fun downloadFile(fileID: String, target: File, maxBytes: Long, listener: ProgressListener?) {
         val ticket: JSONObject = get("/file/ticket?id=" + ru.e6atb.chat.MST5.Companion.enc(fileID), 10000)
         val announced: Long = ticket.optLong("size", -1)
-        if (maxBytes > 0 && announced > maxBytes) throw IOException("file is too large")
+        val e2e: MediaE2EContext? = encryptedMedia.get(fileID)
+        // The ticket describes wire bytes; the caller limits the decoded file.
+        val wireLimit = if (maxBytes > 0 && e2e != null) NativeE2E.encryptedMediaSize(maxBytes) else maxBytes
+        if (wireLimit > 0 && announced > wireLimit) throw IOException("file is too large")
         val temporary: File = File(target.getParentFile(), target.getName() + ".part")
         try {
             if (announced < 0) throw IOException("server did not announce media size")
@@ -1073,7 +1080,6 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
                 ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE or ParcelFileDescriptor.MODE_WRITE_ONLY
             )
             try {
-                val e2e: MediaE2EContext? = encryptedMedia.get(fileID)
                 val observer: Mst5MediaClient.Observer? = if (listener == null) null else object : Mst5MediaClient.Observer {
                     override fun isCancelled(): Boolean = false
                     override fun onProgress(completed: Long, total: Long) {
@@ -1102,6 +1108,7 @@ class MST5(context: Context?, baseUrl: String, private var token: String, userId
                 } catch (ignored: Exception) {
                 }
             }
+            if (maxBytes > 0 && temporary.length() > maxBytes) throw IOException("file is too large")
             if (!temporary.renameTo(target)) {
                 target.delete()
                 if (!temporary.renameTo(target)) throw IOException("cannot save downloaded file")
